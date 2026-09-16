@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TransMove — Fair Transportation, Logistics &amp; Machinery Marketplace</title>
+  <meta name="description" content="TransMove is Zimbabwe's premier transportation, cargo freight logistics, and heavy machinery marketplace featuring driver offers, negotiation, verified drivers, and Paynow payments.">
+
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- Leaflet Map Styles -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+
+  <!-- TransMove Design System Stylesheet -->
+  <link rel="stylesheet" href="assets/css/style.css">
+
+  <!-- Supabase JS SDK (Official v2 Client) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Leaflet JS Map Library -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+  <!-- Chart.js Library for Real Data Dashboards -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Theme Initialization -->
+  <script type="module">
+    import { ThemeService } from "./src/services/theme.js";
+    ThemeService.init();
+  </script>
+</head>
+<body>
+  <div class="app-layout" id="app-layout">
+    <!-- Left Sidebar Mount Point -->
+    <div id="sidebar-mount"></div>
+
+    <!-- Main Body Area (Header + Main Content + Footer) -->
+    <div class="app-body">
+      <!-- Top Header Mount Point -->
+      <div id="header-mount"></div>
+
+      <!-- Main View Content Area -->
+      <main id="app-root" class="app-main"></main>
+
+      <!-- Footer -->
+      <footer style="background: var(--bg-surface); border-top: 1px solid var(--border-light); padding: 2.25rem 1.5rem; margin-top: auto;">
+        <div style="max-width: 1280px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1.5rem;">
+          <div>
+            <div style="font-weight: 800; font-size: 1.15rem; color: var(--text-main);">
+              Trans<span style="color: var(--secondary);">Move</span>
+            </div>
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">
+              Fair Transportation, Logistics &amp; Machinery Marketplace
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+            <button id="btn-footer-whatsapp" class="btn btn-outline btn-sm" style="border-color: #22c55e; color: #22c55e;">
+              💬 WhatsApp Support
+            </button>
+            <div style="display: flex; gap: 1.25rem; font-size: 0.875rem; color: var(--text-muted);">
+              <a href="#subscriptions" style="color: var(--text-muted);">Pricing &amp; Plans</a>
+              <a href="#equipment" style="color: var(--text-muted);">Machinery</a>
+              <a href="#advertise" style="color: var(--text-muted);">Advertise</a>
+              <a href="#profile" style="color: var(--text-muted);">Account</a>
+            </div>
+          </div>
+        </div>
+        <div style="max-width: 1280px; margin: 1rem auto 0 auto; text-align: center; color: var(--text-muted); font-size: 0.8rem; border-top: 1px solid var(--border-light); padding-top: 1rem;">
+          &copy; 2026 TransMove. Locked Design System Standardized.
+        </div>
+      </footer>
+    </div>
+
+    <!-- Mobile Bottom Navigation Mount Point -->
+    <div id="mobile-nav-mount"></div>
+  </div>
+
+  <!-- Main ES Module Bootstrap -->
+  <script type="module" src="assets/js/app.js"></script>
+</body>
+</html>

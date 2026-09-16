@@ -1,0 +1,7 @@
+project_id = "transmove"
+
+[functions.paynow-initiate]
+verify_jwt = true
+
+[functions.paynow-webhook]
+verify_jwt = false

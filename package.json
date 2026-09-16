@@ -1,0 +1,13 @@
+{
+  "name": "transmove-backend-setup",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup:appwrite": "node scripts/setup-appwrite.js"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "node-appwrite": "^29.0.0"
+  }
+}
