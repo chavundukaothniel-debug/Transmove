@@ -49,6 +49,9 @@ export const DriverView = {
   activeBooking: null,
   isProfileComplete: false,
   selectedJobForBid: null,
+  selectedRequestId: null,
+  selectedRequest: null,
+  requestPopupState: "idle",
   selectedVehicleForPhotos: null,
   realtimeChannel: null,
   realtimeSubscription: null,
@@ -1493,7 +1496,7 @@ export const DriverView = {
       ]);
       const alreadyQuotedRequestIds = new Set(
         (bids || [])
-          .filter((bid) => ["pending", "accepted"].includes(bid.status))
+          .filter((bid) => bid.status !== "withdrawn")
           .map((bid) => bid.request_id)
       );
       this.availableJobs = (data || []).filter((job) =>
@@ -1664,9 +1667,13 @@ export const DriverView = {
         BidService.getDriverBids(),
         BookingService.getDriverBookings()
       ]);
-      const visibleJobs = (availableJobs || []).filter((job) =>
-        !this.dismissedRequestIds.has(job.id || job.$id)
+      const alreadyQuotedRequestIds = new Set(
+        (bids || []).filter((bid) => bid.status !== "withdrawn").map((bid) => bid.request_id)
       );
+      const visibleJobs = (availableJobs || []).filter((job) => {
+        const id = job.id || job.$id;
+        return !this.dismissedRequestIds.has(id) && !alreadyQuotedRequestIds.has(id);
+      });
       const signature = JSON.stringify({
         jobs: visibleJobs.map((job) => [job.id || job.$id, job.status, job.updated_at]),
         bids: (bids || []).map((bid) => [bid.id || bid.$id, bid.status, bid.negotiation_status, bid.counter_amount, bid.updated_at]),
@@ -1765,6 +1772,7 @@ export const DriverView = {
     const destination = escapeHtml(job.destination_address || job.destination || "Destination");
     const detail = escapeHtml(job.load_description || job.details || job.service_type || "Transport request");
     const budget = Number(job.suggested_price || job.budget || 0);
+    if (this.requestPopupState === "idle") this.requestPopupState = "incoming_request";
     SmartPopup.open({
       userId: this.getPopupUserId(),
       eventKey: `new-request:${id}:${job.created_at || "live"}`,
@@ -1773,7 +1781,7 @@ export const DriverView = {
       html: `<div class="smart-popup-route"><strong>${pickup}</strong><span>→</span><strong>${destination}</strong></div>
         <div class="smart-popup-detail-grid"><span>Service</span><strong>${detail}</strong><span>Budget</span><strong>${budget ? `$${budget.toFixed(2)}` : "Open quote"}</strong></div>`,
       actions: [
-        { label: "DECLINE", danger: true, onClick: () => this.dismissRequest(id) },
+        { label: "DECLINE", danger: true, onClick: () => { this.dismissRequest(id); this.clearRequestPopupState(); } },
         { label: "ACCEPT REQUEST", primary: true, onClick: () => this.openBidModal(id) }
       ]
     });
@@ -1903,6 +1911,7 @@ export const DriverView = {
     this.knownAvailableRequestIds = new Set();
     this.knownBidStates = new Map();
     this.knownBookingStates = new Map();
+    this.clearRequestPopupState();
     if (!(window.location.hash || "").startsWith("#driver")) SmartPopup.clear();
   },
 
@@ -1913,27 +1922,82 @@ export const DriverView = {
       return;
     }
 
-    const job = this.availableJobs.find(j => j.id === jobId);
+    const job = this.availableJobs.find(j => (j.id || j.$id) === jobId);
     if (!job) return;
 
     this.selectedJobForBid = job;
+    this.selectedRequestId = job.id || job.$id;
+    this.selectedRequest = job;
+    this.requestPopupState = "quick_quote";
+    this.showQuickQuotePopup();
+  },
 
-    const modal = document.getElementById("view-bid-modal");
-    if (!modal) return;
+  showQuickQuotePopup() {
+    const job = this.selectedRequest;
+    const requestId = this.selectedRequestId;
+    if (!job || !requestId || this.requestPopupState !== "quick_quote") return false;
 
-    document.getElementById("bid-modal-job-title").innerText = job.load_description || job.details || job.service_type || "Transport request";
-    document.getElementById("bid-modal-route").innerText = `${job.pickup_address || job.pickup_location || "Pickup"} → ${job.destination_address || job.destination || "Destination"}`;
-    document.getElementById("bid-modal-budget").innerText = job.suggested_price || job.budget
-      ? `$${parseFloat(job.suggested_price || job.budget).toFixed(2)}`
-      : "No budget set";
-    document.getElementById("bid-modal-desc").innerText = job.notes || job.details || job.load_description || "No further details were provided for this request.";
-    document.getElementById("bid-modal-customer-info").innerText = `Posted ${timeAgo(job.created_at)}`;
+    const pickup = job.pickup_address || job.pickup_location || "Pickup";
+    const destination = job.destination_address || job.destination || "Destination";
+    const details = job.notes || job.details || job.load_description || job.service_type || "Transport request";
+    const suggested = job.suggested_price || job.budget || "";
 
-    document.getElementById("input-bid-price").value = job.suggested_price || job.budget || "";
-    document.getElementById("input-bid-eta").value = 15;
-    document.getElementById("input-bid-message").value = "";
+    const opened = SmartPopup.open({
+      userId: this.getPopupUserId(),
+      eyebrow: "Request quotation",
+      title: "SEND QUOTATION",
+      dismissible: false,
+      html: `<div class="smart-popup-route"><strong>${escapeHtml(pickup)}</strong><span>→</span><strong>${escapeHtml(destination)}</strong></div>
+        <div class="smart-popup-detail-grid"><span>Request details</span><strong>${escapeHtml(details)}</strong><span>Request reference</span><strong>${escapeHtml(requestId)}</strong></div>
+        <label class="smart-popup-field">Your Price (USD)<input id="quick-quote-price" type="number" min="0.01" step="0.50" value="${escapeHtml(suggested)}" required></label>
+        <label class="smart-popup-field">ETA in minutes (optional)<input id="quick-quote-eta" type="number" min="1" step="1" value="15"></label>
+        <label class="smart-popup-field">Optional message<textarea id="quick-quote-message" rows="3" placeholder="Add a short message for the passenger"></textarea></label>`,
+      actions: [
+        { label: "CANCEL", onClick: () => this.clearRequestPopupState() },
+        { label: "SEND QUOTE", primary: true, close: false, busyLabel: "Sending…", onClick: async ({ backdrop, close }) => {
+          const price = Number(backdrop.querySelector("#quick-quote-price")?.value || 0);
+          const etaValue = backdrop.querySelector("#quick-quote-eta")?.value;
+          const eta = etaValue ? Number.parseInt(etaValue, 10) : undefined;
+          const message = backdrop.querySelector("#quick-quote-message")?.value?.trim() || "";
+          if (!Number.isFinite(price) || price <= 0) throw new Error("Enter a valid quotation price greater than zero.");
 
-    modal.style.display = "flex";
+          this.requestPopupState = "quote_sending";
+          try {
+            await BidService.submitBid({
+              requestId,
+              vehicleId: this.primaryVehicle?.id || this.primaryVehicle?.$id || null,
+              proposedPrice: price,
+              estimatedArrivalMins: Number.isFinite(eta) && eta > 0 ? eta : undefined,
+              message
+            });
+          } catch (error) {
+            this.requestPopupState = "quick_quote";
+            throw error;
+          }
+          this.requestPopupState = "quote_sent";
+          close();
+          NotificationService.showToast("Quotation sent ✓", "Waiting for passenger response", "success");
+          this.clearRequestPopupState();
+          await Promise.allSettled([
+            this.loadDriverData(),
+            this.loadRecentActivity(),
+            this.loadAvailableJobs()
+          ]);
+          this.seedJourneyBaseline();
+          return false;
+        } }
+      ]
+    });
+
+    if (opened) setTimeout(() => document.getElementById("quick-quote-price")?.focus(), 140);
+    return opened;
+  },
+
+  clearRequestPopupState() {
+    this.selectedRequestId = null;
+    this.selectedRequest = null;
+    this.selectedJobForBid = null;
+    this.requestPopupState = "idle";
   },
 
   closeBidModal() {
