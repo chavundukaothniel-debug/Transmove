@@ -85,6 +85,7 @@ export const CustomerView = {
   journeyStateSignature: "",
   journeyBaselineReady: false,
   knownBidStates: new Map(),
+  seenQuotationBidIds: new Set(),
   knownBookingStates: new Map(),
   adPopupTimer: null,
   liveLocationWatchId: null,
@@ -1087,6 +1088,11 @@ export const CustomerView = {
 
   showQuotationPopup(bid, isCounter = false) {
     const id = bid.id || bid.$id;
+    if (!id) return;
+    if (!isCounter) {
+      if (this.seenQuotationBidIds.has(id)) return;
+      this.seenQuotationBidIds.add(id);
+    }
     const driverName = bid.driver?.full_name || "Verified driver";
     const vehicle = bid.vehicle ? [bid.vehicle.make, bid.vehicle.model, bid.vehicle.year].filter(Boolean).join(" ") : "Vehicle details pending";
     const rating = Number(bid.driver?.rating || 0);
@@ -1377,7 +1383,7 @@ export const CustomerView = {
       const bidsByRequest = await Promise.all(
         openRequests.map(async (req) => {
           try {
-            const result = await BidService.getBidsForRequest(req.id);
+            const result = await BidService.getBidsForRequest(req.id || req.$id);
             return result.bids || [];
           } catch (err) {
             console.warn(`Could not load quotations for request ${req.id}:`, err.message);
@@ -1437,6 +1443,8 @@ export const CustomerView = {
                   : "";
                 const isVerified = bid.driver?.verification_status === "approved";
                 const isPending = bid.status === "pending";
+                const driverRating = Number(bid.driver?.rating || 0);
+                const etaMinutes = bid.estimated_arrival_minutes || bid.estimated_arrival_mins;
 
                 return `
                 <div class="bid-card quote-driver-row">
@@ -1448,6 +1456,9 @@ export const CustomerView = {
                       <div style="font-weight: 700;">${escapeHtml(driverName)}</div>
                       <div class="quote-driver-meta">
                         ${isVerified ? "✓ Verified · " : ""}${escapeHtml(bid.driver?.city || "")}${vehicleSummary ? ` · ${escapeHtml(vehicleSummary)}` : ""}
+                      </div>
+                      <div class="quote-driver-meta">
+                        ${driverRating > 0 ? `${driverRating.toFixed(1)} ★ (${Number(bid.driver?.review_count || 0)})` : "No ratings yet"}${etaMinutes ? ` · ETA ${escapeHtml(etaMinutes)} mins` : ""} · ${escapeHtml(String(bid.status || "pending").toUpperCase())}
                       </div>
                       ${bid.message ? `<div class="quote-driver-meta" style="margin-top: 0.2rem;">“${escapeHtml(bid.message)}”</div>` : ""}
                     </div>
@@ -1494,7 +1505,7 @@ export const CustomerView = {
                           Counter Offer
                         </button>
                         <button class="btn btn-primary btn-sm btn-accept-offer" data-bid-id="${escapeHtml(bid.id)}">
-                          Accept
+                          ACCEPT QUOTE
                         </button>
                       `}
                     ` : `
@@ -2921,9 +2932,12 @@ export const CustomerView = {
       }
     });
 
+    let matchingPollBusy = false;
     const checkBids = async () => {
+      const requestId = request.id || request.$id;
+      if (matchingPollBusy || this.matchingRequestId !== requestId || modal.style.display === "none") return;
+      matchingPollBusy = true;
       try {
-        const requestId = request.id || request.$id;
         const [bidResult, bookings, currentRequests] = await Promise.all([
           BidService.getBidsForRequest(requestId),
           BookingService.getPassengerBookings(),
@@ -2947,6 +2961,13 @@ export const CustomerView = {
         const pendingBids = bids.filter((bid) => bid.status === "pending");
         const acceptedBid = bids.find((bid) => bid.status === "accepted");
         const count = pendingBids.length;
+
+        // Realtime is an accelerator only. The matching poll is authoritative
+        // and announces each newly observed quotation once per browser session.
+        pendingBids.forEach((bid) => {
+          const bidId = bid.id || bid.$id;
+          if (bidId && !this.knownBidStates.has(bidId)) this.showQuotationPopup(bid);
+        });
 
         if (acceptedBid) {
           const banner = document.getElementById("matching-quotes-banner");
@@ -2991,10 +3012,17 @@ export const CustomerView = {
         }
       } catch (err) {
         console.warn("Matching quotes poll notice:", err.message);
+      } finally {
+        matchingPollBusy = false;
       }
     };
 
     await checkBids();
+    if (this.matchingRequestId === (request.id || request.$id) && modal.style.display !== "none") {
+      this.matchingPollInterval = setInterval(() => {
+        checkBids().catch(() => {});
+      }, 6000);
+    }
     this.scheduleJourneySync(0);
   }
 };
