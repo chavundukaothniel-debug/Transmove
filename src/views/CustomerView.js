@@ -1,15 +1,21 @@
 // ==============================================================================
 // TRANSMOVE PASSENGER DASHBOARD VIEW
-// Real Supabase Data: Active Request, Job Status, Quotations, Saved Providers, Notifications
+// Real Appwrite Data: Requests, Bids, Bookings, Wallet Ledger, Notifications
 // ==============================================================================
 import { RequestService } from "../services/requests.js";
-import { OfferService } from "../services/offers.js";
-import { BookingService } from "../services/booking.js";
+import { BidService, BookingService } from "../services/bids.js";
 import { LocationService } from "../services/location.js";
 import { NotificationService } from "../services/notifications.js";
 import { AuthService } from "../services/auth.js";
 import { WalletService } from "../services/wallet.js";
+import { getAppwriteStorage, APPWRITE_CONFIG } from "../config/appwrite.js";
 import { renderEmptyState } from "../components/EmptyState.js";
+import { ReviewService } from "../services/reviews.js";
+import { FavouritesService } from "../services/favourites.js";
+import { AddressService } from "../services/addresses.js";
+import { DisputeService } from "../services/disputes.js";
+import { ReceiptService } from "../services/receipts.js";
+import { SocialService } from "../services/social.js";
 
 const passengerIcon = (name, size = 20) => {
   const paths = {
@@ -24,10 +30,33 @@ const passengerIcon = (name, size = 20) => {
     shield: '<path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3v8Z"/><circle cx="12" cy="11" r="2"/>',
     search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
     pin: '<path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',
-    chevron: '<path d="m9 18 6-6-6-6"/>'
+    chevron: '<path d="m9 18 6-6-6-6"/>',
+    chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'
   };
 
   return `<svg class="passenger-icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.bus}</svg>`;
+};
+
+const OPEN_REQUEST_STATUSES = ["open_for_bids", "bids_received"];
+const ACTIVE_BOOKING_STATUSES = ["confirmed", "driver_arriving", "in_progress"];
+
+const fileViewUrl = (fileId) => {
+  if (!fileId) return "";
+  try {
+    return getAppwriteStorage().getFileView(APPWRITE_CONFIG.bucketId, fileId);
+  } catch (_) {
+    return "";
+  }
+};
+
+const escapeHtml = (value) => {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 };
 
 export const CustomerView = {
@@ -37,12 +66,14 @@ export const CustomerView = {
   distanceKm: null,
   durationMins: null,
   selectionMode: null, // 'pickup' | 'destination' | null
+  pendingRequestMeta: null, // { requestDate, passengerCount } carried from the search forms
   
   mapInstance: null,
   tileLayer: null,
   pickupMarker: null,
   destMarker: null,
   routePolyline: null,
+  matchingPollInterval: null,
 
   async render(currentProfile = null) {
     const firstName = currentProfile?.full_name?.trim()?.split(/\s+/)[0] || "there";
@@ -249,6 +280,7 @@ export const CustomerView = {
                 <!-- Pickup Input -->
                 <div class="form-group" style="position: relative;">
                   <label class="form-label">Pickup Location</label>
+                  <div id="saved-pickup-chips" style="display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.4rem;"></div>
                   <div style="display: flex; gap: 0.5rem;">
                     <input type="text" id="req-pickup" class="form-input" placeholder="Enter pickup location or click map" autocomplete="off" required />
                     <button type="button" id="btn-clear-pickup" class="btn btn-outline btn-sm" title="Clear Pickup" style="display: none; padding: 0 0.6rem;">✕</button>
@@ -262,6 +294,7 @@ export const CustomerView = {
                 <!-- Destination Input -->
                 <div class="form-group" style="position: relative;">
                   <label class="form-label">Drop-off Destination</label>
+                  <div id="saved-dest-chips" style="display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.4rem;"></div>
                   <div style="display: flex; gap: 0.5rem;">
                     <input type="text" id="req-dest" class="form-input" placeholder="Enter drop-off destination or click map" autocomplete="off" required />
                     <button type="button" id="btn-clear-dest" class="btn btn-outline btn-sm" title="Clear Destination" style="display: none; padding: 0 0.6rem;">✕</button>
@@ -391,6 +424,7 @@ export const CustomerView = {
             <button class="passenger-filter-btn" type="button" data-notification-filter="booking">Bookings</button>
             <button class="passenger-filter-btn" type="button" data-notification-filter="message">Messages</button>
             <button class="passenger-filter-btn" type="button" data-notification-filter="payment">Payments</button>
+            <button class="passenger-filter-btn" type="button" id="btn-mark-all-notifications-read">Mark all read</button>
           </div>
           <div id="notifications-board"><div class="passenger-loading-state">Loading notifications…</div></div>
         </div>
@@ -455,6 +489,24 @@ export const CustomerView = {
       event.preventDefault();
       const pickup = document.getElementById("dashboard-pickup")?.value?.trim() || "";
       const destination = document.getElementById("dashboard-destination")?.value?.trim() || "";
+      const travelDate = document.getElementById("dashboard-travel-date")?.value || "";
+      const passengerCount = document.getElementById("dashboard-passenger-count")?.value || "";
+
+      this.pendingRequestMeta = {
+        requestDate: travelDate ? `${travelDate}T00:00:00.000Z` : null,
+        passengerCount: passengerCount ? Number.parseInt(passengerCount, 10) : null
+      };
+
+      try {
+        sessionStorage.setItem("transmove_pending_request", JSON.stringify({
+          pickup,
+          dest: destination,
+          type: quickService,
+          price: "",
+          date: travelDate,
+          passenger_count: passengerCount
+        }));
+      } catch (_) {}
 
       this.switchTab("new-request");
 
@@ -506,6 +558,20 @@ export const CustomerView = {
       });
     });
 
+    document.getElementById("btn-mark-all-notifications-read")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      const activeFilter = document.querySelector("[data-notification-filter].active")?.getAttribute("data-notification-filter") || "all";
+      button.disabled = true;
+      try {
+        await NotificationService.markAllAsRead();
+        await this.loadNotificationsPage(activeFilter);
+      } catch (err) {
+        alert("Could not mark notifications as read: " + err.message);
+      } finally {
+        button.disabled = false;
+      }
+    });
+
     // Clear Location Buttons
     document.getElementById("btn-clear-pickup")?.addEventListener("click", () => this.clearPickup());
     document.getElementById("btn-clear-dest")?.addEventListener("click", () => this.clearDestination());
@@ -515,6 +581,11 @@ export const CustomerView = {
       delete e.target.dataset.autoCalculated;
       this.validateForm();
     });
+
+    document.getElementById("req-pickup")?.addEventListener("input", () => this.validateForm());
+    document.getElementById("req-dest")?.addEventListener("input", () => this.validateForm());
+    document.getElementById("req-pickup")?.addEventListener("change", () => this.validateForm());
+    document.getElementById("req-dest")?.addEventListener("change", () => this.validateForm());
 
     // GPS Auto-detect handler
     const handleGpsClick = async () => {
@@ -567,24 +638,16 @@ export const CustomerView = {
     document.getElementById("create-request-form")?.addEventListener("submit", async (e) => {
       e.preventDefault();
 
-      if (!this.pickupCoords || !this.pickupCoords.lat || !this.pickupCoords.lng) {
-        alert("Please select a pickup location.");
+      const pickupVal = document.getElementById("req-pickup")?.value?.trim();
+      const destVal = document.getElementById("req-dest")?.value?.trim();
+
+      if (!pickupVal) {
+        alert("Please enter a pickup location.");
         return;
       }
 
-      if (!this.destCoords || !this.destCoords.lat || !this.destCoords.lng) {
-        alert("Please select a destination.");
-        return;
-      }
-
-      if (!this.distanceKm) {
-        alert("Please select valid pickup and destination locations to calculate route.");
-        return;
-      }
-
-      const priceVal = parseFloat(document.getElementById("req-suggested-price").value);
-      if (!priceVal || priceVal <= 0) {
-        alert("Please enter your suggested price.");
+      if (!destVal) {
+        alert("Please enter a destination.");
         return;
       }
 
@@ -593,25 +656,71 @@ export const CustomerView = {
       submitBtn.innerText = "Publishing...";
 
       try {
-        await RequestService.createRequest({
-          request_type: document.getElementById("req-service-type").value,
-          pickup_address: document.getElementById("req-pickup").value,
-          pickup_lat: this.pickupCoords.lat,
-          pickup_lng: this.pickupCoords.lng,
-          destination_address: document.getElementById("req-dest").value,
-          dest_lat: this.destCoords.lat,
-          dest_lng: this.destCoords.lng,
-          estimated_distance_km: this.distanceKm,
-          estimated_duration_mins: this.durationMins || LocationService.estimateDuration(this.distanceKm),
-          load_description: document.getElementById("req-load-desc")?.value,
-          load_weight_kg: document.getElementById("req-load-weight")?.value,
-          load_dimensions: document.getElementById("req-load-dims")?.value,
-          suggested_price: priceVal,
-          notes: document.getElementById("req-notes")?.value
+        if (!this.pickupCoords || !this.pickupCoords.lat || !this.pickupCoords.lng) {
+          try {
+            const pResults = await LocationService.searchAddress(pickupVal);
+            if (pResults && pResults.length > 0) {
+              this.pickupCoords = { lat: pResults[0].lat, lng: pResults[0].lng };
+            } else {
+              this.pickupCoords = { lat: LocationService.DEFAULT_CENTER.lat, lng: LocationService.DEFAULT_CENTER.lng };
+            }
+          } catch (_) {
+            this.pickupCoords = { lat: LocationService.DEFAULT_CENTER.lat, lng: LocationService.DEFAULT_CENTER.lng };
+          }
+        }
+
+        if (!this.destCoords || !this.destCoords.lat || !this.destCoords.lng) {
+          try {
+            const dResults = await LocationService.searchAddress(destVal);
+            if (dResults && dResults.length > 0) {
+              this.destCoords = { lat: dResults[0].lat, lng: dResults[0].lng };
+            } else {
+              this.destCoords = { lat: this.pickupCoords.lat + 0.05, lng: this.pickupCoords.lng + 0.05 };
+            }
+          } catch (_) {
+            this.destCoords = { lat: this.pickupCoords.lat + 0.05, lng: this.pickupCoords.lng + 0.05 };
+          }
+        }
+
+        if (!this.distanceKm) {
+          const dist = LocationService.calculateDistance(this.pickupCoords.lat, this.pickupCoords.lng, this.destCoords.lat, this.destCoords.lng);
+          this.distanceKm = (dist && !isNaN(dist)) ? dist : 5.0;
+          this.durationMins = LocationService.estimateDuration(this.distanceKm);
+        }
+
+        const priceVal = parseFloat(document.getElementById("req-suggested-price").value);
+        if (!priceVal || priceVal <= 0) {
+          alert("Please enter your suggested price.");
+          submitBtn.disabled = false;
+          submitBtn.innerText = "Post Request";
+          return;
+        }
+
+        const serviceType = document.getElementById("req-service-type").value;
+        const detailParts = [
+          document.getElementById("req-load-desc")?.value?.trim(),
+          document.getElementById("req-load-weight")?.value?.trim()
+            ? `Estimated weight: ${document.getElementById("req-load-weight").value.trim()} kg`
+            : "",
+          document.getElementById("req-load-dims")?.value?.trim()
+            ? `Dimensions: ${document.getElementById("req-load-dims").value.trim()}`
+            : "",
+          document.getElementById("req-notes")?.value?.trim()
+        ].filter(Boolean);
+
+        const newReq = await RequestService.createRequest({
+          service_type: serviceType,
+          pickup_location: pickupVal,
+          destination: destVal,
+          request_date: this.pendingRequestMeta?.requestDate || null,
+          passenger_count: this.pendingRequestMeta?.passengerCount || null,
+          goods_type: serviceType === "logistics" ? (document.getElementById("req-load-desc")?.value?.trim() || "") : "",
+          details: detailParts.join(" · "),
+          budget: priceVal
         });
 
-        alert("Request published successfully! Verified drivers in your area are receiving your request.");
-        this.switchTab("overview");
+        this.pendingRequestMeta = null;
+        await this.openRequestMatchingExperience(newReq);
       } catch (err) {
         alert("Error publishing request: " + err.message);
       } finally {
@@ -623,13 +732,66 @@ export const CustomerView = {
     const hashParams = new URLSearchParams((window.location.hash.split("?")[1] || ""));
     const requestedTab = {
       search: "new-request",
+      "new-request": "new-request",
+      overview: "overview",
       bookings: "bookings",
       quotes: "active-bids",
+      "active-bids": "active-bids",
       "booking-details": "booking-details",
       payments: "payments",
       favourites: "favourites",
       notifications: "notifications"
     }[hashParams.get("tab")];
+
+    let handoff = null;
+    try {
+      const raw = sessionStorage.getItem("transmove_pending_request");
+      if (raw) {
+        handoff = JSON.parse(raw);
+        sessionStorage.removeItem("transmove_pending_request");
+      }
+    } catch (_) {
+      handoff = null;
+    }
+
+    if (handoff && (handoff.pickup || handoff.dest)) {
+      this.pendingRequestMeta = {
+        requestDate: handoff.date ? `${handoff.date}T00:00:00.000Z` : null,
+        passengerCount: handoff.passenger_count ? Number.parseInt(handoff.passenger_count, 10) : null
+      };
+
+      const serviceSelect = document.getElementById("req-service-type");
+      if (serviceSelect) {
+        serviceSelect.value = handoff.type || "ride";
+        serviceSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      const pickupInput = document.getElementById("req-pickup");
+      const destinationInput = document.getElementById("req-dest");
+      const priceInput = document.getElementById("req-suggested-price");
+      if (pickupInput) pickupInput.value = handoff.pickup || "";
+      if (destinationInput) destinationInput.value = handoff.dest || "";
+      if (priceInput && handoff.price) priceInput.value = handoff.price;
+      this.switchTab("new-request");
+      this.validateForm();
+
+      (async () => {
+        try {
+          if (handoff.pickup) {
+            const pRes = await LocationService.searchAddress(handoff.pickup);
+            if (pRes && pRes.length > 0) {
+              await this.setPickup(pRes[0].lat, pRes[0].lng, handoff.pickup);
+            }
+          }
+          if (handoff.dest) {
+            const dRes = await LocationService.searchAddress(handoff.dest);
+            if (dRes && dRes.length > 0) {
+              await this.setDestination(dRes[0].lat, dRes[0].lng, handoff.dest);
+            }
+          }
+        } catch (_) {}
+      })();
+      return;
+    }
 
     if (requestedTab) {
       this.switchTab(requestedTab);
@@ -655,7 +817,10 @@ export const CustomerView = {
     if (tab === "overview") {
       this.loadOverviewData();
     } else if (tab === "new-request") {
-      setTimeout(() => this.initMap(), 150);
+      setTimeout(() => {
+        this.initMap();
+        this.loadSavedAddressChips();
+      }, 150);
     } else if (tab === "active-bids") {
       this.loadActiveBids();
     } else if (tab === "bookings") {
@@ -693,11 +858,11 @@ export const CustomerView = {
       ]);
 
       const activeCount = (requests || []).filter((request) =>
-        ["searching", "offers_received", "negotiating"].includes(request.status)
+        OPEN_REQUEST_STATUSES.includes(request.status)
       ).length;
       const completedBookings = (bookings || []).filter((booking) => booking.status === "completed");
       const totalSpent = completedBookings.reduce((total, booking) => {
-        const amount = Number.parseFloat(booking.final_price);
+        const amount = Number.parseFloat(booking.amount);
         return total + (Number.isFinite(amount) ? amount : 0);
       }, 0);
       activeEl.textContent = String(activeCount);
@@ -707,9 +872,12 @@ export const CustomerView = {
         currency: "USD",
         maximumFractionDigits: 0
       }).format(totalSpent);
-      // There is no favourites persistence in the current schema, so do not infer
-      // a saved-driver count from completed bookings.
-      driversEl.textContent = "—";
+      try {
+        const favs = await FavouritesService.getFavourites();
+        driversEl.textContent = String(favs.length);
+      } catch (_) {
+        driversEl.textContent = "0";
+      }
     } catch (error) {
       activeEl.textContent = "—";
       completedEl.textContent = "—";
@@ -726,229 +894,13 @@ export const CustomerView = {
     if (!status) return "REQUESTED";
     const s = status.toLowerCase();
     if (s === "searching") return "REQUESTED";
-    if (s === "offers_received" || s === "negotiating") return "QUOTED";
+    if (s === "open_for_bids") return "QUOTING";
+    if (s === "bids_received" || s === "offers_received" || s === "negotiating") return "QUOTED";
     if (s === "accepted" || s === "confirmed") return "ACCEPTED";
     if (s === "driver_arriving" || s === "in_progress") return "IN_PROGRESS";
     if (s === "completed") return "COMPLETED";
     if (s === "cancelled") return "CANCELLED";
     return status.toUpperCase();
-  },
-
-  async loadActiveRequestAndJobStatus() {
-    const container = document.getElementById("cust-active-request-container");
-    const badge = document.getElementById("cust-active-status-badge");
-    if (!container) return;
-
-    try {
-      const requests = await RequestService.getCustomerRequests();
-      const bookings = await BookingService.getUserBookings();
-
-      const activeReq = (requests || []).find((r) => ["searching", "offers_received", "negotiating"].includes(r.status));
-      const activeBooking = (bookings || []).find((b) => ["confirmed", "driver_arriving", "in_progress"].includes(b.status));
-
-      if (activeBooking) {
-        const displayStatus = this.getDisplayStatus(activeBooking.status);
-        if (badge) {
-          badge.className = "badge badge-info";
-          badge.innerText = `STATUS: ${displayStatus}`;
-        }
-
-        container.innerHTML = `
-          <div style="background: var(--bg-hover); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--primary-light);">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
-              <div>
-                <span class="badge badge-success" style="font-size: 0.8rem; font-weight: 700;">CONFIRMED BOOKING</span>
-                <h4 style="font-size: 1.15rem; font-weight: 800; margin: 0.25rem 0 0.15rem 0; color: var(--text-main);">
-                  Trip #${activeBooking.id.slice(0, 8)}
-                </h4>
-                <div style="font-size: 0.85rem; color: var(--text-muted);">
-                  Status: <strong style="color: var(--primary);">${displayStatus}</strong>
-                </div>
-              </div>
-              <div style="text-align: right;">
-                <div style="font-size: 1.35rem; font-weight: 900; color: var(--primary);">$${activeBooking.final_price}</div>
-                <div style="font-size: 0.8rem; color: var(--text-muted);">Agreed Price</div>
-              </div>
-            </div>
-
-            <div class="grid-2" style="margin-bottom: 1rem; font-size: 0.9rem;">
-              <div><strong>Pickup:</strong> ${activeBooking.request?.pickup_address || "Pickup Location"}</div>
-              <div><strong>Destination:</strong> ${activeBooking.request?.destination_address || "Drop-off Destination"}</div>
-            </div>
-
-            <div style="background: linear-gradient(135deg, #0f172a, #1e293b); color: #fff; padding: 0.85rem 1.15rem; border-radius: var(--radius-sm); margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
-              <div>
-                <div style="font-size: 0.75rem; text-transform: uppercase; color: #94a3b8;">Assigned Provider</div>
-                <div style="font-weight: 800; font-size: 1rem; color: #38bdf8;">${activeBooking.driver?.full_name || "Verified Driver"}</div>
-              </div>
-              <div>
-                <div style="font-size: 0.75rem; text-transform: uppercase; color: #94a3b8;">Trip Confirmation PIN</div>
-                <div style="font-weight: 900; font-size: 1.25rem; color: #4ade80; letter-spacing: 0.1em;">${activeBooking.trip_pin || "----"}</div>
-              </div>
-            </div>
-
-            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
-              <button class="btn btn-primary btn-sm" onclick="window.location.hash='#customer'; document.querySelector('[data-tab=bookings]').click();">
-                View Booking Details 📜
-              </button>
-            </div>
-          </div>
-        `;
-        return;
-      }
-
-      if (activeReq) {
-        const displayStatus = this.getDisplayStatus(activeReq.status);
-        if (badge) {
-          badge.className = "badge badge-warning";
-          badge.innerText = `STATUS: ${displayStatus}`;
-        }
-
-        const offersCount = activeReq.offers ? activeReq.offers.length : 0;
-
-        container.innerHTML = `
-          <div style="background: var(--bg-hover); padding: 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--border-light);">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem; margin-bottom: 0.75rem;">
-              <div>
-                <span class="badge badge-info" style="font-size: 0.75rem;">${activeReq.request_type.toUpperCase()} REQUEST</span>
-                <h4 style="font-size: 1.1rem; font-weight: 800; margin: 0.25rem 0 0.15rem 0;">${activeReq.pickup_address} &rarr; ${activeReq.destination_address}</h4>
-                <div style="font-size: 0.85rem; color: var(--text-muted);">
-                  Created: ${new Date(activeReq.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • Distance: ${activeReq.estimated_distance_km || "—"} km
-                </div>
-              </div>
-              <div style="text-align: right;">
-                <div style="font-size: 1.25rem; font-weight: 800; color: var(--primary);">$${activeReq.suggested_price}</div>
-                <div style="font-size: 0.8rem; color: var(--text-muted);">Suggested Offer</div>
-              </div>
-            </div>
-
-            <div style="display: flex; align-items: center; justify-content: space-between; background: var(--bg-subtle); padding: 0.75rem 1rem; border-radius: var(--radius-sm); margin-bottom: 0.75rem;">
-              <span style="font-weight: 700; font-size: 0.9rem;">Quotations Received: <strong style="color: var(--primary);">${offersCount} driver quotes</strong></span>
-              <button class="btn btn-outline btn-sm" onclick="document.querySelector('[data-tab=active-bids]').click();">
-                Review Quotes (${offersCount}) &rarr;
-              </button>
-            </div>
-          </div>
-        `;
-        return;
-      }
-
-      if (badge) {
-        badge.className = "badge badge-neutral";
-        badge.innerText = "NO ACTIVE REQUEST";
-      }
-
-      container.innerHTML = renderEmptyState({
-        title: "No active request right now",
-        description: "You don't have any ongoing transport requests or active bookings.",
-        actionText: "➕ Request a Service",
-        actionLink: "#customer",
-        icon: "car"
-      });
-
-    } catch (err) {
-      if (badge) badge.innerText = "NONE";
-      container.innerHTML = renderEmptyState({
-        title: "No active request",
-        description: "Click 'Request a Service' above to publish a new request.",
-        icon: "car"
-      });
-    }
-  },
-
-  async loadSavedProviders() {
-    const container = document.getElementById("cust-saved-providers-container");
-    if (!container) return;
-
-    try {
-      const bookings = await BookingService.getUserBookings();
-      const completed = (bookings || []).filter(b => b.status === "completed" && b.driver);
-
-      // Unique drivers
-      const uniqueMap = new Map();
-      completed.forEach(b => {
-        if (!uniqueMap.has(b.driver_id)) {
-          uniqueMap.set(b.driver_id, {
-            id: b.driver_id,
-            driver: b.driver,
-            vehicle: b.vehicle,
-            lastTripDate: b.completed_time || b.created_at
-          });
-        }
-      });
-
-      const providers = Array.from(uniqueMap.values());
-
-      if (providers.length === 0) {
-        container.innerHTML = renderEmptyState({
-          title: "No saved providers yet",
-          description: "Drivers who complete trips for you will be saved here for easy re-booking.",
-          icon: "user"
-        });
-        return;
-      }
-
-      container.innerHTML = providers.slice(0, 4).map(p => `
-        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; border-bottom: 1px solid var(--border-light);">
-          <div style="display: flex; align-items: center; gap: 0.75rem;">
-            <div style="width: 40px; height: 40px; border-radius: var(--radius-full); background: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center; font-weight: 800;">
-              ${p.driver.full_name ? p.driver.full_name.charAt(0) : "D"}
-            </div>
-            <div>
-              <div style="font-weight: 700; font-size: 0.9rem;">${p.driver.full_name}</div>
-              <div style="font-size: 0.8rem; color: var(--text-muted);">
-                ⭐ ${p.driver.rating_avg ? parseFloat(p.driver.rating_avg).toFixed(1) : "5.0"} (${p.driver.rating_count || 1} trips)
-              </div>
-            </div>
-          </div>
-          <span class="badge badge-success" style="font-size: 0.7rem;">Verified</span>
-        </div>
-      `).join("");
-
-    } catch (err) {
-      container.innerHTML = renderEmptyState({
-        title: "No saved providers",
-        description: "Complete your first trip to save favorite drivers.",
-        icon: "user"
-      });
-    }
-  },
-
-  async loadRecentNotifications() {
-    const container = document.getElementById("cust-notifications-container");
-    if (!container) return;
-
-    try {
-      const profile = await AuthService.getCurrentProfile();
-      if (!profile) {
-        container.innerHTML = renderEmptyState({ title: "No notifications", description: "Sign in to see alerts.", icon: "bell" });
-        return;
-      }
-
-      const notifications = await NotificationService.getNotifications(profile.id);
-
-      if (!notifications || notifications.length === 0) {
-        container.innerHTML = renderEmptyState({
-          title: "No recent notifications",
-          description: "You'll receive alerts when drivers submit offers or update trip status.",
-          icon: "bell"
-        });
-        return;
-      }
-
-      container.innerHTML = notifications.slice(0, 4).map(n => `
-        <div style="padding: 0.75rem; border-bottom: 1px solid var(--border-light); font-size: 0.85rem;">
-          <div style="font-weight: 700; color: var(--text-main);">${n.title}</div>
-          <div style="color: var(--text-muted); margin-top: 0.15rem;">${n.body}</div>
-          <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">
-            ${new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </div>
-        </div>
-      `).join("");
-
-    } catch (err) {
-      container.innerHTML = renderEmptyState({ title: "No notifications", description: "System notifications will appear here.", icon: "bell" });
-    }
   },
 
   async loadOverviewBookings() {
@@ -983,19 +935,12 @@ export const CustomerView = {
         const tripDate = booking.created_at
           ? new Date(booking.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
           : "Date pending";
-        const pickup = booking.request?.pickup_address || "Pickup";
-        const destination = booking.request?.destination_address || "Destination";
-        const vehiclePhotos = Array.isArray(booking.vehicle?.photos) ? booking.vehicle.photos : [];
-        const firstVehiclePhoto = vehiclePhotos[0];
-        const vehiclePhotoUrl = typeof firstVehiclePhoto === "string"
-          ? firstVehiclePhoto
-          : firstVehiclePhoto?.url || firstVehiclePhoto?.publicUrl || null;
-        const thumbnailUrl = vehiclePhotoUrl || booking.driver?.profile_photo_url || null;
-        const thumbnailAlt = vehiclePhotoUrl
-          ? `${booking.vehicle?.make || "Transport"} ${booking.vehicle?.model || "vehicle"}`
-          : booking.driver?.full_name
-            ? `${booking.driver.full_name} profile`
-            : "Transport booking";
+        const pickup = escapeHtml(booking.request?.pickup_location || "Pickup");
+        const destination = escapeHtml(booking.request?.destination || "Destination");
+        const thumbnailUrl = fileViewUrl(booking.driver?.profile_image_id);
+        const thumbnailAlt = booking.driver?.full_name
+          ? `${booking.driver.full_name} profile`
+          : "Transport booking";
 
         return `
           <button type="button" class="recent-booking-row recent-booking-open" data-booking-id="${booking.id}">
@@ -1034,117 +979,168 @@ export const CustomerView = {
 
     try {
       const requests = await RequestService.getCustomerRequests();
-      const openRequests = requests.filter((r) => ["searching", "offers_received", "negotiating"].includes(r.status));
+      const openRequests = (requests || []).filter((r) => OPEN_REQUEST_STATUSES.includes(r.status));
 
-      if (!openRequests || openRequests.length === 0) {
+      if (openRequests.length === 0) {
         container.innerHTML = renderEmptyState({
           title: "You don't have any active requests",
           description: "Post a ride or cargo request to receive real-time driver quotations.",
           actionText: "➕ Request a Service",
-          actionLink: "#customer",
+          actionLink: "#customer?tab=search",
           icon: "car"
         });
         return;
       }
 
-      container.innerHTML = openRequests.map((req) => `
+      const bidsByRequest = await Promise.all(
+        openRequests.map(async (req) => {
+          try {
+            const result = await BidService.getBidsForRequest(req.id);
+            return result.bids || [];
+          } catch (err) {
+            console.warn(`Could not load quotations for request ${req.id}:`, err.message);
+            return null;
+          }
+        })
+      );
+
+      container.innerHTML = openRequests.map((req, index) => {
+        const bids = bidsByRequest[index];
+        const bidsFailed = bids === null;
+        const bidList = bids || [];
+        const pendingCount = bidList.filter((bid) => bid.status === "pending").length;
+
+        return `
         <div class="card passenger-quote-request" style="margin-bottom: 1.25rem;">
           <div class="card-header quote-request-header">
             <div>
-              <span class="badge ${req.status === "offers_received" ? "badge-success" : "badge-warning"}">
+              <span class="badge ${req.status === "bids_received" ? "badge-success" : "badge-warning"}">
                 STATUS: ${this.getDisplayStatus(req.status)}
               </span>
-              <span style="font-weight: 700; margin-left: 0.5rem;">${req.request_type.toUpperCase()}</span>
+              <span style="font-weight: 700; margin-left: 0.5rem;">${escapeHtml((req.request_type || "").toUpperCase())}</span>
             </div>
             <div style="font-size: 1.25rem; font-weight: 800; color: var(--primary);">
-              Suggested: $${req.suggested_price}
+              Suggested: $${Number.parseFloat(req.suggested_price || 0).toFixed(2)}
             </div>
           </div>
 
           <div class="quote-route-summary">
-            <div><small>Route</small><strong>${req.pickup_address} → ${req.destination_address}</strong></div>
-            <div><small>Request ID</small><strong>${req.id.slice(0, 10).toUpperCase()}</strong></div>
+            <div><small>Route</small><strong>${escapeHtml(req.pickup_address)} → ${escapeHtml(req.destination_address)}</strong></div>
+            <div><small>Request ID</small><strong>${escapeHtml(String(req.id || "").slice(0, 10).toUpperCase())}</strong></div>
           </div>
 
           <h4 style="font-size: 1rem; font-weight: 700; margin-bottom: 0.75rem;">
-            Driver Quotations Received (${req.offers ? req.offers.length : 0})
+            Driver Quotations Received (${bidList.length})
           </h4>
 
-          ${!req.offers || req.offers.length === 0 ? `
+          ${bidsFailed ? `
+            <div style="background: var(--bg-subtle); padding: 1.25rem; border-radius: var(--radius-md); text-align: center; color: var(--text-muted); font-size: 0.9rem;">
+              ⚠️ Quotations could not be loaded for this request. Please try again.
+            </div>
+          ` : bidList.length === 0 ? `
             <div style="background: var(--bg-subtle); padding: 1.25rem; border-radius: var(--radius-md); text-align: center; color: var(--text-muted); font-size: 0.9rem;">
               ⏳ Waiting for nearby verified drivers to submit quotations...
             </div>
           ` : `
             <div class="offers-list">
-              ${req.offers.map((offer) => `
+              ${bidList.map((bid) => {
+                const driverName = bid.driver?.full_name || "Verified Driver";
+                const avatarUrl = fileViewUrl(bid.driver?.profile_image_id);
+                const vehicleSummary = bid.vehicle
+                  ? [bid.vehicle.make, bid.vehicle.model, bid.vehicle.year].filter(Boolean).join(" ")
+                  : "";
+                const isVerified = bid.driver?.verification_status === "approved";
+                const isPending = bid.status === "pending";
+
+                return `
                 <div class="bid-card quote-driver-row">
                   <div class="bid-driver-info">
                     <div class="driver-avatar">
-                      ${offer.driver?.profile_photo_url ? `<img src="${offer.driver.profile_photo_url}" alt="${offer.driver.full_name || "Driver"}">` : (offer.driver?.full_name ? offer.driver.full_name.charAt(0) : "D")}
+                      ${avatarUrl ? `<img src="${avatarUrl}" alt="${escapeHtml(driverName)}">` : escapeHtml(driverName.charAt(0))}
                     </div>
                     <div>
-                      <div style="font-weight: 700;">${offer.driver?.full_name || "Verified Driver"}</div>
+                      <div style="font-weight: 700;">${escapeHtml(driverName)}</div>
                       <div class="quote-driver-meta">
-                        ${offer.driver?.rating_avg ? `★ ${Number.parseFloat(offer.driver.rating_avg).toFixed(1)}${offer.driver.rating_count ? ` (${offer.driver.rating_count} trips)` : ""} · ` : ""}Arrives in ~${offer.estimated_arrival_mins} mins
+                        ${isVerified ? "✓ Verified · " : ""}${escapeHtml(bid.driver?.city || "")}${vehicleSummary ? ` · ${escapeHtml(vehicleSummary)}` : ""}
                       </div>
+                      ${bid.message ? `<div class="quote-driver-meta" style="margin-top: 0.2rem;">“${escapeHtml(bid.message)}”</div>` : ""}
                     </div>
                   </div>
 
                   <div class="quote-actions">
-                    <div class="bid-price" style="font-size: 1.25rem; font-weight: 900; color: var(--primary);">$${offer.counter_price || offer.proposed_price}</div>
-                    ${offer.status === "pending" || offer.status === "countered_by_driver" ? `
-                      <button class="btn btn-outline btn-sm btn-counter-offer" data-offer-id="${offer.id}" data-current-price="${offer.proposed_price}">
+                    <div class="bid-price" style="font-size: 1.25rem; font-weight: 900; color: var(--primary);">$${Number.parseFloat(bid.amount || 0).toFixed(2)}</div>
+                    ${isPending ? `
+                      <button class="btn btn-outline btn-sm btn-fav-driver" data-driver-id="${escapeHtml(bid.driver_id || bid.driver?.id || "")}" title="Save Driver to Favourites">
+                        ❤️
+                      </button>
+                      <button class="btn btn-outline btn-sm btn-counter-offer" data-bid-id="${escapeHtml(bid.id)}" disabled title="Counter-offers are not available yet">
                         Counter
                       </button>
-                      <button class="btn btn-primary btn-sm btn-accept-offer" data-offer-id="${offer.id}">
+                      <button class="btn btn-primary btn-sm btn-accept-offer" data-bid-id="${escapeHtml(bid.id)}">
                         Accept
                       </button>
                     ` : `
-                      <span class="badge ${offer.status === "accepted" ? "badge-success" : "badge-neutral"}">${offer.status.toUpperCase()}</span>
+                      <span class="badge ${bid.status === "accepted" ? "badge-success" : "badge-neutral"}">${escapeHtml(String(bid.status || "").toUpperCase())}</span>
                     `}
                   </div>
                 </div>
-              `).join("")}
+              `;
+              }).join("")}
             </div>
+            ${pendingCount === 0 ? `
+              <div style="margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted);">
+                No quotations are currently available to accept on this request.
+              </div>
+            ` : ""}
           `}
         </div>
-      `).join("");
+      `;
+      }).join("");
 
-      // Bind Counter & Accept Offer buttons
-      container.querySelectorAll(".btn-accept-offer").forEach((b) => {
-        b.addEventListener("click", async (e) => {
-          const offerId = e.currentTarget.getAttribute("data-offer-id");
-          if (confirm("Accept this driver quotation? (This locks the driver for this request and closes other quotes)")) {
-            try {
-              await OfferService.acceptOffer(offerId);
-              alert("Quotation accepted! Booking created & assigned to provider.");
-              this.switchTab("bookings");
-            } catch (err) {
-              alert("Could not accept offer: " + err.message);
-            }
+      container.querySelectorAll(".btn-fav-driver").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          const dId = e.currentTarget.getAttribute("data-driver-id");
+          if (!dId) return;
+          try {
+            await FavouritesService.addFavourite(dId);
+            alert("Driver added to your saved favourites!");
+            await this.loadDashboardSummary();
+          } catch (err) {
+            alert("Could not save driver: " + err.message);
           }
         });
       });
 
-      container.querySelectorAll(".btn-counter-offer").forEach((b) => {
-        b.addEventListener("click", (e) => {
-          const offerId = e.currentTarget.getAttribute("data-offer-id");
-          const currentPrice = e.currentTarget.getAttribute("data-current-price");
-          const counterVal = prompt(`Enter counter-offer price for this driver (Current: $${currentPrice}):`);
-          if (counterVal && !isNaN(counterVal)) {
-            OfferService.counterOfferByCustomer(offerId, parseFloat(counterVal))
-              .then(() => {
-                alert("Counter-offer sent to driver!");
-                this.loadActiveBids();
-              })
-              .catch((err) => alert(err.message));
+      container.querySelectorAll(".btn-accept-offer").forEach((button) => {
+        button.addEventListener("click", async (event) => {
+          const bidId = event.currentTarget.getAttribute("data-bid-id");
+          if (!bidId) return;
+          if (!confirm("Accept this driver quotation? (This locks the driver for this request and closes other quotes)")) return;
+
+          const acceptButton = event.currentTarget;
+          const originalLabel = acceptButton.innerText;
+          acceptButton.disabled = true;
+          acceptButton.innerText = "Accepting...";
+
+          try {
+            await BidService.acceptBid(bidId);
+            alert("Quotation accepted! Booking created & assigned to provider.");
+            this.switchTab("bookings");
+          } catch (err) {
+            if (err.subscriptionRequired) {
+              alert("That provider is currently unavailable. Please choose another quotation.");
+            } else {
+              alert("Could not accept quotation: " + err.message);
+            }
+            acceptButton.disabled = false;
+            acceptButton.innerText = originalLabel;
           }
         });
       });
     } catch (err) {
       container.innerHTML = renderEmptyState({
-        title: "Database Ready",
-        description: "Connect your Supabase project to stream driver quotations.",
+        title: "Quotations unavailable",
+        description: "Your driver quotations could not be loaded right now. Please try again.",
         icon: "car"
       });
     }
@@ -1179,38 +1175,21 @@ export const CustomerView = {
       container.innerHTML = `<div class="passenger-list-card">${filteredBookings.map((b) => {
         const displayStatus = this.getDisplayStatus(b.status);
         const statusClass = displayStatus === "COMPLETED" ? "badge-success" : displayStatus === "CANCELLED" ? "badge-neutral" : displayStatus === "IN_PROGRESS" ? "badge-info" : "badge-warning";
-        const route = `${b.request?.pickup_address || "Pickup"} → ${b.request?.destination_address || "Destination"}`;
+        const route = `${escapeHtml(b.request?.pickup_location || "Pickup")} → ${escapeHtml(b.request?.destination || "Destination")}`;
         const tripDate = b.created_at ? new Date(b.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Date pending";
-        const photos = Array.isArray(b.vehicle?.photos) ? b.vehicle.photos : [];
-        const photo = typeof photos[0] === "string" ? photos[0] : photos[0]?.url || photos[0]?.publicUrl || b.driver?.profile_photo_url;
+        const photo = fileViewUrl(b.driver?.profile_image_id);
+        const driverName = b.driver?.full_name || "";
         return `
           <article class="booking-list-row">
-            <span class="booking-list-thumb">${photo ? `<img src="${photo}" alt="${b.vehicle?.make || "Transport vehicle"}">` : passengerIcon("bus", 24)}</span>
-            <span class="booking-list-main"><strong>${route}</strong><small>${tripDate}${b.driver?.full_name ? ` · ${b.driver.full_name}` : ""}</small></span>
+            <span class="booking-list-thumb">${photo ? `<img src="${photo}" alt="${escapeHtml(driverName || "Assigned driver")}">` : passengerIcon("bus", 24)}</span>
+            <span class="booking-list-main"><strong>${route}</strong><small>${tripDate}${driverName ? ` · ${escapeHtml(driverName)}` : ""}</small></span>
             <span class="badge ${statusClass}">${displayStatus.replace("_", " ")}</span>
             <span class="booking-list-actions">
-              <a class="passenger-text-link" href="#customer?tab=booking-details&id=${b.id}">View Details</a>
-              <a class="booking-row-chevron" href="#customer?tab=booking-details&id=${b.id}" aria-label="Open booking">${passengerIcon("chevron", 20)}</a>
+              <a class="passenger-text-link" href="#customer?tab=booking-details&id=${escapeHtml(b.id)}">View Details</a>
+              <a class="booking-row-chevron" href="#customer?tab=booking-details&id=${escapeHtml(b.id)}" aria-label="Open booking">${passengerIcon("chevron", 20)}</a>
             </span>
           </article>`;
       }).join("")}</div>`;
-
-      container.querySelectorAll(".btn-rate-driver").forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-          const bookingId = e.currentTarget.getAttribute("data-booking-id");
-          const driverId = e.currentTarget.getAttribute("data-driver-id");
-          const rating = prompt("Rate your driver from 1 to 5 stars (1=Poor, 5=Excellent):", "5");
-          const comment = prompt("Optional review comment:", "Great and safe ride!");
-          if (rating && !isNaN(rating)) {
-            BookingService.submitReview({
-              bookingId,
-              revieweeId: driverId,
-              rating: parseInt(rating),
-              comment
-            }).then(() => alert("Thank you for your rating!")).catch((err) => alert(err.message));
-          }
-        });
-      });
     } catch (err) {
       container.innerHTML = renderEmptyState({
         title: "No bookings found",
@@ -1225,8 +1204,10 @@ export const CustomerView = {
     if (!container) return;
 
     try {
-      let booking = bookingId ? await BookingService.getBookingById(bookingId) : null;
-      if (!booking) booking = (await BookingService.getUserBookings())[0] || null;
+      const allBookings = await BookingService.getUserBookings();
+      const booking = bookingId
+        ? (allBookings || []).find((b) => (b.id || b.$id) === bookingId) || null
+        : (allBookings || [])[0] || null;
       if (!booking) {
         container.innerHTML = renderEmptyState({
           title: "No booking selected",
@@ -1238,38 +1219,86 @@ export const CustomerView = {
         return;
       }
 
+      let passengerCount = booking.request?.passenger_count;
+      if (passengerCount == null && booking.request_id) {
+        try {
+          const requests = await RequestService.getCustomerRequests();
+          passengerCount = (requests || []).find((r) => (r.id || r.$id) === booking.request_id)?.passenger_count;
+        } catch (_) {
+          passengerCount = null;
+        }
+      }
+
       const status = this.getDisplayStatus(booking.status);
       const statusClass = status === "COMPLETED" ? "badge-success" : status === "CANCELLED" ? "badge-neutral" : status === "IN_PROGRESS" ? "badge-info" : "badge-warning";
       const steps = ["confirmed", "driver_arriving", "in_progress", "completed"];
       const currentStep = Math.max(0, steps.indexOf(booking.status));
       const vehicleLabel = booking.vehicle
-        ? `${booking.vehicle.make || ""} ${booking.vehicle.model || ""} · ${booking.vehicle.registration_number || "Registration pending"}`
+        ? escapeHtml(`${booking.vehicle.make || ""} ${booking.vehicle.model || ""} · ${booking.vehicle.registration_number || "Registration pending"}`.trim())
         : "Vehicle details pending";
       const canCancel = ["confirmed", "driver_arriving"].includes(booking.status);
+      const driverName = escapeHtml(booking.driver?.full_name || "Driver assignment pending");
+      const driverPhoto = fileViewUrl(booking.driver?.profile_image_id);
+      const pickup = escapeHtml(booking.request?.pickup_location || "Pickup");
+      const destination = escapeHtml(booking.request?.destination || "Destination");
+
+      const isCompleted = booking.status === "completed";
+      const isCancelled = booking.status === "cancelled";
+
+      let existingReview = null;
+      if (isCompleted) {
+        try {
+          const revs = await ReviewService.getBookingReviews(booking.id);
+          existingReview = (revs || [])[0] || null;
+        } catch (_) {}
+      }
+
+      let isDriverFav = false;
+      if (booking.driver_id) {
+        try {
+          isDriverFav = await FavouritesService.isFavourite(booking.driver_id);
+        } catch (_) {}
+      }
 
       container.innerHTML = `
         <div class="passenger-page-heading passenger-page-heading--inline">
-          <div><h2>Booking Details</h2><p>Booking #${booking.id.slice(0, 12).toUpperCase()}</p></div>
+          <div><h2>Booking Details</h2><p>Booking #${String(booking.id).slice(0, 12).toUpperCase()}</p></div>
           <span class="badge ${statusClass}">${status.replace("_", " ")}</span>
         </div>
         <div class="booking-detail-layout">
           <section class="card booking-detail-summary">
             <div class="booking-route-block">
-              <span>Route</span><strong>${booking.request?.pickup_address || "Pickup"} → ${booking.request?.destination_address || "Destination"}</strong>
+              <span>Route</span><strong>${pickup} → ${destination}</strong>
               <small>${booking.created_at ? new Date(booking.created_at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : "Schedule pending"}</small>
             </div>
             <div class="booking-detail-facts">
-              <div><span>Passengers</span><strong>${booking.request?.passenger_count || "—"}</strong></div>
-              <div><span>Total Price</span><strong>$${Number.parseFloat(booking.final_price || 0).toFixed(2)}</strong></div>
-              <div><span>Trip PIN</span><strong>${booking.trip_pin || "Pending"}</strong></div>
+              <div><span>Passengers</span><strong>${passengerCount ?? "—"}</strong></div>
+              <div><span>Total Price</span><strong>$${Number.parseFloat(booking.amount || 0).toFixed(2)}</strong></div>
+              <div><span>Booking Ref</span><strong>#${String(booking.id).slice(0, 8).toUpperCase()}</strong></div>
             </div>
             <div class="driver-profile-strip">
-              <span class="driver-avatar">${booking.driver?.profile_photo_url ? `<img src="${booking.driver.profile_photo_url}" alt="${booking.driver.full_name || "Driver"}">` : (booking.driver?.full_name?.charAt(0) || "D")}</span>
-              <span><small>Assigned Driver</small><strong>${booking.driver?.full_name || "Driver assignment pending"}</strong><em>${vehicleLabel}</em></span>
+              <span class="driver-avatar">${driverPhoto ? `<img src="${driverPhoto}" alt="${driverName}">` : (booking.driver?.full_name?.charAt(0) || "D")}</span>
+              <span><small>Assigned Driver</small><strong>${driverName}</strong><em>${vehicleLabel}</em></span>
             </div>
-            <div class="booking-detail-buttons">
+
+            ${booking.trip_pin ? `
+              <div class="trip-pin-box" style="margin-top: 1rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; background: #ecfdf5; border: 1.5px dashed #059669; padding: 0.75rem 1rem; border-radius: 8px;">
+                <div style="display: flex; align-items: center; gap: 0.65rem;">
+                  <span style="font-weight: 800; font-size: 0.85rem; color: #065f46;">TRIP PIN:</span>
+                  <span class="trip-pin-code" style="font-size: 1.5rem; letter-spacing: 4px; font-weight: 900; color: #047857; font-family: monospace;">${escapeHtml(booking.trip_pin)}</span>
+                </div>
+                <small style="color: #047857;">Share with your driver to start trip</small>
+              </div>
+            ` : ""}
+
+            <div class="booking-detail-buttons" style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1.25rem;">
               <a href="#messages?booking=${booking.id}" class="btn btn-primary">Contact Driver</a>
+              <button type="button" class="btn btn-outline btn-share-trip" data-booking-id="${booking.id}">🔗 Share Trip</button>
+              <button type="button" class="btn btn-outline btn-view-receipt" data-booking-id="${booking.id}">📄 View Receipt</button>
+              ${booking.driver_id ? `<button type="button" class="btn btn-outline btn-save-driver" data-driver-id="${booking.driver_id}">${isDriverFav ? "❤️ Saved" : "🤍 Save Driver"}</button>` : ""}
+              ${(isCompleted || isCancelled) ? `<button type="button" class="btn btn-outline btn-repeat-booking">🔁 Request Again</button>` : ""}
               ${canCancel ? `<button type="button" class="btn btn-outline btn-cancel-passenger-booking" data-booking-id="${booking.id}">Cancel Booking</button>` : ""}
+              <button type="button" class="btn btn-outline btn-dispute-booking" data-booking-id="${booking.id}" style="color: #dc2626; border-color: #fca5a5;">⚠️ Report Issue</button>
             </div>
           </section>
           <section class="card booking-timeline-card">
@@ -1282,16 +1311,136 @@ export const CustomerView = {
                 </div>`).join("")}
             </div>
           </section>
-        </div>`;
+        </div>
+
+        ${isCompleted ? `
+          <section class="card" style="margin-top: 1.25rem; padding: 1.25rem; background: #ffffff;">
+            <h3 style="font-size: 1rem; font-weight: 800; color: #0f172a; margin-bottom: 0.5rem;">Driver Rating &amp; Review</h3>
+            ${existingReview ? `
+              <div style="color: #f59e0b; font-size: 1.2rem; margin-bottom: 0.35rem;">
+                ${"★".repeat(existingReview.rating)}${"☆".repeat(5 - existingReview.rating)} (${existingReview.rating}/5)
+              </div>
+              ${existingReview.comment ? `<div style="font-size: 0.88rem; color: #475569; font-style: italic;">“${escapeHtml(existingReview.comment)}”</div>` : ""}
+            ` : `
+              <p style="font-size: 0.85rem; color: #64748b; margin-bottom: 0.75rem;">Your review helps maintain safety and trust on TransMove.</p>
+              <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.75rem;">
+                <div>
+                  <label style="font-size: 0.8rem; font-weight: 700; color: #64748b; display: block; margin-bottom: 0.25rem;">Rating</label>
+                  <select id="review-rating-select" class="form-select" style="padding: 0.4rem 0.75rem; font-size: 0.9rem;">
+                    <option value="5">⭐⭐⭐⭐⭐ 5 Stars (Excellent)</option>
+                    <option value="4">⭐⭐⭐⭐ 4 Stars (Good)</option>
+                    <option value="3">⭐⭐⭐ 3 Stars (Average)</option>
+                    <option value="2">⭐⭐ 2 Stars (Poor)</option>
+                    <option value="1">⭐ 1 Star (Terrible)</option>
+                  </select>
+                </div>
+              </div>
+              <div style="margin-bottom: 0.75rem;">
+                <label style="font-size: 0.8rem; font-weight: 700; color: #64748b; display: block; margin-bottom: 0.25rem;">Feedback (Optional)</label>
+                <textarea id="review-comment-input" class="form-textarea" rows="2" placeholder="Tell us about the vehicle condition, punctuality, and route..."></textarea>
+              </div>
+              <button type="button" class="btn btn-primary btn-sm" id="btn-submit-booking-review">
+                Submit Review
+              </button>
+            `}
+          </section>
+        ` : ""}
+      `;
+
+      container.querySelector(".btn-share-trip")?.addEventListener("click", async () => {
+        try {
+          const res = await BookingService.generateShareLink(booking.id);
+          const shareUrl = `${window.location.origin}${window.location.pathname}#shared-trip?token=${res.share_token}`;
+          await SocialService.shareTransMove({
+            title: `My TransMove Trip: ${pickup} → ${destination}`,
+            text: `Track my live trip status on TransMove:`,
+            url: shareUrl
+          });
+        } catch (err) {
+          alert("Could not generate share link: " + err.message);
+        }
+      });
+
+      container.querySelector(".btn-view-receipt")?.addEventListener("click", async () => {
+        try {
+          await ReceiptService.printReceipt(booking.id);
+        } catch (err) {
+          alert("Could not generate receipt: " + err.message);
+        }
+      });
+
+      container.querySelector(".btn-save-driver")?.addEventListener("click", async (e) => {
+        const btn = e.currentTarget;
+        const dId = btn.getAttribute("data-driver-id");
+        btn.disabled = true;
+        try {
+          await FavouritesService.addFavourite(dId);
+          btn.innerText = "❤️ Saved";
+          alert("Driver added to your saved favourites!");
+          await this.loadDashboardSummary();
+        } catch (err) {
+          alert("Could not save driver: " + err.message);
+          btn.disabled = false;
+        }
+      });
+
+      container.querySelector(".btn-repeat-booking")?.addEventListener("click", () => {
+        this.repeatRequest(booking);
+      });
+
+      container.querySelector(".btn-dispute-booking")?.addEventListener("click", async () => {
+        const reason = prompt("Describe the dispute/issue category (e.g. driver_no_show, wrong_vehicle, safety, overcharge, other):", "driver_no_show");
+        if (!reason) return;
+        const details = prompt("Please provide details for the support team:") || "";
+        try {
+          await DisputeService.createDispute({
+            bookingId: booking.id,
+            reason: reason.trim(),
+            details: details.trim()
+          });
+          alert("Dispute ticket submitted to TransMove Support desk.");
+        } catch (err) {
+          alert("Could not submit dispute: " + err.message);
+        }
+      });
 
       container.querySelector(".btn-cancel-passenger-booking")?.addEventListener("click", async (event) => {
         if (!confirm("Cancel this booking?")) return;
-        const reason = prompt("Please provide a cancellation reason:", "Cancelled by passenger") || "Cancelled by passenger";
+        const reasons = [
+          "Driver was delayed / taking too long",
+          "Changed travel plans",
+          "Found alternative transport",
+          "Booked by mistake",
+          "Safety / vehicle concern",
+          "Other"
+        ];
+        const reasonPrompt = prompt("Select cancellation reason:\n" + reasons.map((r, i) => `${i + 1}. ${r}`).join("\n") + "\n\nEnter number (1-6):", "2");
+        if (!reasonPrompt) return;
+        const idx = parseInt(reasonPrompt, 10) - 1;
+        const reasonText = (idx >= 0 && idx < reasons.length) ? reasons[idx] : "Cancelled by passenger";
         try {
-          await BookingService.updateBookingStatus(event.currentTarget.getAttribute("data-booking-id"), "cancelled", reason);
+          await BookingService.cancelBookingWithReason(booking.id, { reason: reasonText });
+          alert("Booking cancelled.");
           await this.loadBookingDetails(booking.id);
         } catch (error) {
           alert("Could not cancel booking: " + error.message);
+        }
+      });
+
+      container.querySelector("#btn-submit-booking-review")?.addEventListener("click", async (e) => {
+        const btn = e.currentTarget;
+        const rating = parseInt(document.getElementById("review-rating-select")?.value || "5", 10);
+        const comment = document.getElementById("review-comment-input")?.value?.trim() || "";
+        btn.disabled = true;
+        btn.innerText = "Submitting...";
+        try {
+          await ReviewService.submitReview({ bookingId: booking.id, rating, comment });
+          alert("Thank you for reviewing your driver!");
+          await this.loadBookingDetails(booking.id);
+        } catch (err) {
+          alert("Could not submit review: " + err.message);
+          btn.disabled = false;
+          btn.innerText = "Submit Review";
         }
       });
     } catch (error) {
@@ -1310,7 +1459,7 @@ export const CustomerView = {
         BookingService.getUserBookings()
       ]);
       const completed = (bookings || []).filter((booking) => booking.status === "completed");
-      const totalSpent = completed.reduce((total, booking) => total + (Number.parseFloat(booking.final_price) || 0), 0);
+      const totalSpent = completed.reduce((total, booking) => total + (Number.parseFloat(booking.amount) || 0), 0);
 
       container.innerHTML = `
         <div class="payments-summary-grid">
@@ -1331,24 +1480,113 @@ export const CustomerView = {
     }
   },
 
-  loadFavourites() {
+  async loadFavourites() {
     const container = document.getElementById("favourites-board");
     if (!container) return;
-    container.innerHTML = `<section class="passenger-list-card favourites-empty-card">${renderEmptyState({
-      title: "No saved drivers yet",
-      description: "Saved drivers will appear here when favourites are enabled for your account.",
-      icon: "heart"
-    })}</section>`;
+
+    try {
+      const favs = await FavouritesService.getFavourites();
+      if (!favs || favs.length === 0) {
+        container.innerHTML = `<section class="passenger-list-card favourites-empty-card">${renderEmptyState({
+          title: "No saved drivers yet",
+          description: "Save verified drivers to your favourites after a trip or quotation for quick repeat access.",
+          icon: "heart"
+        })}</section>`;
+        return;
+      }
+
+      container.innerHTML = `
+        <div class="grid-2">
+          ${favs.map((fav) => {
+            const d = fav.driver || {};
+            const name = escapeHtml(d.full_name || "Verified Driver");
+            const photo = fileViewUrl(d.profile_image_id);
+            const category = escapeHtml(d.service_category || "Passenger Transport");
+            const rating = d.rating ? Number(d.rating).toFixed(1) : "New";
+
+            return `
+              <div class="card" style="padding: 1.25rem; display: flex; flex-direction: column; justify-content: space-between; border: 1px solid var(--border-light);">
+                <div>
+                  <div style="display: flex; gap: 0.85rem; align-items: center; margin-bottom: 0.75rem;">
+                    <div style="width: 46px; height: 46px; border-radius: 50%; overflow: hidden; background: var(--primary); color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem; flex-shrink: 0;">
+                      ${photo ? `<img src="${photo}" alt="${name}" style="width: 100%; height: 100%; object-fit: cover;" />` : name.charAt(0)}
+                    </div>
+                    <div>
+                      <div style="font-weight: 800; font-size: 1rem; color: #0f172a;">${name}</div>
+                      <div style="font-size: 0.8rem; color: #64748b;">${category} · ⭐ ${rating}</div>
+                    </div>
+                  </div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-light); padding-top: 0.75rem; margin-top: 0.5rem;">
+                  <button type="button" class="btn btn-outline btn-sm btn-remove-fav" data-fav-id="${fav.id}">
+                    💔 Remove
+                  </button>
+                  <button type="button" class="btn btn-primary btn-sm btn-request-fav" data-driver-name="${name}">
+                    Post Request
+                  </button>
+                </div>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      `;
+
+      container.querySelectorAll(".btn-remove-fav").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          const fid = e.currentTarget.getAttribute("data-fav-id");
+          btn.disabled = true;
+          try {
+            await FavouritesService.removeFavourite(fid);
+            await this.loadFavourites();
+            await this.loadDashboardSummary();
+          } catch (err) {
+            alert("Could not remove favourite: " + err.message);
+            btn.disabled = false;
+          }
+        });
+      });
+
+      container.querySelectorAll(".btn-request-fav").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          this.switchTab("new-request");
+        });
+      });
+    } catch (err) {
+      container.innerHTML = `<section class="passenger-list-card favourites-empty-card">${renderEmptyState({
+        title: "Favourites unavailable",
+        description: "Could not load saved drivers right now: " + err.message,
+        icon: "heart"
+      })}</section>`;
+    }
   },
 
   async loadNotificationsPage(filter = "all") {
     const container = document.getElementById("notifications-board");
     if (!container) return;
 
+    const categoryTypes = {
+      request: ["bid_received", "bid_accepted", "bid_rejected"],
+      booking: ["booking_confirmed", "booking_status_changed", "booking", "trip"],
+      message: ["new_message", "message"],
+      payment: ["payment", "wallet", "subscription"]
+    };
+    const matches = (notification) => {
+      if (filter === "all") return true;
+      const types = categoryTypes[filter];
+      if (!types) return notification.type === filter;
+      return types.includes(notification.type);
+    };
+    const iconFor = (type) => {
+      if (type === "new_message" || type === "message") return "chat";
+      if (type === "payment" || type === "wallet" || type === "subscription") return "wallet";
+      if (type === "booking_confirmed" || type === "booking_status_changed") return "calendar";
+      return "bus";
+    };
+
     try {
       const profile = await AuthService.getCurrentProfile();
       const notifications = profile?.id ? await NotificationService.getNotifications(profile.id) : [];
-      const filtered = (notifications || []).filter((notification) => filter === "all" || notification.type === filter || notification.type?.includes(filter));
+      const filtered = (notifications || []).filter(matches);
       if (!filtered.length) {
         container.innerHTML = `<section class="passenger-list-card">${renderEmptyState({ title: "No notifications", description: "Updates matching this category will appear here.", icon: "inbox" })}</section>`;
         return;
@@ -1356,8 +1594,8 @@ export const CustomerView = {
 
       container.innerHTML = `<section class="passenger-list-card notification-list">${filtered.map((notification) => `
         <button type="button" class="notification-row ${notification.is_read ? "" : "unread"}" data-notification-id="${notification.id}">
-          <span class="notification-icon ${notification.type || "general"}">${passengerIcon(notification.type === "payment" ? "wallet" : notification.type === "booking" ? "calendar" : "bus", 20)}</span>
-          <span><strong>${notification.title}</strong><small>${notification.body}</small></span>
+          <span class="notification-icon ${notification.type || "general"}">${passengerIcon(iconFor(notification.type), 20)}</span>
+          <span><strong>${escapeHtml(notification.title)}</strong><small>${escapeHtml(notification.body)}</small></span>
           <time>${notification.created_at ? new Date(notification.created_at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : ""}</time>
         </button>`).join("")}</section>`;
 
@@ -1702,14 +1940,10 @@ export const CustomerView = {
   validateForm() {
     const priceInput = document.getElementById("req-suggested-price");
     const priceVal = parseFloat(priceInput?.value || 0);
-    const pickupVal = document.getElementById("req-pickup")?.value.trim();
-    const destVal = document.getElementById("req-dest")?.value.trim();
+    const pickupVal = document.getElementById("req-pickup")?.value?.trim();
+    const destVal = document.getElementById("req-dest")?.value?.trim();
 
-    const isValid = Boolean(
-      this.pickupCoords && this.pickupCoords.lat && this.pickupCoords.lng &&
-      this.destCoords && this.destCoords.lat && this.destCoords.lng &&
-      this.distanceKm && pickupVal && destVal && priceVal > 0
-    );
+    const isValid = Boolean(pickupVal && destVal && priceVal > 0);
 
     const btn = document.getElementById("btn-submit-request");
     if (btn) {
@@ -1767,5 +2001,293 @@ export const CustomerView = {
         dropdown.style.display = "none";
       }
     });
+  },
+
+  repeatRequest(booking) {
+    if (!booking) return;
+    const pickup = booking.request?.pickup_location || booking.pickup_address || "";
+    const dest = booking.request?.destination || booking.destination_address || "";
+    const serviceType = booking.request?.service_type || "ride";
+    const budget = booking.amount || booking.request?.budget || 0;
+
+    const pickupInput = document.getElementById("req-pickup");
+    const destInput = document.getElementById("req-dest");
+    const serviceSelect = document.getElementById("req-service-type");
+    const priceInput = document.getElementById("req-suggested-price");
+
+    if (pickupInput) pickupInput.value = pickup;
+    if (destInput) destInput.value = dest;
+    if (serviceSelect) {
+      serviceSelect.value = serviceType;
+      serviceSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    if (priceInput) priceInput.value = budget;
+
+    this.switchTab("new-request");
+    this.validateForm();
+    alert("Trip details prefilled. You can review route and submit your new request.");
+  },
+
+  async loadSavedAddressChips() {
+    const pickupChipsContainer = document.getElementById("saved-pickup-chips");
+    const destChipsContainer = document.getElementById("saved-dest-chips");
+    if (!pickupChipsContainer && !destChipsContainer) return;
+
+    try {
+      const addresses = await AddressService.getSavedAddresses();
+      if (!addresses || addresses.length === 0) {
+        if (pickupChipsContainer) {
+          pickupChipsContainer.innerHTML = `<span style="font-size: 0.75rem; color: #94a3b8;">Tip: Save favorite addresses for 1-click entry.</span>`;
+        }
+        return;
+      }
+
+      const getIcon = (label) => {
+        const l = (label || "").toLowerCase();
+        if (l === "home") return "🏠";
+        if (l === "work") return "🏢";
+        if (l === "school") return "🏫";
+        return "📍";
+      };
+
+      const renderChips = () => {
+        return addresses.map((addr) => `
+          <button type="button" class="saved-address-chip" data-addr-lat="${addr.lat || ''}" data-addr-lng="${addr.lng || ''}" data-addr-text="${escapeHtml(addr.address || addr.title)}" title="${escapeHtml(addr.address)}">
+            <span>${getIcon(addr.label)}</span>
+            <span>${escapeHtml(addr.title || addr.label)}</span>
+          </button>
+        `).join("");
+      };
+
+      if (pickupChipsContainer) {
+        pickupChipsContainer.innerHTML = renderChips();
+        pickupChipsContainer.querySelectorAll(".saved-address-chip").forEach((chip) => {
+          chip.addEventListener("click", async (e) => {
+            const btn = e.currentTarget;
+            const text = btn.getAttribute("data-addr-text");
+            const lat = parseFloat(btn.getAttribute("data-addr-lat"));
+            const lng = parseFloat(btn.getAttribute("data-addr-lng"));
+            const input = document.getElementById("req-pickup");
+            if (input) input.value = text;
+            if (!isNaN(lat) && !isNaN(lng)) {
+              await this.setPickup(lat, lng, text);
+            } else {
+              this.validateForm();
+            }
+          });
+        });
+      }
+
+      if (destChipsContainer) {
+        destChipsContainer.innerHTML = renderChips();
+        destChipsContainer.querySelectorAll(".saved-address-chip").forEach((chip) => {
+          chip.addEventListener("click", async (e) => {
+            const btn = e.currentTarget;
+            const text = btn.getAttribute("data-addr-text");
+            const lat = parseFloat(btn.getAttribute("data-addr-lat"));
+            const lng = parseFloat(btn.getAttribute("data-addr-lng"));
+            const input = document.getElementById("req-dest");
+            if (input) input.value = text;
+            if (!isNaN(lat) && !isNaN(lng)) {
+              await this.setDestination(lat, lng, text);
+            } else {
+              this.validateForm();
+            }
+          });
+        });
+      }
+    } catch (err) {
+      console.warn("Saved address chips notice:", err.message);
+    }
+  },
+
+  async openRequestMatchingExperience(request) {
+    if (!request) return;
+
+    if (this.matchingPollInterval) {
+      clearInterval(this.matchingPollInterval);
+      this.matchingPollInterval = null;
+    }
+
+    let modal = document.getElementById("matching-experience-modal");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "matching-experience-modal";
+      modal.className = "modal-backdrop";
+      modal.style.cssText = "display: flex; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.7); z-index: 10000; align-items: center; justify-content: center; padding: 1rem; backdrop-filter: blur(4px);";
+      document.body.appendChild(modal);
+    }
+
+    const pickup = escapeHtml(request.pickup_location || request.pickup_address || "Pickup");
+    const dest = escapeHtml(request.destination || request.destination_address || "Destination");
+    const reqId = escapeHtml(String(request.id || request.$id).slice(0, 10).toUpperCase());
+    const budget = Number.parseFloat(request.budget || request.suggested_price || 0).toFixed(2);
+
+    let onlineCount = 0;
+    try {
+      onlineCount = await RequestService.getCompatibleOnlineProvidersCount(request.service_type || "ride");
+    } catch (_) {
+      onlineCount = 0;
+    }
+
+    const providerStatusText = onlineCount > 0
+      ? `🟢 ${onlineCount} compatible provider${onlineCount === 1 ? "" : "s"} online nearby`
+      : `⏳ Looking for compatible providers in your area…`;
+
+    modal.innerHTML = `
+      <div class="card" style="max-width: 520px; width: 100%; padding: 2rem; background: #ffffff; border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.2); position: relative;">
+        <div style="text-align: center;">
+          <span class="badge badge-warning" style="font-size: 0.8rem; padding: 0.3rem 0.75rem; letter-spacing: 0.5px;">
+            REQUEST POSTED · OPEN FOR BIDS
+          </span>
+          <h2 style="font-size: 1.4rem; font-weight: 800; color: #0f172a; margin: 0.75rem 0 0.25rem 0;">
+            Connecting You with Verified Drivers
+          </h2>
+          <div style="font-size: 0.88rem; color: #64748b;" id="matching-sub-status">
+            ${providerStatusText}
+          </div>
+        </div>
+
+        <div class="request-lifecycle-stepper" id="matching-stepper">
+          <div class="lifecycle-step-item complete" id="step-1">
+            <span class="lifecycle-step-dot">✓</span>
+            <span class="lifecycle-step-label">Posted</span>
+          </div>
+          <div class="lifecycle-step-item active" id="step-2">
+            <span class="lifecycle-step-dot">2</span>
+            <span class="lifecycle-step-label">Matching</span>
+          </div>
+          <div class="lifecycle-step-item" id="step-3">
+            <span class="lifecycle-step-dot">3</span>
+            <span class="lifecycle-step-label">Quotes</span>
+          </div>
+          <div class="lifecycle-step-item" id="step-4">
+            <span class="lifecycle-step-dot">4</span>
+            <span class="lifecycle-step-label">Assigned</span>
+          </div>
+        </div>
+
+        <div class="matching-radar-wrap" aria-label="Searching for providers">
+          <div class="radar-ring"></div>
+          <div class="radar-ring"></div>
+          <div class="radar-ring"></div>
+          <div class="radar-center-beacon">
+            <span>📍</span>
+          </div>
+          <div class="radar-provider-glyph pos-1" title="Passenger Sedan">🚗</div>
+          <div class="radar-provider-glyph pos-2" title="Minibus / Shuttle">🚐</div>
+          <div class="radar-provider-glyph pos-3" title="Freight Truck">🚚</div>
+          <div class="radar-provider-glyph pos-4" title="Equipment / Hire">🚜</div>
+        </div>
+
+        <div style="background: var(--bg-subtle); border: 1px solid var(--border-light); border-radius: 8px; padding: 0.85rem 1rem; margin-bottom: 1.25rem; font-size: 0.85rem;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;">
+            <span style="color: #64748b;">Route:</span>
+            <strong style="color: #0f172a; text-align: right;">${pickup} → ${dest}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;">
+            <span style="color: #64748b;">Suggested Price:</span>
+            <strong style="color: #059669; font-size: 0.95rem;">$${budget}</strong>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #64748b;">Request ID:</span>
+            <span style="font-family: monospace; font-weight: 700;">#${reqId}</span>
+          </div>
+        </div>
+
+        <div id="matching-quotes-banner" style="text-align: center; padding: 0.75rem; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; margin-bottom: 1.25rem; color: #1e40af; font-size: 0.88rem; font-weight: 600;">
+          ⏳ Waiting for driver quotations…
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 0.65rem;">
+          <button type="button" id="btn-matching-view-quotes" class="btn btn-primary btn-full" style="display: none;">
+            View Quotations Received (<span id="matching-quote-count">0</span>)
+          </button>
+          <div style="display: flex; gap: 0.5rem;">
+            <button type="button" id="btn-matching-dismiss" class="btn btn-outline btn-full">
+              View Dashboard
+            </button>
+            <button type="button" id="btn-matching-cancel" class="btn btn-outline btn-full" style="color: #ef4444; border-color: #fca5a5;">
+              Cancel Request
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    modal.style.display = "flex";
+
+    const closeModal = () => {
+      if (this.matchingPollInterval) {
+        clearInterval(this.matchingPollInterval);
+        this.matchingPollInterval = null;
+      }
+      modal.style.display = "none";
+    };
+
+    document.getElementById("btn-matching-dismiss")?.addEventListener("click", () => {
+      closeModal();
+      this.switchTab("overview");
+    });
+
+    document.getElementById("btn-matching-view-quotes")?.addEventListener("click", () => {
+      closeModal();
+      this.switchTab("active-bids");
+    });
+
+    document.getElementById("btn-matching-cancel")?.addEventListener("click", async () => {
+      if (!confirm("Are you sure you want to cancel this request?")) return;
+      try {
+        await RequestService.cancelRequest(request.id || request.$id);
+        alert("Request cancelled.");
+        closeModal();
+        this.switchTab("overview");
+      } catch (err) {
+        alert("Could not cancel request: " + err.message);
+      }
+    });
+
+    const checkBids = async () => {
+      try {
+        const bids = await BidService.getBidsForRequest(request.id || request.$id);
+        const count = bids?.length || 0;
+
+        if (count > 0) {
+          const banner = document.getElementById("matching-quotes-banner");
+          const viewBtn = document.getElementById("btn-matching-view-quotes");
+          const countSpan = document.getElementById("matching-quote-count");
+          const step3 = document.getElementById("step-3");
+          const step2 = document.getElementById("step-2");
+
+          if (banner) {
+            banner.style.background = "#ecfdf5";
+            banner.style.borderColor = "#a7f3d0";
+            banner.style.color = "#065f46";
+            banner.innerHTML = `🎉 <strong>${count} Quotation${count === 1 ? "" : "s"} Received!</strong> Drivers are ready for your review.`;
+          }
+
+          if (viewBtn && countSpan) {
+            countSpan.innerText = count;
+            viewBtn.style.display = "block";
+          }
+
+          if (step2) {
+            step2.classList.remove("active");
+            step2.classList.add("complete");
+            const dot = step2.querySelector(".lifecycle-step-dot");
+            if (dot) dot.innerText = "✓";
+          }
+
+          if (step3) {
+            step3.classList.add("active");
+          }
+        }
+      } catch (err) {
+        console.warn("Matching quotes poll notice:", err.message);
+      }
+    };
+
+    await checkBids();
+    this.matchingPollInterval = setInterval(checkBids, 4000);
   }
 };

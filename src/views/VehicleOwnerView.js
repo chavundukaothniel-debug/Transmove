@@ -6,6 +6,16 @@ import { VehicleService } from "../services/vehicles.js";
 import { renderEmptyState } from "../components/EmptyState.js";
 import { AdPlacement } from "../components/AdPlacement.js";
 
+const escapeHtml = (value) => {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+};
+
 export const VehicleOwnerView = {
   async render() {
     return `
@@ -25,7 +35,7 @@ export const VehicleOwnerView = {
         </div>
 
         <!-- Metric KPI Cards -->
-        <div class="kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+        <div class="kpi-grid" id="vehicle-owner-section-overview" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
           <div class="card" style="padding: 1rem;">
             <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">TOTAL VEHICLES</div>
             <div id="kpi-veh-count" style="font-size: 1.6rem; font-weight: 800; color: var(--primary); margin-top: 0.25rem;">0</div>
@@ -38,12 +48,12 @@ export const VehicleOwnerView = {
           </div>
           <div class="card" style="padding: 1rem;">
             <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">BOOKING REQUESTS</div>
-            <div id="kpi-veh-requests" style="font-size: 1.6rem; font-weight: 800; color: #f59e0b; margin-top: 0.25rem;">0</div>
+            <div id="kpi-veh-requests" style="font-size: 1.6rem; font-weight: 800; color: #f59e0b; margin-top: 0.25rem;">—</div>
             <div style="font-size: 0.75rem; color: var(--text-muted);">Pending approval</div>
           </div>
           <div class="card" style="padding: 1rem;">
             <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">MONTHLY REVENUE</div>
-            <div id="kpi-veh-revenue" style="font-size: 1.6rem; font-weight: 800; color: var(--text-main); margin-top: 0.25rem;">$0.00</div>
+            <div id="kpi-veh-revenue" style="font-size: 1.6rem; font-weight: 800; color: var(--text-main); margin-top: 0.25rem;">—</div>
             <div style="font-size: 0.75rem; color: var(--text-muted);">Rental income</div>
           </div>
         </div>
@@ -52,7 +62,7 @@ export const VehicleOwnerView = {
 
         <div class="grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
           <!-- Add Vehicle Form -->
-          <div class="card">
+          <div class="card" id="vehicle-owner-section-add">
             <h3 style="font-size: 1.15rem; font-weight: 800; margin-bottom: 1.25rem;">🚗 Register New Rental Vehicle</h3>
             <form id="add-vehicle-form">
               <div class="grid-2">
@@ -106,7 +116,7 @@ export const VehicleOwnerView = {
           </div>
 
           <!-- Listed Vehicles List -->
-          <div class="card">
+          <div class="card" id="vehicle-owner-section-fleet">
             <h3 style="font-size: 1.15rem; font-weight: 800; margin-bottom: 1.25rem;">🚘 Registered Vehicles Fleet</h3>
             <div id="vehicle-owner-list">
               <div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">
@@ -120,6 +130,15 @@ export const VehicleOwnerView = {
   },
 
   async init() {
+    const tab = new URLSearchParams((window.location.hash.split("?")[1] || "")).get("tab");
+    const sectionMap = {
+      vehicles: "vehicle-owner-section-fleet",
+      add: "vehicle-owner-section-add",
+      earnings: "vehicle-owner-section-overview"
+    };
+    const section = document.getElementById(sectionMap[tab] || "vehicle-owner-section-overview");
+    section?.scrollIntoView({ block: "start" });
+
     this.bindEvents();
     await this.loadVehicles();
     AdPlacement.init("VEHICLE_OWNER_DASHBOARD");
@@ -133,21 +152,28 @@ export const VehicleOwnerView = {
       saveBtn.innerText = "Registering Vehicle...";
 
       try {
+        const rateValue = document.getElementById("veh-rate").value.trim();
+        const locationValue = document.getElementById("veh-location").value.trim();
+        const descriptionParts = [];
+        if (rateValue) descriptionParts.push(`Daily rental rate: $${rateValue}`);
+        if (locationValue) descriptionParts.push(`Operating area: ${locationValue}`);
+
         await VehicleService.addVehicle({
           make: document.getElementById("veh-make").value.trim(),
           model: document.getElementById("veh-model").value.trim(),
           registration_number: document.getElementById("veh-reg").value.trim().toUpperCase(),
           vehicle_type: document.getElementById("veh-type").value,
           year: parseInt(document.getElementById("veh-year").value, 10),
-          color: "Silver",
-          operating_area: document.getElementById("veh-location").value.trim()
+          colour: document.getElementById("veh-colour")?.value?.trim() || "Silver",
+          description: descriptionParts.join(". ")
         });
 
         alert("Vehicle registered successfully and submitted for administrative verification!");
         document.getElementById("add-vehicle-form").reset();
         await this.loadVehicles();
       } catch (err) {
-        alert("Error registering vehicle: " + err.message);
+        console.warn("Vehicle registration failed:", err);
+        alert("Could not register vehicle: " + err.message);
       } finally {
         saveBtn.disabled = false;
         saveBtn.innerText = "Register & Submit Vehicle for Verification 🚗";
@@ -162,6 +188,7 @@ export const VehicleOwnerView = {
     try {
       const vehicles = await VehicleService.getDriverVehicles();
       document.getElementById("kpi-veh-count").innerText = vehicles ? vehicles.length : 0;
+      document.getElementById("kpi-veh-active").innerText = vehicles ? vehicles.filter(v => v.status === "active").length : 0;
 
       if (!vehicles || vehicles.length === 0) {
         container.innerHTML = renderEmptyState({
@@ -175,20 +202,21 @@ export const VehicleOwnerView = {
       container.innerHTML = vehicles.map(v => `
         <div style="border: 1px solid var(--border-light); padding: 1rem; border-radius: var(--radius-md); margin-bottom: 0.75rem;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div style="font-weight: 700; font-size: 1rem;">${v.make} ${v.model} (${v.year})</div>
+            <div style="font-weight: 700; font-size: 1rem;">${escapeHtml(v.make)} ${escapeHtml(v.model)} (${escapeHtml(v.year)})</div>
             <span class="badge ${v.verification_status === "approved" ? "badge-success" : "badge-warning"}">
-              ${v.verification_status.toUpperCase()}
+              ${escapeHtml((v.verification_status || "unverified").toUpperCase())}
             </span>
           </div>
           <div style="font-size: 0.85rem; color: var(--text-muted); margin: 0.25rem 0;">
-            Reg: <strong>${v.registration_number}</strong> • Location: ${v.operating_area || "Harare"}
+            Reg: <strong>${escapeHtml(v.registration_number)}</strong>${v.operating_area ? ` • Location: ${escapeHtml(v.operating_area)}` : ""}
           </div>
         </div>
       `).join("");
     } catch (err) {
+      console.warn("Vehicle fleet load failed:", err);
       container.innerHTML = renderEmptyState({
-        title: "Vehicle System Ready",
-        description: "Register a vehicle to sync records with Supabase.",
+        title: "Could not load your vehicles",
+        description: "Please refresh the page to try again.",
         icon: "car"
       });
     }

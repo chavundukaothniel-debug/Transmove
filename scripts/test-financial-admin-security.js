@@ -12,6 +12,7 @@ globalThis.window = {
 };
 
 import fs from "fs";
+import { assertTestCleanupCapabilities, runCleanupTasks } from "./test-hygiene.js";
 import { Client, Account, Databases, ID, Permission, Role } from "../assets/js/vendor/appwrite.js";
 import { executeTrustedOperation } from "../netlify/functions/trusted-api.js";
 
@@ -30,7 +31,10 @@ const serverHeaders = {
   "Content-Type": "application/json"
 };
 const password = "TakeoverTest2026!";
-const cleanup = { users: [], profiles: [], subscriptions: [], payments: [], ledger: [], bookings: [], vehicles: [], documents: [] };
+const cleanup = {
+  users: [], profiles: [], subscriptions: [], payments: [], ledger: [], bookings: [],
+  vehicles: [], documents: [], notifications: [], activityLogs: []
+};
 const results = {};
 
 function record(name, passed, detail = "") {
@@ -49,11 +53,23 @@ async function serverCreate(collection, data, permissions = []) {
 }
 
 async function serverDelete(collection, id) {
-  await fetch(`${endpoint}/databases/transmove/collections/${collection}/documents/${id}`, { method: "DELETE", headers: serverHeaders });
+  const response = await fetch(`${endpoint}/databases/transmove/collections/${collection}/documents/${id}`, { method: "DELETE", headers: serverHeaders });
+  if (![200, 204, 404].includes(response.status)) throw new Error(`HTTP ${response.status}`);
 }
 
 async function serverDeleteUser(id) {
-  await fetch(`${endpoint}/users/${id}`, { method: "DELETE", headers: serverHeaders });
+  const response = await fetch(`${endpoint}/users/${id}`, { method: "DELETE", headers: serverHeaders });
+  if (![200, 204, 404].includes(response.status)) throw new Error(`HTTP ${response.status}`);
+}
+
+async function serverList(collection) {
+  const query = encodeURIComponent(JSON.stringify({ method: "limit", values: [100] }));
+  const response = await fetch(
+    `${endpoint}/databases/transmove/collections/${collection}/documents?queries[]=${query}`,
+    { headers: serverHeaders }
+  );
+  if (!response.ok) throw new Error(`Unable to inspect ${collection}: HTTP ${response.status}`);
+  return (await response.json()).documents || [];
 }
 
 function activate(user) {
@@ -106,6 +122,7 @@ async function expectRejected(name, operation) {
 }
 
 async function run() {
+  await assertTestCleanupCapabilities("financial-admin-security");
   let driverA;
   let driverB;
   let admin;
@@ -237,13 +254,36 @@ async function run() {
     record("Admin account status change", suspended.account_status === "suspended");
     await trusted(admin, "admin_set_account_status", { profile_id: driverB.profile.$id, account_status: "active" });
   } finally {
+    const tasks = [];
+    const ownedIds = new Set([
+      ...cleanup.users, ...cleanup.profiles, ...cleanup.vehicles, ...cleanup.documents,
+      ...cleanup.bookings, ...cleanup.payments, ...cleanup.subscriptions, ...cleanup.ledger
+    ]);
+    for (const [collection, key] of [["notifications", "notifications"], ["activity_logs", "activityLogs"]]) {
+      try {
+        const records = await serverList(collection);
+        cleanup[key].push(...records
+          .filter((record) => ownedIds.has(record.user_id) || ownedIds.has(record.related_id))
+          .map((record) => record.$id));
+      } catch (error) {
+        tasks.push({ label: `${collection} cleanup discovery`, run: async () => { throw error; } });
+      }
+    }
     for (const [collection, ids] of [
+      ["notifications", cleanup.notifications], ["activity_logs", cleanup.activityLogs],
       ["verification_documents", cleanup.documents], ["vehicles", cleanup.vehicles], ["bookings", cleanup.bookings],
       ["wallet_ledger", cleanup.ledger], ["payments", cleanup.payments], ["subscriptions", cleanup.subscriptions], ["profiles", cleanup.profiles]
     ]) {
-      for (const id of ids) await serverDelete(collection, id).catch(() => {});
+      for (const id of ids) tasks.push({
+        label: `${collection}/${id}`,
+        run: () => serverDelete(collection, id)
+      });
     }
-    for (const id of cleanup.users) await serverDeleteUser(id).catch(() => {});
+    for (const id of cleanup.users) tasks.push({
+      label: `Auth user ${id}`,
+      run: () => serverDeleteUser(id)
+    });
+    await runCleanupTasks("financial-admin-security", tasks);
   }
 
   console.log("\nTRANSMOVE FINANCIAL + ADMIN SECURITY RESULTS");

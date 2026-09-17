@@ -3,7 +3,18 @@
 // List Heavy Equipment, Tractors, Tipper Trucks & Manage Hire Requests
 // ==============================================================================
 import { EquipmentService } from "../services/equipment.js";
+import { AuthService } from "../services/auth.js";
 import { renderEmptyState } from "../components/EmptyState.js";
+
+const escapeHtml = (value) => {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+};
 
 export const OwnerView = {
   async render() {
@@ -94,6 +105,26 @@ export const OwnerView = {
   },
 
   async init() {
+    const profile = await AuthService.getCurrentProfile();
+    const roles = profile ? await AuthService.getApprovedRoles(profile) : [];
+    const isOwner = Boolean(profile) && (roles.includes("owner") || roles.includes("admin") || profile.role === "owner");
+    if (!isOwner) {
+      const restrictedBtn = document.getElementById("btn-save-eq");
+      if (restrictedBtn) {
+        restrictedBtn.disabled = true;
+        restrictedBtn.title = "Your account does not have an approved machinery & fleet owner role.";
+      }
+      const restrictedContainer = document.getElementById("owner-equipment-list");
+      if (restrictedContainer) {
+        restrictedContainer.innerHTML = renderEmptyState({
+          title: "Access restricted",
+          description: "Your account does not have an approved machinery & fleet owner role.",
+          icon: "tractor"
+        });
+      }
+      return;
+    }
+
     this.loadOwnerListings();
 
     document.getElementById("add-equipment-form")?.addEventListener("submit", async (e) => {
@@ -114,11 +145,12 @@ export const OwnerView = {
           description: document.getElementById("eq-desc").value.trim()
         });
 
-        alert("Equipment listing published successfully and submitted for verification!");
-        document.getElementById("add-equipment-form").reset();
-        this.loadOwnerListings();
+        alert("Equipment listing submitted successfully! Pending verification before appearing in marketplace.");
+        document.getElementById("add-equipment-form")?.reset();
+        await this.loadOwnerListings();
       } catch (err) {
-        alert("Error publishing listing: " + err.message);
+        console.warn("Equipment listing publish failed:", err);
+        alert("Could not publish listing: " + err.message);
       } finally {
         btn.disabled = false;
         btn.innerText = "Publish Equipment Listing 🚜";
@@ -135,8 +167,8 @@ export const OwnerView = {
 
       if (!listings || listings.length === 0) {
         container.innerHTML = renderEmptyState({
-          title: "No equipment listed yet",
-          description: "Add your first heavy machinery or truck to receive direct hire requests from farmers, contractors, and logistics clients.",
+          title: "No machinery listings are available yet",
+          description: "Equipment listings are not live on TransMove yet. Please check back later.",
           icon: "tractor"
         });
         return;
@@ -145,24 +177,25 @@ export const OwnerView = {
       container.innerHTML = listings.map((item) => `
         <div style="border: 1px solid var(--border-light); padding: 1rem; border-radius: var(--radius-md); margin-bottom: 0.75rem;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div style="font-weight: 700; font-size: 1.05rem;">${item.title}</div>
+            <div style="font-weight: 700; font-size: 1.05rem;">${escapeHtml(item.title)}</div>
             <span class="badge ${item.verification_status === "approved" ? "badge-success" : "badge-warning"}">
-              ${item.verification_status}
+              ${escapeHtml(item.verification_status || "unverified")}
             </span>
           </div>
           <div style="font-size: 0.85rem; color: var(--text-muted); margin: 0.35rem 0;">
-            ${item.make} ${item.model} • ${item.location_name}
+            ${escapeHtml(item.make)} ${escapeHtml(item.model)} • ${escapeHtml(item.location_name)}
           </div>
           <div style="font-weight: 800; color: var(--primary);">
-            $${item.rate_per_day} <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 500;">/ day</span>
-            ${item.rate_per_hour ? `• $${item.rate_per_hour} / hr` : ""}
+            $${escapeHtml(item.rate_per_day)} <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 500;">/ day</span>
+            ${item.rate_per_hour ? `• $${escapeHtml(item.rate_per_hour)} / hr` : ""}
           </div>
         </div>
       `).join("");
     } catch (err) {
+      console.warn("Owner equipment load failed:", err);
       container.innerHTML = renderEmptyState({
-        title: "Database Ready",
-        description: "List machinery to store in Supabase.",
+        title: "No machinery listings are available yet",
+        description: "Equipment listings are not live on TransMove yet. Please check back later.",
         icon: "tractor"
       });
     }

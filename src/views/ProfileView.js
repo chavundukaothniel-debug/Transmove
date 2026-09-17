@@ -1,11 +1,16 @@
 // ==============================================================================
 // TRANSMOVE USER & DRIVER PROFILE VIEW
-// Dynamic Profile Picture Upload (5MB limit, live preview, Supabase Storage),
-// Real Supabase Profile Data, Account Creation Date, Driver Rating & Verification Status
+// Dynamic Profile Picture Upload (5MB limit, live preview, Appwrite Storage),
+// Real Appwrite Profile Data, Account Creation Date & Verification Status
 // ==============================================================================
 import { AuthService } from "../services/auth.js";
 import { VehicleService } from "../services/vehicles.js";
-import { BookingService } from "../services/booking.js";
+import { BookingService } from "../services/bids.js";
+import { getAppwriteStorage, APPWRITE_CONFIG } from "../config/appwrite.js";
+
+const escapeHtmlValue = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+}[char]));
 
 export const ProfileView = {
   profile: null,
@@ -81,7 +86,7 @@ export const ProfileView = {
                 <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                   <span id="prof-role-badge" class="badge badge-info" style="background: #e0f2fe; color: #0369a1; padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 700; font-size: 0.75rem;">DRIVER</span>
                   <span id="prof-status-badge" class="badge badge-success" style="background: #dcfce7; color: #15803d; padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 700; font-size: 0.75rem;">VERIFIED</span>
-                  <span id="prof-rating-badge" style="font-size: 0.85rem; font-weight: 700; color: #d97706;">⭐ 5.0 (0 reviews)</span>
+                  <span id="prof-rating-badge" style="font-size: 0.85rem; font-weight: 700; color: #d97706;">No ratings yet</span>
                 </div>
               </div>
             </div>
@@ -157,8 +162,11 @@ export const ProfileView = {
           <div id="prof-tab-verification" style="display: none;">
             <div style="background: #f0f9ff; border: 1px solid #bae6fd; color: #0369a1; padding: 1rem; border-radius: 8px; margin-bottom: 1.25rem;">
               <h4 style="font-weight: 700; margin: 0 0 0.25rem 0;">🔒 Private Driver Documents &amp; Verification</h4>
-              <p style="font-size: 0.85rem; margin: 0;">Upload confidential documents (Driver's License, Vehicle Registration, Insurance Policy). Documents are kept strictly private in encrypted Supabase Storage.</p>
+              <p style="font-size: 0.85rem; margin: 0;">Upload confidential documents (Driver's License, Vehicle Registration, Insurance Policy). Documents are kept strictly private in Appwrite Storage with access restricted to your account and TransMove verification.</p>
             </div>
+
+            <div id="verification-readiness-summary" style="margin-bottom:1rem;">Loading verification status...</div>
+            <div id="driver-documents-list" style="display:grid;gap:0.5rem;margin-bottom:1.25rem;"></div>
 
             <form id="driver-docs-upload-form">
               <div class="grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
@@ -219,7 +227,6 @@ export const ProfileView = {
     const emailInput = document.getElementById("prof-email-input");
     const roleBadge = document.getElementById("prof-role-badge");
     const statusBadge = document.getElementById("prof-status-badge");
-    const ratingBadge = document.getElementById("prof-rating-badge");
     const completedJobsEl = document.getElementById("prof-completed-jobs-count");
     const createdDateEl = document.getElementById("prof-created-date");
 
@@ -230,15 +237,9 @@ export const ProfileView = {
     
     if (statusBadge) {
       const st = this.profile.verification_status || "pending";
-      statusBadge.innerText = st.toUpperCase();
-      statusBadge.style.background = st === "approved" ? "#dcfce7" : "#fffbeb";
-      statusBadge.style.color = st === "approved" ? "#15803d" : "#b45309";
-    }
-
-    if (ratingBadge) {
-      const avg = this.profile.rating_avg ? parseFloat(this.profile.rating_avg).toFixed(1) : "5.0";
-      const count = this.profile.rating_count || 0;
-      ratingBadge.innerText = `⭐ ${avg} (${count} reviews)`;
+      statusBadge.innerText = st === "approved" ? "VERIFIED" : st.toUpperCase();
+      statusBadge.style.background = st === "approved" ? "#dcfce7" : st === "rejected" ? "#fee2e2" : "#fffbeb";
+      statusBadge.style.color = st === "approved" ? "#15803d" : st === "rejected" ? "#b91c1c" : "#b45309";
     }
 
     if (completedJobsEl) completedJobsEl.innerText = this.completedJobsCount;
@@ -251,10 +252,18 @@ export const ProfileView = {
     // Avatar image or initials
     const avatarPlaceholder = document.getElementById("prof-avatar-placeholder");
     const avatarImg = document.getElementById("prof-avatar-img");
-    if (this.profile.profile_photo_url) {
+    let avatarUrl = "";
+    if (this.profile.profile_image_id) {
+      try {
+        avatarUrl = getAppwriteStorage().getFileView(APPWRITE_CONFIG.bucketId, this.profile.profile_image_id);
+      } catch (urlErr) {
+        console.warn("Profile photo URL notice:", urlErr.message);
+      }
+    }
+    if (avatarUrl) {
       if (avatarPlaceholder) avatarPlaceholder.style.display = "none";
       if (avatarImg) {
-        avatarImg.src = this.profile.profile_photo_url;
+        avatarImg.src = avatarUrl;
         avatarImg.style.display = "block";
       }
     } else if (avatarPlaceholder) {
@@ -280,6 +289,7 @@ export const ProfileView = {
         });
 
         if (tab === "vehicles") this.loadProfileVehicles();
+        if (tab === "verification") this.loadVerificationState();
       });
     });
 
@@ -381,6 +391,7 @@ export const ProfileView = {
         await VehicleService.uploadVerificationDocument(file, docType);
         alert("Document uploaded securely to private storage and submitted for verification!");
         fileInput.value = "";
+        await this.loadVerificationState();
       } catch (err) {
         alert("Error uploading document: " + err.message);
       } finally {
@@ -388,6 +399,86 @@ export const ProfileView = {
         btn.innerText = "Upload Private Verification Document 📄";
       }
     });
+
+    if (!this.isPassengerView) await this.loadVerificationState();
+  },
+
+  async loadVerificationState() {
+    const summaryContainer = document.getElementById("verification-readiness-summary");
+    const documentsContainer = document.getElementById("driver-documents-list");
+    if (!summaryContainer || !documentsContainer) return;
+
+    const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[char]));
+    const statusMeta = (status) => {
+      const value = String(status || "unverified").toLowerCase();
+      if (["approved", "verified"].includes(value)) return { label: "Approved", bg: "#dcfce7", color: "#15803d" };
+      if (value === "rejected") return { label: "Rejected / Needs attention", bg: "#fee2e2", color: "#b91c1c" };
+      if (value === "expired") return { label: "Expired", bg: "#fee2e2", color: "#b91c1c" };
+      return { label: value === "pending" ? "Pending" : "Not submitted", bg: "#fef3c7", color: "#92400e" };
+    };
+    const badge = (label, status) => {
+      const meta = statusMeta(status);
+      return `<div style="border:1px solid #e2e8f0;border-radius:7px;padding:0.75rem;background:#fff;"><div style="font-size:0.75rem;color:#64748b;font-weight:700;text-transform:uppercase;">${escapeHtml(label)}</div><div style="display:inline-block;margin-top:0.3rem;padding:0.2rem 0.5rem;border-radius:4px;background:${meta.bg};color:${meta.color};font-size:0.78rem;font-weight:800;">${escapeHtml(meta.label)}</div></div>`;
+    };
+
+    try {
+      const [profile, vehicles, documents] = await Promise.all([
+        AuthService.getCurrentProfile(),
+        VehicleService.getDriverVehicles(),
+        VehicleService.getDriverDocuments()
+      ]);
+      this.profile = profile || this.profile;
+      const now = Date.now();
+      const effectiveDocuments = documents.map((document) => ({
+        ...document,
+        effective_status: document.expires_at && new Date(document.expires_at).getTime() < now
+          ? "expired"
+          : document.verification_status
+      }));
+      const vehicleStatus = vehicles.length === 0
+        ? "unverified"
+        : vehicles.some((vehicle) => vehicle.verification_status === "rejected")
+          ? "rejected"
+          : vehicles.some((vehicle) => ["pending", "unverified"].includes(vehicle.verification_status))
+            ? "pending"
+            : "approved";
+      const documentStatus = effectiveDocuments.length === 0
+        ? "unverified"
+        : effectiveDocuments.some((document) => document.effective_status === "expired")
+          ? "expired"
+          : effectiveDocuments.some((document) => document.effective_status === "rejected")
+            ? "rejected"
+            : effectiveDocuments.some((document) => ["pending", "unverified"].includes(document.effective_status))
+              ? "pending"
+              : "verified";
+      const isReady = profile?.verification_status === "approved" &&
+        vehicles.some((vehicle) => vehicle.verification_status === "approved") &&
+        effectiveDocuments.some((document) => document.effective_status === "verified");
+
+      summaryContainer.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.75rem;">
+          ${badge("Profile", profile?.verification_status)}
+          ${badge("Vehicles", vehicleStatus)}
+          ${badge("Documents", documentStatus)}
+        </div>
+        <div style="margin-top:0.75rem;padding:0.75rem;border-radius:7px;background:${isReady ? "#ecfdf5" : "#f8fafc"};color:${isReady ? "#047857" : "#475569"};font-size:0.85rem;font-weight:700;">
+          ${isReady ? "Provider readiness: Verified components are ready." : "Provider readiness: Complete and obtain approval for every required component."}
+        </div>
+        ${profile?.verification_rejection_reason ? `<div style="margin-top:0.75rem;padding:0.75rem;border-radius:7px;background:#fef2f2;color:#991b1b;font-size:0.85rem;">Profile rejection reason: ${escapeHtml(profile.verification_rejection_reason)}</div>` : ""}`;
+
+      documentsContainer.innerHTML = effectiveDocuments.length ? effectiveDocuments.map((document) => {
+        const meta = statusMeta(document.effective_status);
+        return `<div style="border:1px solid #e2e8f0;border-radius:7px;padding:0.75rem;display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+          <div><strong>${escapeHtml((document.document_type || "document").replaceAll("_", " "))}</strong><div style="font-size:0.78rem;color:#64748b;">Uploaded ${new Date(document.created_at).toLocaleDateString("en-GB")}${document.expires_at ? ` · Expires ${new Date(document.expires_at).toLocaleDateString("en-GB")}` : ""}</div>${document.rejection_reason ? `<div style="font-size:0.78rem;color:#b91c1c;">${escapeHtml(document.rejection_reason)}</div>` : ""}</div>
+          <div style="display:flex;align-items:center;gap:0.5rem;"><span style="padding:0.2rem 0.5rem;border-radius:4px;background:${meta.bg};color:${meta.color};font-size:0.75rem;font-weight:800;">${escapeHtml(meta.label)}</span><a href="${escapeHtml(document.view_url)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm">View</a></div>
+        </div>`;
+      }).join("") : `<div style="padding:0.75rem;border:1px dashed #cbd5e1;border-radius:7px;color:#64748b;font-size:0.85rem;">No verification documents uploaded yet.</div>`;
+    } catch (error) {
+      summaryContainer.innerHTML = `<div style="color:#b91c1c;">Could not load verification status: ${escapeHtml(error.message)}</div>`;
+      documentsContainer.innerHTML = "";
+    }
   },
 
   async loadProfileVehicles() {
@@ -407,9 +498,10 @@ export const ProfileView = {
             <div style="font-weight: 700; font-size: 1rem; color: #0f172a;">${v.make} ${v.model} (${v.year})</div>
             <div style="font-size: 0.85rem; color: #64748b;">Plate: <strong>${v.registration_number}</strong> • Category: ${v.service_category || v.vehicle_type}</div>
           </div>
-          <span class="badge ${v.verification_status === "approved" ? "badge-success" : "badge-warning"}" style="padding: 0.25rem 0.65rem; border-radius: 4px; font-weight: 700; font-size: 0.75rem;">
+          <span class="badge ${v.verification_status === "approved" ? "badge-success" : v.verification_status === "rejected" ? "badge-danger" : "badge-warning"}" style="padding: 0.25rem 0.65rem; border-radius: 4px; font-weight: 700; font-size: 0.75rem;">
             ${v.verification_status.toUpperCase()}
           </span>
+          ${v.rejection_reason ? `<div style="font-size:0.78rem;color:#b91c1c;margin-top:0.35rem;">${escapeHtmlValue(v.rejection_reason)}</div>` : ""}
         </div>
       `).join("");
     } catch (err) {

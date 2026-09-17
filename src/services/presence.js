@@ -5,7 +5,6 @@
 // NO manual toggle exists or is added.
 // ==============================================================================
 import { getAppwriteAccount, getTrustedApiEndpoint } from "../config/appwrite.js";
-import { getSupabase } from "../config/supabase.js";
 
 let heartbeatInterval = null;
 let focusHandler = null;
@@ -46,11 +45,11 @@ export const PresenceService = {
    * Sends heartbeat immediately and then every 45 seconds.
    */
   startHeartbeat(userId) {
-    if (!userId) return;
+    if (!userId) return Promise.resolve();
     this.stopHeartbeat();
 
     // Initial heartbeat
-    this.sendHeartbeat(userId);
+    const initial = this.sendHeartbeat(userId);
 
     // Periodic heartbeat every 45 seconds
     heartbeatInterval = setInterval(() => {
@@ -62,6 +61,8 @@ export const PresenceService = {
       focusHandler = () => this.sendHeartbeat(userId);
       window.addEventListener("focus", focusHandler);
     }
+
+    return initial;
   },
 
   /**
@@ -74,20 +75,6 @@ export const PresenceService = {
       await trustedCall("driver_heartbeat", {});
     } catch (err) {
       console.warn("Heartbeat notice:", err.message);
-
-      // Graceful fallback to Supabase if configured
-      const supabase = getSupabase();
-      if (supabase) {
-        try {
-          await supabase
-            .from("profiles")
-            .update({
-              driver_availability: "online",
-              updated_at: new Date().toISOString()
-            })
-            .eq("id", userId);
-        } catch (_) {}
-      }
     }
   },
 

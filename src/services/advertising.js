@@ -1,156 +1,135 @@
 // ==============================================================================
-// TRANSMOVE REAL ADVERTISING PLATFORM SERVICE
-// Campaign creation, ad placement rendering, impression & click event tracking
+// TRANSMOVE ADVERTISING SERVICE (APPWRITE & ECOCASH)
+// Rate cards, cost calculator, campaign creation, and EcoCash payment flow.
+// Fully migrated to Appwrite and trusted API.
 // ==============================================================================
-import { getSupabase } from "../config/supabase.js";
+import {
+  APPWRITE_CONFIG,
+  getAppwriteAccount,
+  getAppwriteStorage,
+  getTrustedApiEndpoint,
+  ID,
+  Permission,
+  Role
+} from "../config/appwrite.js";
+import { PaymentService } from "./payments.js";
+
+async function trustedCall(action, data = {}) {
+  const account = getAppwriteAccount();
+  let jwt = null;
+  try {
+    const jwtRes = await account.createJWT();
+    jwt = jwtRes.jwt;
+  } catch (_) {
+    // Guest calls for public calculator / rate cards
+  }
+
+  const headers = { "Content-Type": "application/json" };
+  if (jwt) {
+    headers["Authorization"] = `Bearer ${jwt}`;
+    headers["X-Appwrite-JWT"] = jwt;
+  }
+
+  const response = await fetch(getTrustedApiEndpoint(), {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ action, data })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || `Advertising API error (HTTP ${response.status})`);
+  return result;
+}
 
 export const AdvertisingService = {
   /**
-   * Creates a new advertising campaign.
+   * Fetches active placement rate cards.
    */
-  async createCampaign(campaignData) {
-    const supabase = getSupabase();
-    if (!supabase) throw new Error("Supabase client uninitialized.");
-
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session || !session.user) throw new Error("Authentication required to create campaign.");
-
-    const { data, error } = await supabase
-      .from("advertisements")
-      .insert([
-        {
-          advertiser_user_id: session.user.id,
-          company_name: campaignData.company_name,
-          title: campaignData.title,
-          description: campaignData.description,
-          image_url: campaignData.image_url,
-          destination_url: campaignData.destination_url,
-          placement: campaignData.placement || "marketplace_banner",
-          budget: parseFloat(campaignData.budget || 0),
-          status: "pending_review",
-          start_at: campaignData.start_at || new Date().toISOString(),
-          end_at: campaignData.end_at || null
-        }
-      ])
-      .select()
-      .single();
-
-    if (error) throw new Error(error.message);
-    return data;
+  async getRateCards() {
+    const result = await trustedCall("list_ad_rate_cards", {});
+    return result.rate_cards || [];
   },
 
   /**
-   * Fetches approved active advertisements for a specific placement slot.
+   * Fetches preset advertising packages.
    */
-  async getActiveAdsByPlacement(placement = "marketplace_banner") {
-    const supabase = getSupabase();
-    if (!supabase) return [];
-
-    const { data, error } = await supabase
-      .from("advertisements")
-      .select("*")
-      .eq("placement", placement)
-      .eq("status", "approved")
-      .order("created_at", { ascending: false });
-
-    if (error) return [];
-    return data || [];
+  async getPackages() {
+    const result = await trustedCall("list_ad_packages", {});
+    return result.packages || [];
   },
 
   /**
-   * Records a real impression event for an ad.
+   * Calculates dynamic ad price via server validation.
+   *
+   * @param {Object} params
+   * @param {string} [params.placement]
+   * @param {number} [params.duration_days]
+   * @param {boolean} [params.is_targeted]
+   * @param {boolean} [params.is_featured]
+   * @param {string} [params.package_slug]
    */
-  async recordImpression(adId) {
-    const supabase = getSupabase();
-    if (!supabase) return;
-
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      await supabase.from("ad_events").insert([
-        { advertisement_id: adId, user_id: session?.user?.id || null, event_type: "impression" }
-      ]);
-      // Increment impressions counter on advertisement row
-      await supabase.rpc("increment_ad_impressions", { p_ad_id: adId }).catch(() => {
-        // Fallback update if RPC not present
-        supabase.from("advertisements").update({ updated_at: new Date().toISOString() }).eq("id", adId);
-      });
-    } catch (err) {
-      console.warn("Impression log notice:", err.message);
-    }
+  async calculatePrice(params) {
+    return trustedCall("calculate_ad_price", params);
   },
 
   /**
-   * Records a real click event for an ad and returns the destination URL.
+   * Uploads an ad banner/creative image to Appwrite storage.
    */
-  async recordClick(adId) {
-    const supabase = getSupabase();
-    if (!supabase) return null;
+  async uploadAdImage(file) {
+    if (!file) throw new Error("No image file provided.");
+    const account = getAppwriteAccount();
+    const user = await account.get();
+    if (!user || !user.$id) throw new Error("Login required to upload campaign creative.");
 
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      await supabase.from("ad_events").insert([
-        { advertisement_id: adId, user_id: session?.user?.id || null, event_type: "click" }
-      ]);
-    } catch (err) {
-      console.warn("Click log notice:", err.message);
-    }
+    const storage = getAppwriteStorage();
+    const fileId = ID.unique();
 
-    const { data: ad } = await supabase.from("advertisements").select("destination_url").eq("id", adId).single();
-    return ad?.destination_url || null;
+    const uploaded = await storage.createFile(
+      APPWRITE_CONFIG.bucketId,
+      fileId,
+      file,
+      [
+        Permission.read(Role.any()), // Ads are public once active
+        Permission.delete(Role.user(user.$id))
+      ]
+    );
+    return uploaded.$id;
   },
 
   /**
-   * Fetches all campaigns for an advertiser.
+   * Submits a new advertising campaign draft.
    */
-  async getAdvertiserCampaigns(userId) {
-    const supabase = getSupabase();
-    if (!supabase) return [];
-
-    const { data, error } = await supabase
-      .from("advertisements")
-      .select("*")
-      .eq("advertiser_user_id", userId)
-      .order("created_at", { ascending: false });
-
-    if (error) return [];
-    return data || [];
+  async submitCampaign(campaignData) {
+    return trustedCall("submit_ad_campaign", campaignData);
   },
 
   /**
-   * Admin: Fetches all ad campaigns for review and moderation.
+   * Fetches active EcoCash payment destinations for ad payment.
    */
-  async getAllCampaignsForAdmin() {
-    const supabase = getSupabase();
-    if (!supabase) return [];
-
-    const { data, error } = await supabase
-      .from("advertisements")
-      .select("*, advertiser:advertiser_user_id(full_name, email)")
-      .order("created_at", { ascending: false });
-
-    if (error) return [];
-    return data || [];
+  async getPaymentDestinations() {
+    return PaymentService.getPaymentDestinations();
   },
 
   /**
-   * Admin: Approves, rejects, or pauses a campaign.
+   * Submits EcoCash payment for an ad campaign.
    */
-  async updateCampaignStatus(adId, status, rejectionReason = null) {
-    const supabase = getSupabase();
-    if (!supabase) throw new Error("Supabase client uninitialized.");
-
-    const { data, error } = await supabase
-      .from("advertisements")
-      .update({
-        status,
-        rejection_reason: rejectionReason,
-        updated_at: new Date().toISOString()
-      })
-      .eq("id", adId)
-      .select()
-      .single();
-
-    if (error) throw new Error(error.message);
-    return data;
+  async submitCampaignPayment({
+    campaignId,
+    destinationId,
+    senderName,
+    senderPhone,
+    transactionRef,
+    proofFileId,
+    amountDeclared
+  }) {
+    return PaymentService.submitEcocashPayment({
+      payment_type: "advertising",
+      related_id: campaignId,
+      payment_destination_id: destinationId,
+      sender_name: senderName,
+      sender_phone: senderPhone,
+      transaction_reference: transactionRef,
+      proof_file_id: proofFileId,
+      amount_declared: amountDeclared
+    });
   }
 };

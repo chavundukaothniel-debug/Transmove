@@ -517,6 +517,39 @@ export const VehicleService = {
   },
 
   /**
+   * Deletes a vehicle photo via trusted API.
+   */
+  async deleteVehiclePhoto(photoId) {
+    const account = getAppwriteAccount();
+    const user = await account.get();
+    if (!user) throw new Error("Authentication required.");
+
+    const jwtRes = await account.createJWT();
+    const jwt = jwtRes.jwt;
+
+    const endpoint = getTrustedApiEndpoint();
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${jwt}`,
+        "X-Appwrite-JWT": jwt
+      },
+      body: JSON.stringify({
+        action: "delete_vehicle_photo",
+        data: { photo_id: photoId }
+      })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || "Failed to delete vehicle photo.");
+    }
+
+    return await res.json();
+  },
+
+  /**
    * Uploads a confidential verification document to PRIVATE Appwrite Storage (transmove-files)
    * and creates a record in verification_documents.
    * File permissions are strictly restricted to Role.user(userId). NEVER Role.any() or Role.users().

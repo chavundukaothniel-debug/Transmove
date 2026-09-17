@@ -1,10 +1,8 @@
 // ==============================================================================
 // TRANSMOVE NOTIFICATION SERVICE
 // In-App Toast & DB Event Notification Management via Appwrite
-// Supabase remains intact as backup during incremental migration
 // ==============================================================================
 import { getAppwriteAccount, getAppwriteClient, getTrustedApiEndpoint } from "../config/appwrite.js";
-import { getSupabase } from "../config/supabase.js";
 
 async function trustedCall(action, data = {}) {
   const account = getAppwriteAccount();
@@ -44,17 +42,6 @@ export const NotificationService = {
       }));
     } catch (err) {
       console.warn("Appwrite getNotifications notice:", err.message);
-
-      // Graceful fallback to Supabase if configured
-      const supabase = getSupabase();
-      if (supabase && userId) {
-        const { data } = await supabase
-          .from("notifications")
-          .select("*")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false });
-        if (data) return data;
-      }
       return [];
     }
   },
@@ -68,11 +55,7 @@ export const NotificationService = {
     try {
       await trustedCall("mark_notification_read", { notification_id: notificationId });
     } catch (err) {
-      // Graceful fallback to Supabase if configured
-      const supabase = getSupabase();
-      if (supabase) {
-        await supabase.from("notifications").update({ is_read: true }).eq("id", notificationId);
-      }
+      console.warn("markAsRead notice:", err.message);
     }
   },
 

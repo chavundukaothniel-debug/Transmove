@@ -3,11 +3,10 @@
 // Standardized Layout Shell: Left Sidebar + Top Header + Main Content
 // ==============================================================================
 import { AuthService } from "../../src/services/auth.js";
-import { ThemeService } from "../../src/services/theme.js";
 import { renderSidebar } from "../../src/components/Sidebar.js";
-import { renderHeader } from "../../src/components/Header.js";
+import { renderHeader, initHeaderNotifications, headerIcon } from "../../src/components/Header.js";
 import { renderMobileNav } from "../../src/components/MobileNav.js";
-import { openSupabaseConfigModal } from "../../src/components/Navbar.js";
+import { ThemeService } from "../../src/services/theme.js";
 
 // Views
 import { HomeView } from "../../src/views/HomeView.js";
@@ -36,6 +35,8 @@ class App {
     this.currentProfile = null;
     this.currentRoute = "home";
     this.sidebarCollapsed = localStorage.getItem("transmove_sidebar_collapsed") === "true";
+    this.verificationUnsubscribe = null;
+    this.verificationRefreshTimer = null;
   }
 
   async init() {
@@ -44,6 +45,7 @@ class App {
       this.currentProfile = await AuthService.getCurrentProfile();
       if (this.currentProfile) {
         this.currentProfile.approvedRoles = await AuthService.getApprovedRoles(this.currentProfile);
+        await this.startVerificationRealtime();
       }
     } catch (err) {
       console.warn("Auth initialization check:", err.message);
@@ -55,9 +57,22 @@ class App {
         this.currentProfile = await AuthService.getCurrentProfile();
         if (this.currentProfile) {
           this.currentProfile.approvedRoles = await AuthService.getApprovedRoles(this.currentProfile);
+          await this.startVerificationRealtime();
         }
-        this.render();
+        if (["login", "register"].includes(this.currentRoute)) {
+          if (sessionStorage.getItem("transmove_pending_request")) {
+            window.location.hash = "#customer?tab=search";
+          } else {
+            window.location.hash = `#${this.getDefaultRoleRoute()}`;
+          }
+        } else if (this.currentRoute === "home" && sessionStorage.getItem("transmove_pending_request")) {
+          window.location.hash = "#customer?tab=search";
+        } else {
+          this.render();
+        }
       } else if (event === "SIGNED_OUT") {
+        if (this.verificationUnsubscribe) this.verificationUnsubscribe();
+        this.verificationUnsubscribe = null;
         this.currentProfile = null;
         window.location.hash = "#home";
         this.render();
@@ -77,20 +92,114 @@ class App {
       }
     });
 
-    // 5. Global WhatsApp listener
+    // 5. Global WhatsApp & Share listeners
     document.getElementById("btn-footer-whatsapp")?.addEventListener("click", () => {
       import("../../src/services/social.js").then(({ SocialService }) => {
         SocialService.launchWhatsAppSupport();
       });
     });
 
+    document.getElementById("btn-footer-share")?.addEventListener("click", () => {
+      import("../../src/services/social.js").then(({ SocialService }) => {
+        SocialService.shareTransMove().then((res) => {
+          if (res?.method === "clipboard") {
+            alert("TransMove link copied to clipboard!");
+          }
+        });
+      });
+    });
+
+    // Populate footer social links (only legitimately configured URLs)
+    import("../../src/services/social.js").then(({ SocialService }) => {
+      const socialContainer = document.getElementById("footer-social-links");
+      if (socialContainer) {
+        const links = SocialService.getSocialLinks();
+        if (links.length > 0) {
+          socialContainer.innerHTML = links.map(l => `
+            <a href="${l.url}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;" title="${l.label}">
+              ${l.label}
+            </a>
+          `).join("");
+        }
+      }
+    });
+
+    // 6. Register PWA Service Worker
+    if ("serviceWorker" in navigator && (window.location.protocol === "https:" || window.location.hostname === "localhost")) {
+      navigator.serviceWorker.register("/sw.js").catch((err) => {
+        console.warn("Notice: Service worker registration:", err.message);
+      });
+    }
+
+    // 7. Global Theme Change Listener
+    window.addEventListener("themechanged", (e) => {
+      const theme = e.detail?.theme || ThemeService.getCurrentTheme();
+      const btn = document.getElementById("btn-theme-toggle");
+      if (btn) {
+        btn.innerHTML = theme === "dark" ? headerIcon("sun", 20) : headerIcon("moon", 20);
+        btn.setAttribute("title", theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode");
+      }
+    });
+
     // Initial Route
     this.handleRoute();
+  }
+
+  getDefaultRoleRoute() {
+    const primaryRole = AuthService.getPrimaryRole(this.currentProfile);
+    return {
+      driver: "driver",
+      customer: "passenger",
+      passenger: "passenger",
+      cargo_owner: "cargo-owner",
+      logistics_provider: "logistics",
+      logistics: "logistics",
+      vehicle_owner: "vehicle-owner",
+      machinery_owner: "machinery-owner",
+      machinery_hirer: "machinery-hirer",
+      owner: "owner",
+      business: "business",
+      business_admin: "business",
+      advertiser: "advertise",
+      admin: "admin"
+    }[primaryRole] || "passenger";
+  }
+
+  async startVerificationRealtime() {
+    if (this.verificationUnsubscribe) this.verificationUnsubscribe();
+    this.verificationUnsubscribe = null;
+    if (!this.currentProfile) return;
+    try {
+      this.verificationUnsubscribe = await AuthService.subscribeToVerificationState(() => {
+        clearTimeout(this.verificationRefreshTimer);
+        this.verificationRefreshTimer = setTimeout(async () => {
+          const latest = await AuthService.getCurrentProfile();
+          if (!latest) return;
+          latest.approvedRoles = await AuthService.getApprovedRoles(latest);
+          this.currentProfile = latest;
+          if (["profile", "driver", "vehicle_owner", "owner", "logistics"].includes(this.currentRoute)) {
+            await this.render();
+          }
+        }, 150);
+      });
+    } catch (error) {
+      console.warn("Verification realtime unavailable; navigation refresh remains active:", error.message);
+    }
   }
 
   async handleRoute() {
     const rawHash = window.location.hash.slice(1);
     let route = rawHash.split("?")[0];
+
+    // Appwrite is the source of truth. Refresh the profile on navigation so
+    // admin verification changes never depend on stale localStorage state.
+    if (this.currentProfile) {
+      const latestProfile = await AuthService.getCurrentProfile();
+      if (latestProfile) {
+        latestProfile.approvedRoles = await AuthService.getApprovedRoles(latestProfile);
+        this.currentProfile = latestProfile;
+      }
+    }
 
     // Normalize hyphenated route names to internal module keys
     const routeAliasMap = {
@@ -102,33 +211,32 @@ class App {
       advertiser: "advertise",
       "admin-login": "admin_login",
       "admin/login": "admin_login",
+      about: "contact",
+      careers: "contact",
+      partner: "business",
       terms: "legal",
       privacy: "legal"
     };
 
     route = routeAliasMap[route] || route;
 
-    // Direct dashboard entry for logged-in users visiting root, home, or login
-    if ((!rawHash || rawHash === "" || rawHash === "home" || route === "login") && this.currentProfile) {
-      const primaryRole = AuthService.getPrimaryRole(this.currentProfile);
-      const defaultRoleRoute = {
-        driver: "driver",
-        customer: "passenger",
-        passenger: "passenger",
-        cargo_owner: "cargo-owner",
-        logistics_provider: "logistics",
-        logistics: "logistics",
-        vehicle_owner: "vehicle-owner",
-        machinery_owner: "machinery-owner",
-        machinery_hirer: "machinery-hirer",
-        owner: "owner",
-        business: "business",
-        business_admin: "business",
-        advertiser: "advertise",
-        admin: "admin"
-      }[primaryRole] || "passenger";
+    // Direct logout route handler
+    if (route === "logout") {
+      try {
+        await AuthService.logout();
+      } catch (_) {}
+      this.currentProfile = null;
+      window.location.hash = "#home";
+      return;
+    }
 
-      window.location.hash = `#${defaultRoleRoute}`;
+    // Direct dashboard entry for logged-in users visiting login or register
+    if ((route === "login" || route === "register") && this.currentProfile) {
+      if (sessionStorage.getItem("transmove_pending_request")) {
+        window.location.hash = "#customer?tab=search";
+      } else {
+        window.location.hash = `#${this.getDefaultRoleRoute()}`;
+      }
       return;
     }
 
@@ -147,7 +255,8 @@ class App {
       "business",
       "admin",
       "profile",
-      "messages"
+      "messages",
+      "subscriptions"
     ];
 
     if (privateRoutes.includes(route) && !this.currentProfile) {
@@ -180,6 +289,12 @@ class App {
           alert(`Access Restricted: Your account does not have an active approved ${requiredRole.replace('_', ' ').toUpperCase()} role.`);
           const primaryRole = AuthService.getPrimaryRole(this.currentProfile);
           AuthService.setActiveRole(this.currentProfile, primaryRole);
+          const targetHash = `#${this.getDefaultRoleRoute()}`;
+          if (window.location.hash !== targetHash) {
+            window.location.hash = targetHash;
+          } else {
+            await this.render();
+          }
           return;
         }
       }
@@ -234,17 +349,6 @@ class App {
     if (headerMount) {
       headerMount.innerHTML = renderHeader(this.currentProfile, this.currentRoute);
 
-      // Role Switcher Listener
-      document.getElementById("header-role-switcher")?.addEventListener("change", (e) => {
-        const selectedRole = e.target.value;
-        AuthService.setActiveRole(this.currentProfile, selectedRole);
-      });
-
-      // Theme Selector Listener
-      document.getElementById("header-theme-selector")?.addEventListener("change", (e) => {
-        ThemeService.setTheme(e.target.value);
-      });
-
       // Mobile Menu Trigger Listener
       document.getElementById("btn-mobile-sidebar-trigger")?.addEventListener("click", () => {
         const sidebar = document.getElementById("app-sidebar");
@@ -257,15 +361,17 @@ class App {
         }
       });
 
-      // Header Logout
-      document.getElementById("btn-header-logout")?.addEventListener("click", async () => {
-        await AuthService.logout();
+      // Bind Global Theme Toggle
+      document.getElementById("btn-theme-toggle")?.addEventListener("click", () => {
+        const next = ThemeService.toggleTheme();
+        const btn = document.getElementById("btn-theme-toggle");
+        if (btn) {
+          btn.innerHTML = next === "dark" ? headerIcon("sun", 20) : headerIcon("moon", 20);
+          btn.setAttribute("title", next === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode");
+        }
       });
 
-      // DB Setup trigger
-      document.getElementById("btn-quick-setup-supabase")?.addEventListener("click", () => {
-        openSupabaseConfigModal();
-      });
+      initHeaderNotifications(this.currentProfile);
     }
 
     // Render Mobile Bottom Navigation
@@ -390,7 +496,7 @@ class App {
       contentContainer.innerHTML = viewHtml;
 
       if (activeViewModule && activeViewModule.init) {
-        await activeViewModule.init(this.currentRoute);
+        await activeViewModule.init(this.currentRoute, this.currentProfile);
       }
     }
   }
@@ -399,5 +505,6 @@ class App {
 // Instantiate App
 window.addEventListener("DOMContentLoaded", () => {
   const app = new App();
+  window.__transmove_app = app;
   app.init();
 });

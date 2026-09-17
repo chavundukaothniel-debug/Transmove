@@ -8,6 +8,7 @@ export function renderMobileNav(currentProfile, currentRoute) {
 
   const mainRoleRoute = {
     customer: "customer",
+    passenger: "customer",
     driver: "driver",
     cargo_owner: "cargo_owner",
     logistics_provider: "logistics",

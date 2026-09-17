@@ -15,6 +15,7 @@ globalThis.window = {
 };
 
 import fs from "fs";
+import { assertTestCleanupCapabilities, runCleanupTasks } from "./test-hygiene.js";
 import path from "path";
 import { AuthService } from "../src/services/auth.js";
 import { VehicleService } from "../src/services/vehicles.js";
@@ -77,7 +78,7 @@ async function serverQuery(col, queries = []) {
   const res = await fetch(`${ENDPOINT}/databases/${DB_ID}/collections/${col}/documents?${qs}`, {
     headers: serverHeaders
   });
-  if (!res.ok) return [];
+  if (!res.ok) throw new Error(`Unable to query ${col}: HTTP ${res.status}`);
   return (await res.json()).documents || [];
 }
 
@@ -103,10 +104,11 @@ async function serverUpdate(col, docId, data) {
 }
 
 async function serverDelete(col, docId) {
-  await fetch(`${ENDPOINT}/databases/${DB_ID}/collections/${col}/documents/${docId}`, {
+  const response = await fetch(`${ENDPOINT}/databases/${DB_ID}/collections/${col}/documents/${docId}`, {
     method: "DELETE",
     headers: serverHeaders
   });
+  if (![200, 204, 404].includes(response.status)) throw new Error(`HTTP ${response.status}`);
 }
 
 async function getCollectionInfo(col) {
@@ -172,7 +174,8 @@ async function ensureTestUser(email, name, phone, role, city) {
     });
     if (res?.user?.$id) cleanup.users.push(res.user.$id);
   } catch (err) {
-    // User may already exist
+    const existing = await AuthService.login({ email, password: testPassword });
+    if (existing?.user?.$id && !cleanup.users.includes(existing.user.$id)) cleanup.users.push(existing.user.$id);
   }
 }
 
@@ -180,6 +183,7 @@ async function ensureTestUser(email, name, phone, role, city) {
 // MAIN TEST SUITE
 // ===========================================================================
 async function main() {
+  await assertTestCleanupCapabilities("messaging-notifications-presence");
   console.log("╔═══════════════════════════════════════════════════════════════╗");
   console.log("║  TRANSMOVE MESSAGING + NOTIFICATIONS + PRESENCE E2E SUITE    ║");
   console.log("╚═══════════════════════════════════════════════════════════════╝");
@@ -786,24 +790,72 @@ async function main() {
 // ---------------------------------------------------------------------------
 // CLEANUP
 // ---------------------------------------------------------------------------
+function containsCleanupReference(value, ownedIds) {
+  if (typeof value === "string") return ownedIds.has(value);
+  if (Array.isArray(value)) return value.some((item) => containsCleanupReference(item, ownedIds));
+  if (value && typeof value === "object") {
+    return Object.entries(value).some(([key, item]) =>
+      !key.startsWith("$") && containsCleanupReference(item, ownedIds)
+    );
+  }
+  return false;
+}
+
 async function doCleanup() {
   console.log("\n══ PHASE 18: CLEANUP ══════════════════════════════════════════");
-  const del = async (col, ids) => {
-    for (const id of ids) {
-      try {
-        await serverDelete(col, id);
-      } catch {}
+  const tasks = [];
+  const ownedIds = new Set([
+    ...cleanup.users, ...cleanup.vehicles, ...cleanup.requests, ...cleanup.bids,
+    ...cleanup.bookings, ...cleanup.messages, ...cleanup.notifications, ...cleanup.presence
+  ]);
+  for (const collection of ["booking_events", "activity_logs"]) {
+    try {
+      const records = await serverQuery(collection, [{ method: "limit", values: [100] }]);
+      for (const record of records.filter((item) => containsCleanupReference(item, ownedIds))) {
+        tasks.push({
+          label: `${collection}/${record.$id}`,
+          run: () => serverDelete(collection, record.$id)
+        });
+      }
+    } catch (error) {
+      tasks.push({ label: `${collection} cleanup discovery`, run: async () => { throw error; } });
     }
-    if (ids.length) console.log(`  ${col}: ${ids.length} deleted`);
-  };
-
-  await del("messages", cleanup.messages);
-  await del("notifications", cleanup.notifications);
-  await del("driver_presence", cleanup.presence);
-  await del("bookings", cleanup.bookings);
-  await del("bids", cleanup.bids);
-  await del("service_requests", cleanup.requests);
-  await del("vehicles", cleanup.vehicles);
+  }
+  for (const [collection, ids] of [
+    ["messages", cleanup.messages],
+    ["notifications", cleanup.notifications],
+    ["driver_presence", cleanup.presence],
+    ["bookings", cleanup.bookings],
+    ["bids", cleanup.bids],
+    ["service_requests", cleanup.requests],
+    ["vehicles", cleanup.vehicles]
+  ]) {
+    for (const id of ids) tasks.push({
+      label: `${collection}/${id}`,
+      run: () => serverDelete(collection, id)
+    });
+  }
+  for (const userId of cleanup.users) {
+    tasks.push({
+      label: `identity ${userId}`,
+      run: async () => {
+        const profiles = await serverQuery("profiles", [{ method: "equal", attribute: "user_id", values: [userId] }]);
+        const identityTasks = profiles.map((profile) => ({
+          label: `profiles/${profile.$id}`,
+          run: () => serverDelete("profiles", profile.$id)
+        }));
+        identityTasks.push({
+          label: `Auth user ${userId}`,
+          run: async () => {
+            const response = await fetch(`${ENDPOINT}/users/${userId}`, { method: "DELETE", headers: serverHeaders });
+            if (![200, 204, 404].includes(response.status)) throw new Error(`HTTP ${response.status}`);
+          }
+        });
+        await runCleanupTasks(`messaging-notifications-presence ${userId}`, identityTasks);
+      }
+    });
+  }
+  await runCleanupTasks("messaging-notifications-presence", tasks);
   console.log("  Cleanup complete.");
 }
 
@@ -881,7 +933,8 @@ function printReport(livePerms) {
   console.log("═══════════════════════════════════════════════════════════════════\n");
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error("FATAL SUITE ERROR:", err);
+  await doCleanup().catch((cleanupError) => console.error("CLEANUP FAILED:", cleanupError.message));
   process.exit(1);
 });

@@ -10,6 +10,7 @@ globalThis.window = {
 };
 
 import fs from 'fs';
+import { assertTestCleanupCapabilities } from './test-hygiene.js';
 const env = fs.readFileSync('.env.appwrite.setup', 'utf8');
 const conf = {};
 env.split('\n').forEach(l => {
@@ -20,12 +21,14 @@ env.split('\n').forEach(l => {
 import { Client, Account, ID } from '../assets/js/vendor/appwrite.js';
 
 async function testVerifAndRecovery() {
+  await assertTestCleanupCapabilities("verification-recovery");
   const client = new Client().setEndpoint(conf.APPWRITE_ENDPOINT).setProject(conf.APPWRITE_PROJECT_ID);
   const account = new Account(client);
-
-  const testEmail = `verif_test_${Date.now()}@transmove.test`;
+  let u = null;
+  try {
+  const testEmail = `__test__.verification-recovery.${Date.now()}@transmove.test`;
   const testPassword = 'Password123!';
-  const u = await account.create(ID.unique(), testEmail, testPassword, 'Verification Test');
+  u = await account.create(ID.unique(), testEmail, testPassword, 'Verification Test User');
   console.log('Account created:', u.$id);
 
   await account.createEmailPasswordSession(testEmail, testPassword);
@@ -47,16 +50,23 @@ async function testVerifAndRecovery() {
     console.log('Recovery request response:', e.message, 'Code:', e.code);
   }
 
-  // Cleanup
-  const userCleanupUrl = `${conf.APPWRITE_ENDPOINT}/users/${u.$id}`;
-  await fetch(userCleanupUrl, {
-    method: 'DELETE',
-    headers: {
-      'X-Appwrite-Project': conf.APPWRITE_PROJECT_ID,
-      'X-Appwrite-Key': conf.APPWRITE_API_KEY
+  } finally {
+    if (u?.$id) {
+      const userCleanupUrl = `${conf.APPWRITE_ENDPOINT}/users/${u.$id}`;
+      const response = await fetch(userCleanupUrl, {
+        method: 'DELETE',
+        headers: {
+          'X-Appwrite-Project': conf.APPWRITE_PROJECT_ID,
+          'X-Appwrite-Key': conf.APPWRITE_API_KEY
+        }
+      });
+      if (![200, 204, 404].includes(response.status)) throw new Error(`Verification/recovery cleanup failed: HTTP ${response.status}`);
+      console.log('Cleanup completed.');
     }
-  });
-  console.log('Cleanup completed.');
+  }
 }
 
-testVerifAndRecovery().catch(console.error);
+testVerifAndRecovery().catch((error) => {
+  console.error(`FATAL: ${error.message}`);
+  process.exitCode = 1;
+});

@@ -18,6 +18,7 @@ globalThis.window = {
 };
 
 import fs from "fs";
+import { assertTestCleanupCapabilities, deleteOrThrow, runCleanupTasks } from "./test-hygiene.js";
 import { AuthService } from "../src/services/auth.js";
 import { APPWRITE_CONFIG, getAppwriteDatabases, Query } from "../src/config/appwrite.js";
 
@@ -38,6 +39,7 @@ const TEST_ROLE = "driver";
 const testResults = {};
 
 async function runVerification() {
+  await assertTestCleanupCapabilities("e2e-auth-verification");
   console.log("==================================================");
   console.log("TRANSMOVE LIVE APPWRITE AUTH VERIFICATION SUITE");
   console.log("Endpoint:", APPWRITE_CONFIG.endpoint);
@@ -201,35 +203,31 @@ async function runVerification() {
 
   } catch (err) {
     console.error("FATAL ERROR in test execution:", err);
+    testResults["Suite Execution"] = false;
   } finally {
-    // Database and User cleanup
-    if (createdProfileDocId || createdUserId) {
-      try {
-        if (createdProfileDocId) {
-          const docUrl = `${conf.APPWRITE_ENDPOINT}/databases/transmove/collections/profiles/documents/${createdProfileDocId}`;
-          await fetch(docUrl, {
-            method: "DELETE",
-            headers: {
-              "X-Appwrite-Project": conf.APPWRITE_PROJECT_ID,
-              "X-Appwrite-Key": conf.APPWRITE_API_KEY
-            }
-          });
-        }
-        if (createdUserId) {
-          const userUrl = `${conf.APPWRITE_ENDPOINT}/users/${createdUserId}`;
-          await fetch(userUrl, {
-            method: "DELETE",
-            headers: {
-              "X-Appwrite-Project": conf.APPWRITE_PROJECT_ID,
-              "X-Appwrite-Key": conf.APPWRITE_API_KEY
-            }
-          });
-        }
-        console.log("\n[CLEANUP] Test profile document and test auth user removed cleanly.");
-      } catch (cleanErr) {
-        console.warn("Cleanup warning:", cleanErr.message);
-      }
-    }
+    const cleanupHeaders = {
+      "X-Appwrite-Project": conf.APPWRITE_PROJECT_ID,
+      "X-Appwrite-Key": conf.APPWRITE_API_KEY
+    };
+    const tasks = [];
+    if (createdProfileDocId) tasks.push({
+      label: `profile ${createdProfileDocId}`,
+      run: () => deleteOrThrow(
+        `${conf.APPWRITE_ENDPOINT}/databases/transmove/collections/profiles/documents/${createdProfileDocId}`,
+        { headers: cleanupHeaders },
+        `profile ${createdProfileDocId}`
+      )
+    });
+    if (createdUserId) tasks.push({
+      label: `Auth user ${createdUserId}`,
+      run: () => deleteOrThrow(
+        `${conf.APPWRITE_ENDPOINT}/users/${createdUserId}`,
+        { headers: cleanupHeaders },
+        `Auth user ${createdUserId}`
+      )
+    });
+    await runCleanupTasks("e2e-auth-verification", tasks);
+    if (tasks.length) console.log("\n[CLEANUP] Test profile document and test auth user removed cleanly.");
   }
 
   console.log("\n==================================================");
@@ -241,7 +239,11 @@ async function runVerification() {
     if (!passed) allPass = false;
   }
   console.log("OVERALL:", allPass ? "ALL TESTS PASSED" : "SOME TESTS FAILED");
+  if (!allPass) throw new Error("One or more authentication verification checks failed.");
   return allPass;
 }
 
-runVerification();
+runVerification().catch((error) => {
+  console.error(`FATAL: ${error.message}`);
+  process.exitCode = 1;
+});

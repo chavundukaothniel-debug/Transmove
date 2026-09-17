@@ -16,6 +16,7 @@ globalThis.window = {
 };
 
 import fs from "fs";
+import { assertTestCleanupCapabilities, deleteOrThrow, runCleanupTasks } from "./test-hygiene.js";
 import path from "path";
 
 // 1. Load configuration
@@ -62,8 +63,65 @@ const cleanupIds = {
   users: [],
   profiles: [],
   vehicles: [],
-  documents: []
+  documents: [],
+  notifications: [],
+  activityLogs: []
 };
+
+async function listCleanupRecords(collection) {
+  const query = encodeURIComponent(JSON.stringify({ method: "limit", values: [100] }));
+  const response = await fetch(
+    `${ENDPOINT}/databases/transmove/collections/${collection}/documents?queries[]=${query}`,
+    { headers: serverHeaders }
+  );
+  if (!response.ok) throw new Error(`Unable to inspect ${collection}: HTTP ${response.status}`);
+  return (await response.json()).documents || [];
+}
+
+async function cleanupSecurityArtifacts() {
+  const tasks = [];
+  const ownedIds = new Set([
+    ...cleanupIds.users, ...cleanupIds.profiles, ...cleanupIds.vehicles, ...cleanupIds.documents
+  ]);
+  for (const [collection, key] of [["notifications", "notifications"], ["activity_logs", "activityLogs"]]) {
+    try {
+      const records = await listCleanupRecords(collection);
+      cleanupIds[key].push(...records
+        .filter((record) => ownedIds.has(record.user_id) || ownedIds.has(record.related_id))
+        .map((record) => record.$id));
+    } catch (error) {
+      tasks.push({ label: `${collection} cleanup discovery`, run: async () => { throw error; } });
+    }
+  }
+  const targets = [
+    ["notifications", cleanupIds.notifications],
+    ["activity_logs", cleanupIds.activityLogs],
+    ["verification_documents", cleanupIds.documents],
+    ["vehicles", cleanupIds.vehicles],
+    ["profiles", cleanupIds.profiles]
+  ];
+  for (const [collection, ids] of targets) {
+    for (const id of ids) tasks.push({
+      label: `${collection}/${id}`,
+      run: () => deleteOrThrow(
+        `${ENDPOINT}/databases/transmove/collections/${collection}/documents/${id}`,
+        { headers: serverHeaders },
+        `${collection}/${id}`
+      )
+    });
+  }
+  for (const userId of cleanupIds.users) {
+    tasks.push({
+      label: `Auth user ${userId}`,
+      run: () => deleteOrThrow(
+        `${ENDPOINT}/users/${userId}`,
+        { headers: serverHeaders },
+        `Auth user ${userId}`
+      )
+    });
+  }
+  await runCleanupTasks("privileged-security", tasks);
+}
 
 function activateUserSession(userObj) {
   if (userObj && userObj.cookie) {
@@ -122,6 +180,7 @@ async function createTestUser(email, name, role = "driver") {
 }
 
 async function runSecuritySuite() {
+  await assertTestCleanupCapabilities("privileged-security");
   console.log("==================================================");
   console.log("TRANSMOVE PRIVILEGED-FIELD SECURITY SUITE");
   console.log("Running against Live Appwrite Backend...");
@@ -305,7 +364,7 @@ async function runSecuritySuite() {
   });
   const vehicleA = await vehRes.json();
   cleanupIds.vehicles.push(vehicleA.$id);
-  console.log(`Vehicle created: ${vehicleA.$id} (verification_status: unverified)`);
+  console.log(`Vehicle created: ${vehicleA.$id} (verification_status: pending)`);
 
   // Test B1: Driver attempts direct Appwrite update: verification_status -> verified
   console.log("1. Driver attempts direct Appwrite Client API call: verification_status -> verified");
@@ -363,10 +422,10 @@ async function runSecuritySuite() {
     if (
       checkVeh.model === "Corolla Quest" &&
       checkVeh.colour === "Metallic Grey" &&
-      checkVeh.verification_status === "unverified"
+      checkVeh.verification_status === "pending"
     ) {
       normalVehicleSuccess = true;
-      console.log("   ✅ PASS: Normal vehicle update succeeded. verification_status remains unverified.");
+      console.log("   ✅ PASS: Normal vehicle update succeeded and verification_status remains pending.");
     } else {
       console.log("   ❌ FAIL: Vehicle update mismatch in live database.");
     }
@@ -729,30 +788,7 @@ async function runSecuritySuite() {
   console.log("CLEANING UP TEMPORARY SECURITY TEST DATA...");
   console.log("--------------------------------------------------");
 
-  for (const docId of cleanupIds.documents) {
-    await fetch(`${ENDPOINT}/databases/transmove/collections/verification_documents/documents/${docId}`, {
-      method: "DELETE",
-      headers: serverHeaders
-    }).catch(() => {});
-  }
-  for (const vId of cleanupIds.vehicles) {
-    await fetch(`${ENDPOINT}/databases/transmove/collections/vehicles/documents/${vId}`, {
-      method: "DELETE",
-      headers: serverHeaders
-    }).catch(() => {});
-  }
-  for (const pId of cleanupIds.profiles) {
-    await fetch(`${ENDPOINT}/databases/transmove/collections/profiles/documents/${pId}`, {
-      method: "DELETE",
-      headers: serverHeaders
-    }).catch(() => {});
-  }
-  for (const uId of cleanupIds.users) {
-    await fetch(`${ENDPOINT}/users/${uId}`, {
-      method: "DELETE",
-      headers: serverHeaders
-    }).catch(() => {});
-  }
+  await cleanupSecurityArtifacts();
 
   console.log("Cleanup complete. Live database is completely pristine.");
 
@@ -780,7 +816,8 @@ async function runSecuritySuite() {
   }
 }
 
-runSecuritySuite().catch((err) => {
+runSecuritySuite().catch(async (err) => {
   console.error("FATAL ERROR in security suite:", err);
+  await cleanupSecurityArtifacts().catch((cleanupError) => console.error("CLEANUP FAILED:", cleanupError.message));
   process.exit(1);
 });

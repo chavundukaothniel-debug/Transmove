@@ -4,7 +4,6 @@
 // Connected to Appwrite Web SDK Authentication
 // ==============================================================================
 import { AuthService } from "../services/auth.js";
-import { openSupabaseConfigModal } from "../components/Navbar.js";
 
 export const AuthView = {
   render(type = "login") {
@@ -96,11 +95,7 @@ export const AuthView = {
                 </div>
               </div>
 
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; font-size: 0.875rem;">
-                <label style="display: inline-flex; align-items: center; gap: 0.5rem; color: var(--text-muted); cursor: pointer; user-select: none;">
-                  <input type="checkbox" id="auth-remember-me" style="width: 16px; height: 16px; accent-color: #2563eb;" checked />
-                  <span>Remember me</span>
-                </label>
+              <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 1.5rem; font-size: 0.875rem;">
                 <a href="#forgot-password" style="color: #2563eb; font-weight: 600; text-decoration: none;">Forgot password?</a>
               </div>
 
@@ -345,11 +340,6 @@ export const AuthView = {
       });
     }
 
-    // Connect Supabase modal handler (kept for configuration if requested)
-    document.getElementById("auth-btn-connect-supa")?.addEventListener("click", () => {
-      openSupabaseConfigModal();
-    });
-
     // Handle Forgot Password flow
     if (type === "forgot-password") {
       const forgotForm = document.getElementById("auth-forgot-form");
@@ -533,6 +523,23 @@ export const AuthView = {
           const profile = regRes.profile || await AuthService.getCurrentProfile();
           const primaryRole = AuthService.getPrimaryRole(profile) || (role === "driver" ? "driver" : "passenger");
           AuthService.setActiveRole(profile, primaryRole);
+
+          if (sessionStorage.getItem("transmove_pending_request")) {
+            window.location.hash = "#customer?tab=search";
+          } else {
+            const roleRouteMap = {
+              customer: "passenger",
+              passenger: "passenger",
+              driver: "driver",
+              cargo_owner: "cargo-owner",
+              logistics: "logistics",
+              vehicle_owner: "vehicle-owner",
+              machinery_owner: "machinery-owner",
+              machinery_hirer: "machinery-hirer",
+              admin: "admin"
+            };
+            window.location.hash = `#${roleRouteMap[primaryRole] || "passenger"}`;
+          }
         } else {
           const loginRes = await AuthService.login({ email, password });
           const profile = loginRes.profile || await AuthService.getCurrentProfile();
@@ -548,6 +555,23 @@ export const AuthView = {
 
           const primaryRole = AuthService.getPrimaryRole(profile);
           AuthService.setActiveRole(profile, primaryRole);
+
+          if (sessionStorage.getItem("transmove_pending_request")) {
+            window.location.hash = "#customer?tab=search";
+          } else {
+            const roleRouteMap = {
+              customer: "passenger",
+              passenger: "passenger",
+              driver: "driver",
+              cargo_owner: "cargo-owner",
+              logistics: "logistics",
+              vehicle_owner: "vehicle-owner",
+              machinery_owner: "machinery-owner",
+              machinery_hirer: "machinery-hirer",
+              admin: "admin"
+            };
+            window.location.hash = `#${roleRouteMap[primaryRole] || "passenger"}`;
+          }
         }
       } catch (err) {
         submitBtn.disabled = false;

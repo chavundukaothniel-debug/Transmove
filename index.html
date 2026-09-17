@@ -17,6 +17,11 @@
   <!-- TransMove Design System Stylesheet -->
   <link rel="stylesheet" href="assets/css/style.css">
 
+  <!-- PWA Manifest & Meta -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#059669">
+  <link rel="icon" type="image/svg+xml" href="/assets/images/icon.svg">
+
   <!-- Supabase JS SDK (Official v2 Client) -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
@@ -33,9 +38,13 @@
   </script>
 </head>
 <body>
-  <div class="app-layout" id="app-layout">
-    <!-- Left Sidebar Mount Point -->
-    <div id="sidebar-mount"></div>
+  <!-- Global App Notification Toast Anchor -->
+  <div id="toast-root" class="toast-container" aria-live="polite"></div>
+
+  <!-- Primary Application Wrapper with Sidebar & Main Body -->
+  <div class="app-layout">
+    <!-- Sidebar Navigation Mount Point -->
+    <aside id="sidebar-mount" class="app-sidebar"></aside>
 
     <!-- Main Body Area (Header + Main Content + Footer) -->
     <div class="app-body">
@@ -57,11 +66,15 @@
             </div>
           </div>
 
-          <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
-            <button id="btn-footer-whatsapp" class="btn btn-outline btn-sm" style="border-color: #22c55e; color: #22c55e;">
-              💬 WhatsApp Support
+          <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <button id="btn-footer-whatsapp" class="btn btn-outline btn-sm" style="border-color: #22c55e; color: #22c55e;" title="Chat with TransMove on WhatsApp">
+              💬 Chat with TransMove on WhatsApp
             </button>
-            <div style="display: flex; gap: 1.25rem; font-size: 0.875rem; color: var(--text-muted);">
+            <button id="btn-footer-share" class="btn btn-outline btn-sm" style="border-color: var(--border-light); color: var(--text-main);" title="Share TransMove">
+              🔗 Share TransMove
+            </button>
+            <div id="footer-social-links" style="display: flex; gap: 0.5rem; align-items: center;"></div>
+            <div style="display: flex; gap: 1.25rem; font-size: 0.875rem; color: var(--text-muted); margin-left: 0.5rem;">
               <a href="#subscriptions" style="color: var(--text-muted);">Pricing &amp; Plans</a>
               <a href="#equipment" style="color: var(--text-muted);">Machinery</a>
               <a href="#advertise" style="color: var(--text-muted);">Advertise</a>
@@ -70,7 +83,7 @@
           </div>
         </div>
         <div style="max-width: 1280px; margin: 1rem auto 0 auto; text-align: center; color: var(--text-muted); font-size: 0.8rem; border-top: 1px solid var(--border-light); padding-top: 1rem;">
-          &copy; 2026 TransMove. Locked Design System Standardized.
+          &copy; 2026 TransMove · Fair Transportation Marketplace · Zimbabwe
         </div>
       </footer>
     </div>

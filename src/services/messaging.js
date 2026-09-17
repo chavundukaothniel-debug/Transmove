@@ -1,10 +1,8 @@
 // ==============================================================================
 // TRANSMOVE REALTIME MESSAGING SERVICE
 // Direct chat between booking participants via Appwrite Trusted API & Realtime
-// Supabase remains intact as backup during incremental migration
 // ==============================================================================
 import { getAppwriteAccount, getAppwriteClient, getTrustedApiEndpoint } from "../config/appwrite.js";
-import { getSupabase } from "../config/supabase.js";
 
 async function trustedCall(action, data = {}) {
   const account = getAppwriteAccount();
@@ -41,17 +39,6 @@ export const MessagingService = {
       return result.messages || [];
     } catch (err) {
       console.warn("Appwrite getMessages notice:", err.message);
-
-      // Graceful fallback to Supabase if configured
-      const supabase = getSupabase();
-      if (supabase) {
-        const { data } = await supabase
-          .from("messages")
-          .select("*, sender:profiles!sender_id(full_name, profile_photo_url)")
-          .eq("booking_id", bookingId)
-          .order("created_at", { ascending: true });
-        if (data) return data;
-      }
       return [];
     }
   },
@@ -63,34 +50,12 @@ export const MessagingService = {
     if (!bookingId) throw new Error("bookingId is required.");
     if (!content || !content.trim()) throw new Error("Message content cannot be empty.");
 
-    try {
-      const result = await trustedCall("send_message", {
-        booking_id: bookingId,
-        receiver_id: receiverId,
-        message: content.trim()
-      });
-      return result;
-    } catch (err) {
-      // Graceful fallback to Supabase if configured
-      const supabase = getSupabase();
-      if (supabase) {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          const { data, error } = await supabase
-            .from("messages")
-            .insert({
-              booking_id: bookingId,
-              sender_id: session.user.id,
-              receiver_id: receiverId,
-              content: content.trim()
-            })
-            .select("*, sender:profiles!sender_id(full_name, profile_photo_url)")
-            .single();
-          if (!error && data) return data;
-        }
-      }
-      throw err;
-    }
+    const result = await trustedCall("send_message", {
+      booking_id: bookingId,
+      receiver_id: receiverId,
+      message: content.trim()
+    });
+    return result;
   },
 
   /**

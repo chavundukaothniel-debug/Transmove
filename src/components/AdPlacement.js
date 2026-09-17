@@ -4,6 +4,22 @@
 // ==============================================================================
 import { AdvertisingService } from "../services/advertising.js";
 
+const escapeHtml = (value) => {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+};
+
+const NO_OFFERS_HTML = `
+  <div style="font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 0.75rem;">
+    No sponsored offers available.
+  </div>
+`;
+
 export const AdPlacement = {
   /**
    * Renders the HTML structure for an ad placement section.
@@ -39,11 +55,7 @@ export const AdPlacement = {
       
       if (!ads || ads.length === 0) {
         if (container) {
-          container.innerHTML = `
-            <div style="font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 0.75rem;">
-              No sponsored offers available.
-            </div>
-          `;
+          container.innerHTML = NO_OFFERS_HTML;
         }
         return;
       }
@@ -52,13 +64,13 @@ export const AdPlacement = {
       const ad = ads[Math.floor(Math.random() * ads.length)];
 
       content.innerHTML = `
-        ${ad.image_url ? `<img src="${ad.image_url}" alt="${ad.title}" style="width: 80px; height: 80px; object-fit: cover; border-radius: var(--radius-md); border: 1px solid var(--border-light);" />` : ''}
+        ${ad.image_url ? `<img src="${escapeHtml(ad.image_url)}" alt="${escapeHtml(ad.title)}" style="width: 80px; height: 80px; object-fit: cover; border-radius: var(--radius-md); border: 1px solid var(--border-light);" />` : ''}
         <div style="flex: 1;">
-          <div style="font-size: 0.75rem; font-weight: 700; color: var(--primary); text-transform: uppercase;">${ad.company_name || 'Partner'}</div>
-          <div style="font-size: 1rem; font-weight: 800; color: var(--text-main); margin: 0.2rem 0;">${ad.title}</div>
-          <div style="font-size: 0.85rem; color: var(--text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${ad.description}</div>
+          <div style="font-size: 0.75rem; font-weight: 700; color: var(--primary); text-transform: uppercase;">${escapeHtml(ad.company_name || 'Partner')}</div>
+          <div style="font-size: 1rem; font-weight: 800; color: var(--text-main); margin: 0.2rem 0;">${escapeHtml(ad.title)}</div>
+          <div style="font-size: 0.85rem; color: var(--text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${escapeHtml(ad.description)}</div>
         </div>
-        <button id="btn-ad-click-${ad.id}" class="btn btn-outline btn-sm" style="white-space: nowrap;">
+        <button id="btn-ad-click-${escapeHtml(ad.id)}" class="btn btn-outline btn-sm" style="white-space: nowrap;">
           View Offer ↗
         </button>
       `;
@@ -76,8 +88,9 @@ export const AdPlacement = {
         }
       });
     } catch (err) {
+      console.warn("Ad placement load failed:", err);
       if (container) {
-        container.style.display = "none";
+        container.innerHTML = NO_OFFERS_HTML;
       }
     }
   }

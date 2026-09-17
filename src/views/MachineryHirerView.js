@@ -5,6 +5,16 @@
 import { EquipmentService } from "../services/equipment.js";
 import { renderEmptyState } from "../components/EmptyState.js";
 
+const escapeHtml = (value) => {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+};
+
 export const MachineryHirerView = {
   async render() {
     return `
@@ -69,12 +79,12 @@ export const MachineryHirerView = {
     if (!container) return;
 
     try {
-      const listings = await EquipmentService.getApprovedListings();
+      const listings = await EquipmentService.getMarketplaceListings();
 
       if (!listings || listings.length === 0) {
         container.innerHTML = renderEmptyState({
-          title: "No heavy machinery listed for hire yet",
-          description: "Check back shortly or publish an equipment request to alert verified machinery owners.",
+          title: "No machinery listings are available yet",
+          description: "The equipment hire marketplace is not live on TransMove yet. Please check back later.",
           icon: "tractor"
         });
         return;
@@ -83,34 +93,28 @@ export const MachineryHirerView = {
       container.innerHTML = listings.map(m => `
         <div style="border: 1px solid var(--border-light); padding: 1.25rem; border-radius: var(--radius-md); margin-bottom: 1rem; background: var(--bg-card); display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
           <div>
-            <span class="badge badge-info" style="font-size: 0.7rem;">${m.category?.toUpperCase() || "MACHINERY"}</span>
-            <h4 style="font-size: 1.05rem; font-weight: 700; margin: 0.35rem 0 0.15rem 0;">${m.title}</h4>
+            <span class="badge badge-info" style="font-size: 0.7rem;">${escapeHtml(m.category?.toUpperCase() || "MACHINERY")}</span>
+            <h4 style="font-size: 1.05rem; font-weight: 700; margin: 0.35rem 0 0.15rem 0;">${escapeHtml(m.title)}</h4>
             <div style="font-size: 0.85rem; color: var(--text-muted);">
-              📍 Location: <strong>${m.location_name}</strong> • ${m.make} ${m.model}
+              📍 Location: <strong>${escapeHtml(m.location_name)}</strong> • ${escapeHtml(m.make)} ${escapeHtml(m.model)}
             </div>
             <div style="font-size: 0.85rem; margin-top: 0.5rem; color: var(--text-muted);">
-              ${m.description}
+              ${escapeHtml(m.description)}
             </div>
           </div>
           <div style="text-align: right;">
-            <div style="font-size: 1.25rem; font-weight: 800; color: var(--primary);">$${m.rate_per_day} <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 500;">/ day</span></div>
-            <button class="btn btn-primary btn-sm btn-hire-request" data-id="${m.id}" data-title="${m.title}" style="margin-top: 0.5rem;">
+            <div style="font-size: 1.25rem; font-weight: 800; color: var(--primary);">$${escapeHtml(m.rate_per_day)} <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 500;">/ day</span></div>
+            <button class="btn btn-primary btn-sm" disabled title="Equipment hire requests are not available on TransMove yet" style="margin-top: 0.5rem;">
               Request Hire Quote 🚜
             </button>
           </div>
         </div>
       `).join("");
-
-      document.querySelectorAll(".btn-hire-request").forEach(btn => {
-        btn.addEventListener("click", () => {
-          const title = btn.dataset.title;
-          alert(`Rental Request Sent for "${title}"! The equipment owner has been notified and will contact you with availability dates.`);
-        });
-      });
     } catch (err) {
+      console.warn("Machinery marketplace load failed:", err);
       container.innerHTML = renderEmptyState({
-        title: "Marketplace Ready",
-        description: "Equipment listings will load automatically when available in Supabase.",
+        title: "No machinery listings are available yet",
+        description: "The equipment hire marketplace is not live on TransMove yet. Please check back later.",
         icon: "tractor"
       });
     }

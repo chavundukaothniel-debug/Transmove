@@ -369,5 +369,35 @@ export const RequestService = {
    */
   subscribeToRequests(callback) {
     return { unsubscribe: () => {} };
+  },
+
+  /**
+   * Real-time check: Safely queries trusted backend for the real count of compatible providers currently online.
+   */
+  async getCompatibleOnlineProvidersCount(serviceType = "ride") {
+    try {
+      const account = getAppwriteAccount();
+      const jwtRes = await account.createJWT().catch(() => null);
+      const jwt = jwtRes?.jwt || "";
+      const endpoint = getTrustedApiEndpoint();
+
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(jwt ? { Authorization: `Bearer ${jwt}`, "X-Appwrite-JWT": jwt } : {})
+        },
+        body: JSON.stringify({
+          action: "count_compatible_online_providers",
+          data: { service_type: serviceType }
+        })
+      });
+
+      if (!res.ok) return { compatible_online_count: null };
+      const data = await res.json();
+      return { compatible_online_count: Number.isInteger(data.compatible_online_count) ? data.compatible_online_count : null };
+    } catch (_) {
+      return { compatible_online_count: null };
+    }
   }
 };

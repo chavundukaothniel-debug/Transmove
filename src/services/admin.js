@@ -2,7 +2,6 @@
 // TRANSMOVE SECURE ADMINISTRATIVE SERVICE
 // Server-side / RLS verified Admin capabilities
 // ==============================================================================
-import { getSupabase } from "../config/supabase.js";
 import { getAppwriteAccount, getTrustedApiEndpoint } from "../config/appwrite.js";
 import { AuthService } from "./auth.js";
 
@@ -39,7 +38,7 @@ export const AdminService = {
   },
 
   /**
-   * Fetches overall platform statistics.
+   * Fetches overall platform statistics (legacy).
    */
   async getPlatformStats() {
     const result = await trustedCall("admin_get_platform_stats");
@@ -47,10 +46,61 @@ export const AdminService = {
   },
 
   /**
+   * Fetches real Appwrite analytics metrics across all collections.
+   */
+  async getAnalytics() {
+    const result = await trustedCall("admin_get_analytics", {});
+    return {
+      ...result,
+      registeredPassengers: result.registeredPassengers ?? result.registered_passengers ?? 0,
+      registeredProviders: result.registeredProviders ?? result.registered_providers ?? 0,
+      activeProviders: result.activeProviders ?? result.active_providers ?? 0,
+      requestsPosted: result.requestsPosted ?? result.requests_posted ?? 0,
+      bookingsAwarded: result.bookingsAwarded ?? result.bookings_awarded ?? 0,
+      completedBookings: result.completedBookings ?? result.completed_bookings ?? 0,
+      cancelledBookings: result.cancelledBookings ?? result.cancelled_bookings ?? 0,
+      activeSubscriptions: result.activeSubscriptions ?? result.active_subscriptions ?? 0,
+      verificationQueue: result.verificationQueue ?? result.verification_queue ?? 0,
+      pendingProviders: result.pendingProviders ?? result.pending_providers ?? 0,
+      pendingVehicles: result.pendingVehicles ?? result.pending_vehicles ?? 0,
+      pendingDocuments: result.pendingDocuments ?? result.pending_documents ?? 0,
+      expiredDocuments: result.expiredDocuments ?? result.expired_documents ?? 0,
+      paymentsTotal: result.paymentsTotal ?? result.payment_totals ?? 0,
+      openDisputes: result.openDisputes ?? result.open_disputes ?? 0
+    };
+  },
+
+  /**
+   * Fetches recent audit logs.
+   */
+  async getActivityLogs() {
+    const res = await trustedCall("admin_get_activity_logs", {});
+    return res.logs || [];
+  },
+
+  /**
+   * Fetches verification documents with categorized expiry status.
+   */
+  async getVerificationDocuments() {
+    return trustedCall("admin_list_verification_documents", {});
+  },
+
+  /**
+   * Audits documents for expiries and triggers notifications.
+   */
+  async checkDocumentExpiries() {
+    return trustedCall("check_document_expiries", {});
+  },
+
+  /**
    * Fetches pending driver & owner verification requests.
    */
+  async getVerifications(statusFilter = "pending") {
+    return trustedCall("admin_list_verifications", { status_filter: statusFilter });
+  },
+
   async getPendingVerifications() {
-    const result = await trustedCall("admin_list_verifications");
+    const result = await this.getVerifications("pending");
     return result.verifications || [];
   },
 
@@ -59,19 +109,11 @@ export const AdminService = {
    * Status: 'approved' | 'rejected' | 'suspended'
    */
   async updateVerificationStatus(userId, status, reason = null) {
-    const queue = await this.getPendingVerifications();
-    const target = queue.find((item) => item.id === userId || item.user_id === userId);
-    const profileId = target?.id || userId;
-    const profile = await trustedCall("admin_set_profile_verification", {
-      profile_id: profileId,
+    return trustedCall("admin_set_profile_verification", {
+      profile_id: userId,
       verification_status: status,
       reason
     });
-
-    const documentStatus = status === "approved" ? "verified" : "rejected";
-    await Promise.all((target?.documents || []).map((document) => this.verifyDocument(document.id, documentStatus, reason)));
-    await Promise.all((target?.vehicles || []).map((vehicle) => this.verifyVehicle(vehicle.id, status)));
-    return profile;
   },
 
   /**
@@ -106,48 +148,159 @@ export const AdminService = {
     });
   },
 
-  async verifyVehicle(vehicleId, verificationStatus = "approved") {
+  async verifyVehicle(vehicleId, verificationStatus = "approved", rejectionReason = null) {
     return trustedCall("admin_verify_vehicle", {
       vehicle_id: vehicleId,
-      verification_status: verificationStatus
+      verification_status: verificationStatus,
+      rejection_reason: rejectionReason
     });
+  },
+
+  async openVerificationDocument(documentId) {
+    return trustedCall("admin_create_verification_file_token", { document_id: documentId });
   },
 
   async setAccountStatus(profileId, accountStatus) {
     return trustedCall("admin_set_account_status", { profile_id: profileId, account_status: accountStatus });
   },
 
+  // -------------------------------------------------------------
+  // ECOCASH PAYMENT QUEUE & VERIFICATION
+  // -------------------------------------------------------------
   /**
-   * Fetches all machinery equipment listings for moderation.
+   * Fetches payments with optional status filter ('pending_review', 'approved', 'rejected').
    */
-  async getAllEquipment() {
-    const supabase = getSupabase();
-    if (!supabase) return [];
+  async getPendingPayments(statusFilter = "pending_review") {
+    const result = await trustedCall("admin_list_pending_payments", { status: statusFilter });
+    return result.payments || [];
+  },
 
-    const { data, error } = await supabase
-      .from("equipment_listings")
-      .select("*, owner:owner_id(full_name, email)")
-      .order("created_at", { ascending: false });
-
-    if (error) return [];
-    return data || [];
+  async getAllPayments() {
+    const result = await trustedCall("admin_list_pending_payments", {});
+    return result.payments || [];
   },
 
   /**
-   * Updates machinery listing verification status.
+   * Approves an EcoCash payment, activates subscription / approves ad, and logs audit.
    */
-  async updateEquipmentStatus(equipmentId, status) {
-    const supabase = getSupabase();
-    if (!supabase) throw new Error("Supabase is not configured.");
+  async approvePayment(paymentId) {
+    return trustedCall("admin_approve_payment", { payment_id: paymentId });
+  },
 
-    const { data, error } = await supabase
-      .from("equipment_listings")
-      .update({ verification_status: status, updated_at: new Date().toISOString() })
-      .eq("id", equipmentId)
-      .select()
-      .single();
+  /**
+   * Rejects an EcoCash payment with mandatory reason.
+   */
+  async rejectPayment(paymentId, rejectionReason) {
+    return trustedCall("admin_reject_payment", {
+      payment_id: paymentId,
+      rejection_reason: rejectionReason
+    });
+  },
 
-    if (error) throw error;
-    return data;
+  // -------------------------------------------------------------
+  // SUBSCRIPTION PLAN MANAGEMENT
+  // -------------------------------------------------------------
+  async getSubscriptionPlans(includeAll = true) {
+    const result = await trustedCall("list_subscription_plans", { include_all: includeAll });
+    return result.plans || [];
+  },
+
+  async saveSubscriptionPlan(planData) {
+    const op = planData.id || planData.plan_id ? "update" : "create";
+    return trustedCall("admin_manage_subscription_plan", {
+      operation: op,
+      plan_id: planData.id || planData.plan_id,
+      ...planData
+    });
+  },
+
+  async togglePlanActive(planId) {
+    return trustedCall("admin_manage_subscription_plan", {
+      operation: "toggle_active",
+      plan_id: planId
+    });
+  },
+
+  async deleteSubscriptionPlan(planId) {
+    return trustedCall("admin_manage_subscription_plan", {
+      operation: "delete",
+      plan_id: planId
+    });
+  },
+
+  // -------------------------------------------------------------
+  // PAYMENT DESTINATION MANAGEMENT (ECOCASH ACCOUNTS)
+  // -------------------------------------------------------------
+  async getPaymentDestinations() {
+    const result = await trustedCall("admin_manage_payment_destination", { operation: "list" });
+    return result.destinations || [];
+  },
+
+  async savePaymentDestination(destData) {
+    const op = destData.id || destData.destination_id ? "update" : "create";
+    return trustedCall("admin_manage_payment_destination", {
+      operation: op,
+      destination_id: destData.id || destData.destination_id,
+      ...destData
+    });
+  },
+
+  async togglePaymentDestinationActive(destId) {
+    return trustedCall("admin_manage_payment_destination", {
+      operation: "toggle_active",
+      destination_id: destId
+    });
+  },
+
+  async deletePaymentDestination(destId) {
+    return trustedCall("admin_manage_payment_destination", {
+      operation: "delete",
+      destination_id: destId
+    });
+  },
+
+  // -------------------------------------------------------------
+  // ADVERTISING MANAGEMENT & CONTENT MODERATION
+  // -------------------------------------------------------------
+  async getAdRateCards() {
+    const result = await trustedCall("list_ad_rate_cards", { include_all: true });
+    return result.rate_cards || [];
+  },
+
+  async saveAdRateCard(cardData) {
+    return trustedCall("admin_manage_ad_rate_card", {
+      operation: "update",
+      rate_card_id: cardData.id || cardData.rate_card_id,
+      ...cardData
+    });
+  },
+
+  async getAdPackages() {
+    const result = await trustedCall("list_ad_packages", { include_all: true });
+    return result.packages || [];
+  },
+
+  async saveAdPackage(pkgData) {
+    return trustedCall("admin_manage_ad_package", {
+      operation: "update",
+      package_id: pkgData.id || pkgData.package_id,
+      ...pkgData
+    });
+  },
+
+  async getAdCampaigns(statusFilter = null) {
+    const result = await trustedCall("admin_list_ad_campaigns", { status: statusFilter });
+    return result.campaigns || [];
+  },
+
+  async approveAdContent(campaignId) {
+    return trustedCall("admin_approve_ad_content", { campaign_id: campaignId });
+  },
+
+  async rejectAdContent(campaignId, reason) {
+    return trustedCall("admin_reject_ad_content", {
+      campaign_id: campaignId,
+      rejection_reason: reason
+    });
   }
 };

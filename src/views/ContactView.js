@@ -1,7 +1,6 @@
 // ==============================================================================
 // TRANSMOVE OFFICIAL CONTACT PAGE VIEW
 // ==============================================================================
-import { TicketService } from "../services/tickets.js";
 import { SocialService } from "../services/social.js";
 
 export const ContactView = {
@@ -84,7 +83,7 @@ export const ContactView = {
           <div class="card" style="padding: 2rem;">
             <h3 class="card-title" style="margin-bottom: 0.35rem; font-size: 1.35rem;">Send Us a Message</h3>
             <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.5rem;">
-              Fill out the form below and our operations team will respond promptly.
+              The message form is temporarily unavailable — nothing entered here is sent. For a guaranteed response, use WhatsApp (+263 78 026 6401), email, or phone on this page.
             </p>
 
             <form id="contact-form">
@@ -122,7 +121,7 @@ export const ContactView = {
                 <textarea id="cnt-message" class="form-textarea" rows="5" placeholder="Write your enquiry or feedback here..." required></textarea>
               </div>
 
-              <button type="submit" id="btn-cnt-submit" class="btn btn-primary btn-lg btn-full">
+              <button type="submit" id="btn-cnt-submit" class="btn btn-primary btn-lg btn-full" disabled title="The contact form is temporarily unavailable — please use WhatsApp (+263 78 026 6401) or email">
                 Submit Message 🚀
               </button>
             </form>
@@ -141,49 +140,25 @@ export const ContactView = {
       SocialService.launchWhatsAppSupport("Hello TransMove Support, I would like to make an enquiry.");
     });
 
-    // Form submission to Supabase
-    document.getElementById("contact-form")?.addEventListener("submit", async (e) => {
+    const banner = document.getElementById("contact-status-banner");
+    const honestNotice = "<strong>The contact form is temporarily unavailable.</strong> Nothing entered here is sent. For a real response, <a href=\"https://wa.me/263780266401\" target=\"_blank\" rel=\"noopener\">chat on WhatsApp (+263 78 026 6401)</a> or email <a href=\"mailto:martintapiwa16@gmail.com\">martintapiwa16@gmail.com</a>.";
+    if (banner) {
+      banner.style.display = "block";
+      banner.style.background = "var(--bg-subtle)";
+      banner.style.color = "var(--text-muted)";
+      banner.style.border = "1px solid var(--border-light)";
+      banner.innerHTML = honestNotice;
+    }
+
+    // No message backend exists — never claim delivery
+    document.getElementById("contact-form")?.addEventListener("submit", (e) => {
       e.preventDefault();
-
-      const name = document.getElementById("cnt-name").value.trim();
-      const email = document.getElementById("cnt-email").value.trim();
-      const phone = document.getElementById("cnt-phone").value.trim();
-      const subject = document.getElementById("cnt-subject").value;
-      const message = document.getElementById("cnt-message").value.trim();
-
-      const btn = document.getElementById("btn-cnt-submit");
-      const banner = document.getElementById("contact-status-banner");
-
-      btn.disabled = true;
-      btn.innerText = "Submitting to Supabase...";
-      banner.style.display = "none";
-
-      try {
-        await TicketService.submitContactMessage({
-          name,
-          email,
-          phone,
-          subject,
-          message
-        });
-
-        banner.style.display = "block";
-        banner.style.background = "var(--success-light)";
-        banner.style.color = "var(--primary)";
-        banner.style.border = "1px solid var(--primary)";
-        banner.innerHTML = "✅ <strong>Message Received!</strong> Your enquiry has been submitted to TransMove. Our team will contact you shortly via email.";
-
-        document.getElementById("contact-form").reset();
-      } catch (err) {
-        banner.style.display = "block";
-        banner.style.background = "var(--danger-light)";
-        banner.style.color = "#ef4444";
-        banner.style.border = "1px solid #ef4444";
-        banner.innerHTML = "❌ <strong>Error submitting message:</strong> " + err.message;
-      } finally {
-        btn.disabled = false;
-        btn.innerText = "Submit Message 🚀";
-      }
+      if (!banner) return;
+      banner.style.display = "block";
+      banner.style.background = "var(--danger-light)";
+      banner.style.color = "#ef4444";
+      banner.style.border = "1px solid #ef4444";
+      banner.innerHTML = `❌ <strong>Message not delivered.</strong> ${honestNotice}`;
     });
   }
 };

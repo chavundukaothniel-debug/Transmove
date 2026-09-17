@@ -15,6 +15,7 @@ globalThis.window = {
 };
 
 import fs from "fs";
+import { assertTestCleanupCapabilities, runCleanupTasks } from "./test-hygiene.js";
 import path from "path";
 import { AuthService } from "../src/services/auth.js";
 import { VehicleService } from "../src/services/vehicles.js";
@@ -62,7 +63,7 @@ function fail(key, reason) { R[key] = `FAIL: ${reason}`; console.log(`    ✗ FA
 async function serverQuery(col, queries = []) {
   const qs = queries.map(q => `queries[]=${encodeURIComponent(JSON.stringify(q))}`).join("&");
   const res = await fetch(`${ENDPOINT}/databases/${DB_ID}/collections/${col}/documents?${qs}`, { headers: serverHeaders });
-  if (!res.ok) return [];
+  if (!res.ok) throw new Error(`Unable to query ${col}: HTTP ${res.status}`);
   return (await res.json()).documents || [];
 }
 
@@ -90,11 +91,13 @@ async function serverUpdate(col, docId, data) {
 }
 
 async function serverDelete(col, docId) {
-  await fetch(`${ENDPOINT}/databases/${DB_ID}/collections/${col}/documents/${docId}`, { method: "DELETE", headers: serverHeaders });
+  const response = await fetch(`${ENDPOINT}/databases/${DB_ID}/collections/${col}/documents/${docId}`, { method: "DELETE", headers: serverHeaders });
+  if (![200, 204, 404].includes(response.status)) throw new Error(`HTTP ${response.status}`);
 }
 
 async function serverDeleteUser(uid) {
-  await fetch(`${ENDPOINT}/users/${uid}`, { method: "DELETE", headers: serverHeaders });
+  const response = await fetch(`${ENDPOINT}/users/${uid}`, { method: "DELETE", headers: serverHeaders });
+  if (![200, 204, 404].includes(response.status)) throw new Error(`HTTP ${response.status}`);
 }
 
 async function getCollectionInfo(col) {
@@ -221,6 +224,7 @@ async function phase0b_indexes() {
 // MAIN
 // ===========================================================================
 async function main() {
+  await assertTestCleanupCapabilities("bids-booking-entitlement");
   console.log("╔═══════════════════════════════════════════════════════════════╗");
   console.log("║  TRANSMOVE BIDS + BOOKING + ENTITLEMENT — LIVE E2E TEST SUITE ║");
   console.log("╚═══════════════════════════════════════════════════════════════╝");
@@ -767,33 +771,82 @@ async function main() {
 // ---------------------------------------------------------------------------
 // CLEANUP
 // ---------------------------------------------------------------------------
+function containsOwnedReference(value, ownedIds) {
+  if (typeof value === "string") return ownedIds.has(value);
+  if (Array.isArray(value)) return value.some((item) => containsOwnedReference(item, ownedIds));
+  if (value && typeof value === "object") {
+    return Object.entries(value).some(([key, item]) =>
+      !key.startsWith("$") && containsOwnedReference(item, ownedIds)
+    );
+  }
+  return false;
+}
+
 async function doCleanup() {
   console.log("\n══ PHASE 23: CLEANUP ══════════════════════════════════════════");
-  const del = async (col, ids) => {
-    for (const id of ids) { try { await serverDelete(col, id); } catch {} }
-    if (ids.length) console.log(`  ${col}: ${ids.length} deleted`);
-  };
-  await del("subscriptions", cleanup.subscriptions);
-  await del("bookings", cleanup.bookings);
-  await del("bids", cleanup.bids);
-  await del("service_requests", cleanup.requests);
-  await del("vehicles", cleanup.vehicles);
-
+  const tasks = [];
   const testEmails = ["bid.test.pass.p@tm.test","bid.test.pass.p2@tm.test","bid.test.drv.a@tm.test","bid.test.drv.b@tm.test"];
-  let del2 = 0;
+  const testUsers = [];
+  const testProfiles = [];
   for (const email of testEmails) {
     try {
-      const r = await fetch(`${ENDPOINT}/users?queries[]=${encodeURIComponent(JSON.stringify({ method: "equal", attribute: "email", values: [email] }))}`, { headers: serverHeaders });
-      if (r.ok) {
-        for (const u of ((await r.json()).users || [])) {
-          const profs = await serverQuery("profiles", [{ method: "equal", attribute: "user_id", values: [u.$id] }]);
-          for (const p of profs) { try { await serverDelete("profiles", p.$id); } catch {} }
-          await serverDeleteUser(u.$id); del2++;
-        }
-      }
-    } catch {}
+      const response = await fetch(`${ENDPOINT}/users?queries[]=${encodeURIComponent(JSON.stringify({ method: "equal", attribute: "email", values: [email] }))}`, { headers: serverHeaders });
+      if (!response.ok) throw new Error(`Auth lookup failed: HTTP ${response.status}`);
+      testUsers.push(...((await response.json()).users || []));
+    } catch (error) {
+      tasks.push({ label: `identity lookup ${email}`, run: async () => { throw error; } });
+    }
   }
-  console.log(`  users + profiles: ${del2} deleted`);
+  for (const user of testUsers) {
+    try {
+      testProfiles.push(...await serverQuery("profiles", [
+        { method: "equal", attribute: "user_id", values: [user.$id] },
+        { method: "limit", values: [100] }
+      ]));
+    } catch (error) {
+      tasks.push({ label: `profile lookup ${user.$id}`, run: async () => { throw error; } });
+    }
+  }
+  const ownedIds = new Set([
+    ...testUsers.map((user) => user.$id),
+    ...testProfiles.map((profile) => profile.$id),
+    ...cleanup.vehicles, ...cleanup.requests, ...cleanup.bids,
+    ...cleanup.bookings, ...cleanup.subscriptions
+  ]);
+  for (const collection of ["booking_events", "messages", "notifications", "activity_logs"]) {
+    try {
+      const records = await serverQuery(collection, [{ method: "limit", values: [100] }]);
+      for (const record of records.filter((item) => containsOwnedReference(item, ownedIds))) {
+        tasks.push({
+          label: `${collection}/${record.$id}`,
+          run: () => serverDelete(collection, record.$id)
+        });
+      }
+    } catch (error) {
+      tasks.push({ label: `${collection} cleanup discovery`, run: async () => { throw error; } });
+    }
+  }
+  for (const [collection, ids] of [
+    ["subscriptions", cleanup.subscriptions],
+    ["bookings", cleanup.bookings],
+    ["bids", cleanup.bids],
+    ["service_requests", cleanup.requests],
+    ["vehicles", cleanup.vehicles]
+  ]) {
+    for (const id of ids) tasks.push({
+      label: `${collection}/${id}`,
+      run: () => serverDelete(collection, id)
+    });
+  }
+  for (const profile of testProfiles) tasks.push({
+    label: `profiles/${profile.$id}`,
+    run: () => serverDelete("profiles", profile.$id)
+  });
+  for (const user of testUsers) tasks.push({
+    label: `Auth user ${user.$id}`,
+    run: () => serverDeleteUser(user.$id)
+  });
+  await runCleanupTasks("bids-booking-entitlement", tasks);
   console.log("  Cleanup complete.");
 }
 

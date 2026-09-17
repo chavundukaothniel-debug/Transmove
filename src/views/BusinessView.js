@@ -2,7 +2,18 @@
 // TRANSMOVE BUSINESS & CORPORATE TRANSPORT DASHBOARD VIEW
 // ==============================================================================
 import { CorporateService } from "../services/corporate.js";
+import { AuthService } from "../services/auth.js";
 import { renderEmptyState } from "../components/EmptyState.js";
+
+const escapeHtml = (value) => {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+};
 
 export const BusinessView = {
   async render() {
@@ -23,27 +34,27 @@ export const BusinessView = {
           </div>
         </div>
 
-        <div class="grid-3" style="margin-bottom: 2.5rem;">
+        <div class="grid-3" id="business-section-overview" style="margin-bottom: 2.5rem;">
           <div class="card" style="padding: 1.5rem;">
             <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Corporate Account Status</div>
-            <div style="font-size: 1.5rem; font-weight: 800; color: var(--primary);" id="corp-status-val">Verified Business</div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: var(--primary);" id="corp-status-val">—</div>
           </div>
 
           <div class="card" style="padding: 1.5rem;">
             <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Monthly Transport Spend</div>
-            <div style="font-size: 1.5rem; font-weight: 800; color: var(--text-main);" id="corp-spend-val">$0.00</div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: var(--text-main);" id="corp-spend-val">—</div>
           </div>
 
           <div class="card" style="padding: 1.5rem;">
             <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem;">Allocated Monthly Limit</div>
-            <div style="font-size: 1.5rem; font-weight: 800; color: var(--primary);" id="corp-limit-val">$1,000.00</div>
+            <div style="font-size: 1.5rem; font-weight: 800; color: var(--primary);" id="corp-limit-val">—</div>
           </div>
         </div>
 
         <div class="grid-2" style="gap: 2rem;">
           
           <!-- Left Column: Business Transport Services -->
-          <div class="card">
+          <div class="card" id="business-section-services">
             <h3 class="card-title" style="margin-bottom: 1.25rem;">Business Transport Solutions</h3>
             
             <div style="display: flex; flex-direction: column; gap: 1rem;">
@@ -74,10 +85,10 @@ export const BusinessView = {
           </div>
 
           <!-- Right Column: Employee Management & Invoices -->
-          <div class="card">
+          <div class="card" id="business-section-employees">
             <h3 class="card-title" style="margin-bottom: 1.25rem;">Corporate Employees &amp; Invoices</h3>
             <div id="corp-employees-container">
-              <div style="padding: 2rem; text-align: center; color: var(--text-muted);">Loading corporate profile from Supabase...</div>
+              <div style="padding: 2rem; text-align: center; color: var(--text-muted);">Loading corporate profile...</div>
             </div>
           </div>
 
@@ -87,17 +98,38 @@ export const BusinessView = {
   },
 
   async init() {
-    document.getElementById("btn-create-corp-account")?.addEventListener("click", () => {
-      const name = prompt("Enter your Company / Organization Name:");
-      const email = prompt("Enter Billing Contact Email:");
-      if (name && email) {
-        CorporateService.createAccount(name, email)
-          .then(() => {
-            alert("Corporate Account created successfully!");
-            this.loadCorporateData();
-          })
-          .catch((err) => alert("Could not create account: " + err.message));
+    const tab = new URLSearchParams((window.location.hash.split("?")[1] || "")).get("tab");
+    const sectionMap = {
+      transport: "business-section-services",
+      deliveries: "business-section-services",
+      employees: "business-section-employees",
+      invoices: "business-section-employees",
+      financials: "business-section-overview"
+    };
+    const section = document.getElementById(sectionMap[tab] || "business-section-overview");
+    section?.scrollIntoView({ block: "start" });
+
+    document.getElementById("btn-create-corp-account")?.addEventListener("click", async () => {
+      const profile = await AuthService.getCurrentProfile();
+      if (!profile) {
+        alert("Please sign in to register a business account.");
+        window.location.hash = "#login";
+        return;
       }
+
+      const name = prompt("Enter your Company / Organization Name:");
+      if (!name || !name.trim()) return;
+      const email = prompt("Enter Billing Contact Email:");
+      if (!email || !email.trim()) return;
+
+      try {
+        await CorporateService.createCorporateAccount(profile.id, name.trim(), email.trim());
+        alert("Business accounts are not live on TransMove yet, so this registration was not saved.");
+      } catch (err) {
+        console.warn("Corporate account creation failed:", err);
+        alert("Business account registration is not available yet. Nothing was saved.");
+      }
+      this.loadCorporateData();
     });
 
     this.loadCorporateData();
@@ -108,21 +140,31 @@ export const BusinessView = {
     if (!container) return;
 
     try {
-      const account = await CorporateService.getAccount();
-      if (!account) {
+      const profile = await AuthService.getCurrentProfile();
+      if (!profile) {
         container.innerHTML = renderEmptyState({
-          title: "No Corporate Account Linked",
-          description: "Register your company or organization to manage employee travel allowances and download monthly invoices.",
-          actionText: "🏢 Register Account",
-          actionLink: "#business",
+          title: "Sign in to view your business account",
+          description: "Corporate travel management requires a signed-in TransMove account.",
+          actionText: "Sign In",
+          actionLink: "#login",
           icon: "inbox"
         });
         return;
       }
 
-      document.getElementById("corp-status-val").innerText = account.company_name;
-      document.getElementById("corp-spend-val").innerText = `$${(account.current_month_spend || 0).toFixed(2)}`;
-      document.getElementById("corp-limit-val").innerText = `$${(account.monthly_spending_limit || 1000).toFixed(2)}`;
+      const account = await CorporateService.getCorporateAccount(profile.id);
+      if (!account) {
+        container.innerHTML = renderEmptyState({
+          title: "No corporate account linked",
+          description: "Business account management is not live on TransMove yet, so no corporate profile could be loaded.",
+          icon: "inbox"
+        });
+        return;
+      }
+
+      document.getElementById("corp-status-val").innerText = account.company_name || "—";
+      document.getElementById("corp-spend-val").innerText = account.current_month_spend != null ? `$${Number(account.current_month_spend).toFixed(2)}` : "—";
+      document.getElementById("corp-limit-val").innerText = account.monthly_spending_limit != null ? `$${Number(account.monthly_spending_limit).toFixed(2)}` : "—";
 
       const employees = account.employees || [];
       if (employees.length === 0) {
@@ -135,19 +177,20 @@ export const BusinessView = {
         container.innerHTML = employees.map((emp) => `
           <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem; border-bottom: 1px solid var(--border-light);">
             <div>
-              <div style="font-weight: 700;">${emp.full_name || "Employee"}</div>
-              <div style="font-size: 0.8rem; color: var(--text-muted);">${emp.email}</div>
+              <div style="font-weight: 700;">${escapeHtml(emp.full_name || "Employee")}</div>
+              <div style="font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(emp.email)}</div>
             </div>
             <div style="text-align: right;">
-              <div style="font-weight: 800; color: var(--primary);">$${emp.current_spend} / $${emp.spending_limit}</div>
+              <div style="font-weight: 800; color: var(--primary);">${emp.current_spend != null ? `$${escapeHtml(emp.current_spend)}` : "—"} / ${emp.spending_limit != null ? `$${escapeHtml(emp.spending_limit)}` : "—"}</div>
             </div>
           </div>
         `).join("");
       }
     } catch (err) {
+      console.warn("Corporate profile load failed:", err);
       container.innerHTML = renderEmptyState({
-        title: "Corporate Portal",
-        description: "Connect your company account to start managing corporate transport.",
+        title: "Business accounts not available yet",
+        description: "Corporate account management is not live on TransMove yet. Please check back later.",
         icon: "inbox"
       });
     }

@@ -1,8 +1,8 @@
 // ==============================================================================
 // TRANSMOVE SUPPORT, TICKETING, SAFETY & HELP CENTER VIEW
 // ==============================================================================
-import { TicketService } from "../services/tickets.js";
-import { SafetyService } from "../services/safety.js";
+import { BookingService } from "../services/bids.js";
+import { getAppwriteAccount } from "../config/appwrite.js";
 import { renderEmptyState } from "../components/EmptyState.js";
 
 export const SupportView = {
@@ -16,8 +16,8 @@ export const SupportView = {
       ["How do I make a payment?", "Only verified payment records are shown in Payments. Follow the payment instructions attached to your confirmed booking when available."],
       ["Can I cancel a booking?", "Eligible confirmed bookings can be cancelled from Booking Details. A cancellation reason is required."],
       ["How do I save a driver?", "Saved-driver storage is not enabled in the current account system yet, so favourites are not created automatically."],
-      ["What if I have a problem during a trip?", "Use the booking chat to contact your driver, or create a support ticket below with your booking ID."],
-      ["How do I contact support?", "Open the contact section below and submit a support ticket. Your real ticket reference will appear after submission."]
+      ["What if I have a problem during a trip?", "Use the booking chat to contact your driver, or reach TransMove support on WhatsApp at +263 78 026 6401."],
+      ["How do I contact support?", "Online support tickets are not available yet. Message us on WhatsApp (+263 78 026 6401), email martintapiwa16@gmail.com, or use the Contact page."]
     ];
 
     return `
@@ -32,7 +32,7 @@ export const SupportView = {
         </section>
         <section class="support-contact-card">
           <span class="support-contact-icon">🎧</span>
-          <div><h3>Still need help?</h3><p>Contact our support team and track your real support tickets.</p></div>
+          <div><h3>Still need help?</h3><p>Support tickets are temporarily unavailable. Reach our team directly on WhatsApp (+263 78 026 6401), email, or the Contact page.</p></div>
           <button type="button" id="btn-open-passenger-support" class="btn btn-primary">Contact Support</button>
         </section>
         <details id="passenger-support-details" class="passenger-support-details">
@@ -40,6 +40,7 @@ export const SupportView = {
           <div class="support-ticket-layout">
             <form id="create-ticket-form" class="card support-ticket-form">
               <h3>Create a Support Ticket</h3>
+              <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">Ticket submission is not available yet — nothing entered here is sent. For a real response, <a href="https://wa.me/263780266401" target="_blank" rel="noopener">chat on WhatsApp (+263 78 026 6401)</a> or use the <a href="#contact">Contact page</a>.</p>
               <label class="passenger-field"><span>Category</span><select id="tkt-category" class="form-select" required><option value="Booking">Booking &amp; Trip Issue</option><option value="Driver">Driver Issue</option><option value="Payment">Payment &amp; Billing</option><option value="Safety">Safety</option><option value="Account">Account &amp; Profile</option><option value="Other">Other Query</option></select></label>
               <label class="passenger-field"><span>Subject</span><input type="text" id="tkt-subject" class="form-input" placeholder="How can we help?" required></label>
               <div class="support-reference-grid">
@@ -47,16 +48,23 @@ export const SupportView = {
                 <label class="passenger-field"><span>Payment Ref (Optional)</span><input type="text" id="tkt-payment-id" class="form-input"></label>
               </div>
               <label class="passenger-field"><span>Description</span><textarea id="tkt-description" class="form-textarea" rows="4" required></textarea></label>
-              <button type="submit" id="btn-submit-ticket" class="btn btn-primary passenger-submit-button">Create Support Ticket</button>
+              <button type="submit" id="btn-submit-ticket" class="btn btn-primary passenger-submit-button" disabled title="Support tickets are not available yet — use WhatsApp (+263 78 026 6401) or the Contact page">Create Support Ticket</button>
             </form>
-            <div class="card support-ticket-history"><h3>My Support Tickets</h3><div id="user-tickets-container"><div class="passenger-loading-state">Loading tickets…</div></div></div>
+            <div class="card support-ticket-history"><h3>My Support Tickets</h3><div id="user-tickets-container"><div class="passenger-loading-state">Loading…</div></div></div>
           </div>
         </details>
       </div>`;
   },
 
   async render(currentProfile = null) {
-    this.isPassengerView = ["customer", "passenger"].includes(currentProfile?.role);
+    const hash = window.location.hash || "";
+    const rawRoute = hash.slice(1).split("?")[0];
+    if (hash.includes("tab=safety") || rawRoute === "safety") this.activeTab = "safety";
+    else if (hash.includes("tab=help") || rawRoute === "help") this.activeTab = "help";
+    else if (hash.includes("tab=status") || rawRoute === "status") this.activeTab = "status";
+    else this.activeTab = "tickets";
+
+    this.isPassengerView = ["customer", "passenger"].includes(currentProfile?.role) && !["safety", "status"].includes(this.activeTab);
     if (this.isPassengerView) return this.renderPassengerSupport();
     return `
       <div class="support-portal" style="max-width: 1180px; margin: 0 auto; padding: 1.5rem 0;">
@@ -89,6 +97,7 @@ export const SupportView = {
             <!-- Create Ticket Form -->
             <div class="card">
               <h3 class="card-title" style="margin-bottom: 1.25rem;">Create New Support Ticket</h3>
+              <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.25rem;">Ticket submission is not available yet — nothing entered here is sent. For a real response, <a href="https://wa.me/263780266401" target="_blank" rel="noopener">chat on WhatsApp (+263 78 026 6401)</a> or use the <a href="#contact">Contact page</a>.</p>
               <form id="create-ticket-form">
                 <div class="form-group">
                   <label class="form-label">Category</label>
@@ -131,7 +140,7 @@ export const SupportView = {
                   <textarea id="tkt-description" class="form-textarea" rows="4" placeholder="Provide full details of your request or issue..." required></textarea>
                 </div>
 
-                <button type="submit" id="btn-submit-ticket" class="btn btn-primary btn-lg btn-full">
+                <button type="submit" id="btn-submit-ticket" class="btn btn-primary btn-lg btn-full" disabled title="Support tickets are not available yet — use WhatsApp (+263 78 026 6401) or the Contact page">
                   Create Support Ticket 🎫
                 </button>
               </form>
@@ -141,7 +150,7 @@ export const SupportView = {
             <div class="card">
               <h3 class="card-title" style="margin-bottom: 1.25rem;">My Support Tickets</h3>
               <div id="user-tickets-container">
-                <div style="padding: 2rem; text-align: center; color: var(--text-muted);">Loading support tickets from Supabase...</div>
+                <div style="padding: 2rem; text-align: center; color: var(--text-muted);">Loading…</div>
               </div>
             </div>
 
@@ -155,9 +164,9 @@ export const SupportView = {
               <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; border-radius: var(--radius-md); padding: 1.5rem; margin-bottom: 1.5rem;">
                 <h3 style="color: #ef4444; font-weight: 800; font-size: 1.25rem; margin-bottom: 0.5rem;">🚨 Emergency SOS Alert</h3>
                 <p style="font-size: 0.9rem; color: var(--text-main); margin-bottom: 1rem;">
-                  If you are in immediate physical danger, trigger an emergency alert below. This logs your current location and notifies TransMove safety support.
+                  Automated SOS alerts are not available yet — this button does not broadcast anything. If you are in immediate danger, contact the police first, then call TransMove support on 0780963653 / 078 166 4661 so we can assist.
                 </p>
-                <button id="btn-trigger-sos-portal" class="btn btn-primary" style="background: #ef4444; border: none; font-weight: 800; width: 100%;">
+                <button id="btn-trigger-sos-portal" class="btn btn-primary" style="background: #ef4444; border: none; font-weight: 800; width: 100%;" disabled title="Automated SOS alerts are not available yet. In an emergency, contact the police, then call TransMove support on 0780963653 / 078 166 4661.">
                   TRIGGER SOS EMERGENCY ALERT
                 </button>
               </div>
@@ -165,8 +174,8 @@ export const SupportView = {
               <h4 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem;">Safety Guidelines</h4>
               <ul style="line-height: 1.6; font-size: 0.9rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 0.5rem;">
                 <li>✓ Verify driver profile and vehicle registration number before entering vehicle.</li>
-                <li>✓ Share your live trip link with family or friends.</li>
-                <li>✓ Confirm trip security PIN with driver before departure.</li>
+                <li>✓ Share your trip details link with family or friends when you have an active booking.</li>
+                <li>✓ Agree on the pickup point and fare with your driver in the booking chat before departure.</li>
                 <li>✓ Report any suspicious or unsafe behavior immediately.</li>
               </ul>
             </div>
@@ -174,10 +183,10 @@ export const SupportView = {
             <div class="card">
               <h3 class="card-title" style="margin-bottom: 1rem;">Active Trip Safety Tools</h3>
               <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1.5rem;">
-                Generate a live shareable tracking link to send to trusted contacts.
+                Share a link to your active trip's details page with trusted contacts. Live tracking is not available yet.
               </p>
 
-              <button id="btn-generate-share-link" class="btn btn-outline btn-full" style="margin-bottom: 1.5rem;">
+              <button id="btn-generate-share-link" class="btn btn-outline btn-full" style="margin-bottom: 1.5rem;" disabled title="Checking for an active trip…">
                 🔗 Generate Shareable Trip Link
               </button>
 
@@ -196,7 +205,7 @@ export const SupportView = {
           <div class="card" style="margin-bottom: 2rem;">
             <div style="margin-bottom: 1.5rem;">
               <h3 class="card-title">Search Knowledge Base</h3>
-              <input type="text" id="help-search-input" class="form-input" placeholder="Type a topic (e.g. Bidding, Paynow, Driver Onboarding)..." style="margin-top: 0.5rem;" />
+              <input type="text" id="help-search-input" class="form-input" placeholder="Type a topic (e.g. Bidding, EcoCash, Driver Onboarding)..." style="margin-top: 0.5rem;" />
             </div>
 
             <div class="grid-3" id="help-topics-container">
@@ -209,8 +218,8 @@ export const SupportView = {
                 <p style="font-size: 0.85rem; color: var(--text-muted);">Understanding fair driver offers, submitting counter-offers, and accepting confirmed trips.</p>
               </div>
               <div class="card" style="padding: 1.25rem;">
-                <h4 style="font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem;">💳 Paynow Payments</h4>
-                <p style="font-size: 0.85rem; color: var(--text-muted);">How subscription plans and Paynow payment checkouts are verified server-to-server.</p>
+                <h4 style="font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem;">📱 EcoCash Payments</h4>
+                <p style="font-size: 0.85rem; color: var(--text-muted);">Pay easily via manual EcoCash transfer to verified TransMove admin accounts. Submit your transaction reference and screenshot for prompt admin verification.</p>
               </div>
               <div class="card" style="padding: 1.25rem;">
                 <h4 style="font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem;">📦 Logistics &amp; Freight</h4>
@@ -236,32 +245,32 @@ export const SupportView = {
             <div style="display: flex; flex-direction: column; gap: 1rem;">
               <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-subtle); border-radius: var(--radius-md);">
                 <div>
-                  <div style="font-weight: 700;">Supabase Database &amp; Auth</div>
-                  <div style="font-size: 0.8rem; color: var(--text-muted);">PostgreSQL, RLS Policies, User Sessions</div>
+                  <div style="font-weight: 700;">Appwrite Database &amp; Auth</div>
+                  <div style="font-size: 0.8rem; color: var(--text-muted);">Document Database, Row-Level Permissions, User Sessions</div>
+                </div>
+                <span class="badge badge-neutral" id="status-badge-appwrite">CHECKING…</span>
+              </div>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-subtle); border-radius: var(--radius-md);">
+                <div>
+                  <div style="font-weight: 700;">EcoCash Manual Payment Verification</div>
+                  <div style="font-size: 0.8rem; color: var(--text-muted);">Verified Admin Channel Processing with Proof of Payment &amp; Audit Logs</div>
                 </div>
                 <span class="badge badge-success">OPERATIONAL</span>
               </div>
 
               <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-subtle); border-radius: var(--radius-md);">
                 <div>
-                  <div style="font-weight: 700;">Paynow Payment Gateway</div>
-                  <div style="font-size: 0.8rem; color: var(--text-muted);">Server-to-Server Checkout &amp; Webhooks</div>
+                  <div style="font-weight: 700;">OpenStreetMap Geocoding</div>
+                  <div style="font-size: 0.8rem; color: var(--text-muted);">Nominatim Address Search &amp; Reverse Geocoding, Local Distance Estimates</div>
                 </div>
                 <span class="badge badge-success">OPERATIONAL</span>
               </div>
 
               <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-subtle); border-radius: var(--radius-md);">
                 <div>
-                  <div style="font-weight: 700;">OpenStreetMap Routing Engine</div>
-                  <div style="font-size: 0.8rem; color: var(--text-muted);">OSRM Route Geometry &amp; Nominatim Geocoding</div>
-                </div>
-                <span class="badge badge-success">OPERATIONAL</span>
-              </div>
-
-              <div style="display: flex; justify-content: space-between; align-items: center; padding: 1rem; background: var(--bg-subtle); border-radius: var(--radius-md);">
-                <div>
-                  <div style="font-weight: 700;">Realtime Messaging &amp; Live Geolocation</div>
-                  <div style="font-size: 0.8rem; color: var(--text-muted);">Supabase Realtime Broadcast Channels</div>
+                  <div style="font-weight: 700;">Realtime Messaging</div>
+                  <div style="font-size: 0.8rem; color: var(--text-muted);">Appwrite Realtime Channels with Automatic Polling Fallback</div>
                 </div>
                 <span class="badge badge-success">OPERATIONAL</span>
               </div>
@@ -273,12 +282,13 @@ export const SupportView = {
     `;
   },
 
-  async init() {
-    // Parse URL parameter tab if present (e.g., #support?tab=safety)
+  async init(route) {
+    // Resolve active tab from route (#safety / #help / #status) or ?tab= param
     const hash = window.location.hash;
     if (hash.includes("tab=safety")) this.activeTab = "safety";
     if (hash.includes("tab=help")) this.activeTab = "help";
     if (hash.includes("tab=status")) this.activeTab = "status";
+    if (["safety", "help", "status"].includes(route)) this.activeTab = route;
 
     if (this.isPassengerView) {
       document.querySelectorAll(".faq-row").forEach((row) => {
@@ -311,54 +321,63 @@ export const SupportView = {
       });
     });
 
-    // Create Ticket Form
-    document.getElementById("create-ticket-form")?.addEventListener("submit", async (e) => {
+    // Render happened before the tab param was parsed — sync the DOM now
+    if (!this.isPassengerView) this.switchTab(this.activeTab);
+
+    // Ticket form has no backend: never claim a submission happened
+    document.getElementById("create-ticket-form")?.addEventListener("submit", (e) => {
       e.preventDefault();
-
-      const category = document.getElementById("tkt-category").value;
-      const subject = document.getElementById("tkt-subject").value.trim();
-      const description = document.getElementById("tkt-description").value.trim();
-      const tripId = document.getElementById("tkt-trip-id").value.trim() || null;
-      const paymentId = document.getElementById("tkt-payment-id").value.trim() || null;
-
-      const btn = document.getElementById("btn-submit-ticket");
-      btn.disabled = true;
-      btn.innerText = "Creating Ticket...";
-
-      try {
-        const ticket = await TicketService.createTicket({
-          category,
-          subject,
-          description,
-          tripId,
-          paymentId
-        });
-
-        alert(`Ticket created successfully! Ticket Reference: ${ticket.ticket_number || 'TM-SUP-CONFIRMED'}`);
-        document.getElementById("create-ticket-form").reset();
-        this.loadUserTickets();
-      } catch (err) {
-        alert("Error creating ticket: " + err.message);
-      } finally {
-        btn.disabled = false;
-        btn.innerText = "Create Support Ticket 🎫";
-      }
+      alert("Support tickets are not available right now — nothing was submitted. Please contact us on WhatsApp (+263 78 026 6401) or via the Contact page.");
     });
 
-    // Safety SOS & Share Trip Buttons
-    document.getElementById("btn-trigger-sos-portal")?.addEventListener("click", () => {
-      if (confirm("⚠️ Confirm Emergency SOS Trigger? This will log your current coordinates and alert safety support.")) {
-        SafetyService.triggerSOS("user-id", "general-sos").then((res) => alert(res.message));
-      }
-    });
+    this.initShareLink();
+    this.checkAppwriteStatus();
 
-    document.getElementById("btn-generate-share-link")?.addEventListener("click", () => {
-      const link = SafetyService.generateShareableTripLink("active-trip");
-      prompt("Share this live tracking link with family or friends:", link);
-    });
+    if (this.isPassengerView) this.loadUserTickets();
+  },
 
-    // Load User Tickets if on tickets tab
-    this.loadUserTickets();
+  async initShareLink() {
+    const shareBtn = document.getElementById("btn-generate-share-link");
+    if (!shareBtn) return;
+
+    let activeTripId = null;
+    try {
+      const bookings = await BookingService.getUserBookings();
+      const active = (bookings || []).find((b) => ["confirmed", "driver_arriving", "in_progress"].includes(b.status));
+      activeTripId = active ? (active.$id || active.id) : null;
+    } catch (err) {
+      console.warn("Active trip lookup notice:", err.message);
+      shareBtn.title = "We could not check your trips right now. Please try again later.";
+      return;
+    }
+
+    if (!activeTripId) {
+      shareBtn.title = "You have no active trip to share right now.";
+      return;
+    }
+
+    shareBtn.disabled = false;
+    shareBtn.title = "Copy a link to your active trip details";
+    shareBtn.addEventListener("click", () => {
+      const link = `${window.location.origin}/#customer?tab=booking-details&id=${encodeURIComponent(activeTripId)}`;
+      prompt("Share this trip link with family or friends:", link);
+    });
+  },
+
+  async checkAppwriteStatus() {
+    const badge = document.getElementById("status-badge-appwrite");
+    if (!badge) return;
+    try {
+      await getAppwriteAccount().get();
+      badge.className = "badge badge-success";
+      badge.innerText = "OPERATIONAL";
+    } catch (err) {
+      // Any Appwrite response (even 401 when signed out) proves the backend is reachable
+      const reachable = typeof err?.code === "number";
+      console.warn("Appwrite status check notice:", err?.message);
+      badge.className = reachable ? "badge badge-success" : "badge badge-warning";
+      badge.innerText = reachable ? "OPERATIONAL" : "UNREACHABLE";
+    }
   },
 
   switchTab(tab) {
@@ -380,39 +399,16 @@ export const SupportView = {
     }
   },
 
-  async loadUserTickets() {
+  loadUserTickets() {
     const container = document.getElementById("user-tickets-container");
     if (!container) return;
 
-    try {
-      const tickets = await TicketService.getUserTickets();
-
-      if (!tickets || tickets.length === 0) {
-        container.innerHTML = renderEmptyState({
-          title: "No support tickets found",
-          description: "Create a ticket using the form when you need assistance from TransMove support.",
-          icon: "inbox"
-        });
-        return;
-      }
-
-      container.innerHTML = tickets.map((t) => `
-        <div class="card" style="margin-bottom: 1rem; padding: 1.25rem;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-            <div style="font-weight: 800; font-size: 1rem;">${t.ticket_number || t.id.slice(0, 10)}</div>
-            <span class="badge ${t.status === "RESOLVED" || t.status === "closed" ? "badge-success" : "badge-warning"}">${t.status}</span>
-          </div>
-          <div style="font-size: 0.85rem; color: var(--primary); font-weight: 700; margin-bottom: 0.25rem;">${t.category}</div>
-          <div style="font-weight: 700; margin-bottom: 0.35rem;">${t.subject}</div>
-          <div style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.4;">${t.description}</div>
-        </div>
-      `).join("");
-    } catch (err) {
-      container.innerHTML = renderEmptyState({
-        title: "No support tickets found",
-        description: "Your open and resolved tickets will be displayed here.",
-        icon: "inbox"
-      });
-    }
+    container.innerHTML = renderEmptyState({
+      title: "Support tickets are not available yet",
+      description: "Online ticketing is temporarily offline, so no tickets can be shown or created. For help right now, message us on <a href=\"https://wa.me/263780266401\" target=\"_blank\" rel=\"noopener\">WhatsApp (+263 78 026 6401)</a>.",
+      actionText: "Open Contact Page",
+      actionLink: "#contact",
+      icon: "inbox"
+    });
   }
 };

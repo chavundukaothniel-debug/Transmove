@@ -64,21 +64,28 @@ export const LegalView = {
 
   async init() {
     // Parse URL parameter page if present (e.g., #legal?page=privacy)
+    const validDocs = ["terms", "privacy", "cancellation", "refund", "driver-terms", "customer-terms", "advertising", "machinery"];
     const hash = window.location.hash;
     if (hash.includes("page=")) {
       const page = hash.split("page=")[1]?.split("&")[0];
-      if (page) this.activeDoc = page;
+      if (page && validDocs.includes(page)) this.activeDoc = page;
     }
 
     document.querySelectorAll(".legal-nav-btn").forEach((btn) => {
       btn.addEventListener("click", (e) => {
-        const doc = e.currentTarget.getAttribute("data-doc");
-        this.activeDoc = doc;
-        document.querySelectorAll(".legal-nav-btn").forEach((b) => b.classList.toggle("active", b.getAttribute("data-doc") === doc));
-        const contentEl = document.getElementById("legal-doc-content");
-        if (contentEl) contentEl.innerHTML = this.getDocContent(doc);
+        this.showDoc(e.currentTarget.getAttribute("data-doc"));
       });
     });
+
+    // render() ran before the hash param was parsed — sync content & nav now
+    this.showDoc(this.activeDoc);
+  },
+
+  showDoc(doc) {
+    this.activeDoc = doc;
+    document.querySelectorAll(".legal-nav-btn").forEach((b) => b.classList.toggle("active", b.getAttribute("data-doc") === doc));
+    const contentEl = document.getElementById("legal-doc-content");
+    if (contentEl) contentEl.innerHTML = this.getDocContent(doc);
   },
 
   getDocContent(doc) {
@@ -92,7 +99,7 @@ export const LegalView = {
           <h3 style="font-size: 1.15rem; font-weight: 700; margin-top: 1.5rem; margin-bottom: 0.5rem;">1. Data We Collect</h3>
           <p>We collect information required to facilitate platform services, including your name, email, phone number, location coordinates, vehicle details, national identity documents (for drivers), and transaction ledgers.</p>
           <h3 style="font-size: 1.15rem; font-weight: 700; margin-top: 1.5rem; margin-bottom: 0.5rem;">2. How Data Is Used</h3>
-          <p>Your data is used solely for matching customers with transport providers, verifying driver credentials, processing Paynow transactions, generating security PINs, and providing customer support.</p>
+          <p>Your data is used solely for matching customers with transport providers, verifying driver credentials, processing EcoCash payment verification records, generating security PINs, and providing customer support.</p>
         `;
       case "cancellation":
         return `
@@ -109,7 +116,7 @@ export const LegalView = {
           <h2 style="font-size: 1.6rem; font-weight: 800; margin-bottom: 1rem;">Refund Policy</h2>
           <p><strong>Payment &amp; Subscription Refund Terms</strong></p>
           <hr style="border: none; border-top: 1px solid var(--border-light); margin: 1.25rem 0;" />
-          <p>Subscriptions and trip payments verified via Paynow are subject to review by TransMove administration. Refunds are granted for unfulfilled services, confirmed billing errors, or verified safety disputes.</p>
+          <p>Subscriptions and provider payments verified via EcoCash are subject to review by TransMove administration. Refunds are granted for unfulfilled services, confirmed billing errors, or verified safety disputes.</p>
         `;
       case "driver-terms":
         return `
@@ -146,7 +153,7 @@ export const LegalView = {
           <hr style="border: none; border-top: 1px solid var(--border-light); margin: 1.25rem 0;" />
           <p>Welcome to TransMove. By accessing our website, mobile interface, or services, you agree to be bound by these Terms of Service. TransMove operates an independent transportation, freight logistics, and heavy machinery marketplace across Zimbabwe.</p>
           <h3 style="font-size: 1.15rem; font-weight: 700; margin-top: 1.5rem; margin-bottom: 0.5rem;">1. Platform Identity &amp; Governance</h3>
-          <p>TransMove is an independent entity headquartered at 17056 Teviotdale, Vainona, Harare, Zimbabwe. All transactions, driver bids, machinery listings, and Paynow payment activations are governed by our platform policies.</p>
+          <p>TransMove is an independent entity headquartered at 17056 Teviotdale, Vainona, Harare, Zimbabwe. All transactions, driver bids, machinery listings, and EcoCash payment activations are governed by our platform policies.</p>
         `;
     }
   }

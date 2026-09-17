@@ -158,16 +158,17 @@ export const BookingService = {
    * DRIVER transitions: confirmed → driver_arriving → in_progress → completed
    * PASSENGER transitions: confirmed → cancelled (only)
    */
-  async updateBookingStatus(bookingId, status, reason = null) {
+  async updateBookingStatus(bookingId, status, options = {}) {
     if (!bookingId) throw new Error("bookingId is required.");
     const validStatuses = ["driver_arriving", "in_progress", "completed", "cancelled"];
     if (!validStatuses.includes(status)) {
       throw new Error(`Invalid status '${status}'. Allowed: ${validStatuses.join(", ")}`);
     }
+    const extra = typeof options === "string" ? { reason: options } : (options || {});
     return callTrustedApi("update_booking_status", {
       booking_id: bookingId,
       status,
-      reason: reason || undefined
+      ...extra
     });
   },
 
@@ -202,5 +203,34 @@ export const BookingService = {
     });
 
     return all.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  },
+
+  /**
+   * PASSENGER: Generates a temporary secure share link for an active trip.
+   */
+  async generateShareLink(bookingId) {
+    if (!bookingId) throw new Error("bookingId is required.");
+    return callTrustedApi("generate_trip_share_link", { booking_id: bookingId });
+  },
+
+  /**
+   * PUBLIC / PASSENGER: Retrieves safe trip tracking details using share token.
+   */
+  async getSharedTrip(token) {
+    if (!token) throw new Error("token is required.");
+    return callTrustedApi("get_shared_trip", { token });
+  },
+
+  /**
+   * PASSENGER / DRIVER: Cancels a booking with controlled reason category & optional notes.
+   */
+  async cancelBookingWithReason(bookingId, { reason = "change_of_plans", notes = "" } = {}) {
+    if (!bookingId) throw new Error("bookingId is required.");
+    return callTrustedApi("update_booking_status", {
+      booking_id: bookingId,
+      status: "cancelled",
+      reason,
+      notes
+    });
   }
 };

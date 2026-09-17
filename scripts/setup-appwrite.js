@@ -46,7 +46,7 @@ const tables = [
     columns: [
       V('user_id', 64, true), V('full_name', 128, true), V('email', 320, true), V('phone', 32),
       V('role', 32, true), V('profile_image_id', 64), V('city', 128), T('bio'),
-      V('verification_status', 32, false, 'unverified'), V('account_status', 32, false, 'active'),
+      V('verification_status', 32, false, 'unverified'), T('verification_rejection_reason'), V('account_status', 32, false, 'active'),
       D('created_at', true), D('updated_at', true),
     ],
     indexes: [K('uniq_user_id', ['user_id'], true), K('idx_role', ['role']), K('idx_account_status', ['account_status'])],
@@ -57,7 +57,7 @@ const tables = [
       V('driver_id', 64, true), V('vehicle_type', 64, true), V('make', 128, true), V('model', 128, true),
       I('year'), V('colour', 64), V('registration_number', 64, true), I('passenger_capacity'), F('load_capacity'),
       V('service_category', 64, true), T('description'), V('status', 32, false, 'active'),
-      V('verification_status', 32, false, 'unverified'), B('is_primary', false, false), D('created_at', true), D('updated_at', true),
+      V('verification_status', 32, false, 'unverified'), T('rejection_reason'), B('is_primary', false, false), D('created_at', true), D('updated_at', true),
     ],
     indexes: [K('idx_driver_id', ['driver_id']), K('idx_registration_number', ['registration_number']), K('idx_service_category', ['service_category']), K('idx_status', ['status'])],
   },

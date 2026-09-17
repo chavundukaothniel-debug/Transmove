@@ -5,6 +5,7 @@
 // ==============================================================================
 import {
   getAppwriteAccount,
+  getAppwriteClient,
   getAppwriteDatabases,
   getAppwriteStorage,
   APPWRITE_CONFIG,
@@ -41,9 +42,7 @@ export const AuthService = {
       id: doc.user_id || doc.$id,
       phone_number: doc.phone || "",
       service_area: doc.city || "",
-      profile_photo_url: photoUrl,
-      rating_avg: doc.rating_avg || 5.0,
-      rating_count: doc.rating_count || 0
+      profile_photo_url: photoUrl
     };
   },
 
@@ -217,7 +216,11 @@ export const AuthService = {
     }
 
     // Check account status
-    if (profile.account_status === "suspended" || profile.account_status === "deactivated") {
+    if (!profile) {
+      await account.deleteSession("current").catch(() => {});
+      throw new Error("Your account profile could not be loaded. Please try signing in again or contact support.");
+    }
+    if (profile?.account_status === "suspended" || profile?.account_status === "deactivated") {
       await account.deleteSession("current").catch(() => {});
       throw new Error("Your account has been suspended. Please contact support.");
     }
@@ -330,6 +333,36 @@ export const AuthService = {
   },
 
   /**
+   * Subscribes the signed-in user to their own provider verification records.
+   * Collection permissions still determine which realtime payloads are visible.
+   */
+  async subscribeToVerificationState(callback) {
+    const account = getAppwriteAccount();
+    const user = await account.get().catch(() => null);
+    if (!user || typeof callback !== "function") return () => {};
+
+    const databases = getAppwriteDatabases();
+    const profiles = await databases.listDocuments("transmove", "profiles", [
+      Query.equal("user_id", user.$id),
+      Query.limit(1)
+    ]);
+    const profile = profiles.documents?.[0];
+    if (!profile) return () => {};
+
+    const channels = [
+      `databases.transmove.collections.profiles.documents.${profile.$id}`,
+      "databases.transmove.collections.vehicles.documents",
+      "databases.transmove.collections.verification_documents.documents"
+    ];
+    const unsubscribe = getAppwriteClient().subscribe(channels, (event) => {
+      const payload = event?.payload || {};
+      const belongsToUser = payload.user_id === user.$id || payload.driver_id === user.$id || payload.$id === profile.$id;
+      if (belongsToUser) callback({ event, payload });
+    });
+    return typeof unsubscribe === "function" ? unsubscribe : () => {};
+  },
+
+  /**
    * Updates current user's profile details in transmove.profiles.
    */
   async updateProfile(updates) {
@@ -365,20 +398,34 @@ export const AuthService = {
   },
 
   /**
-   * Submits driver verification application & documents (preserved for backwards compatibility).
+   * Submits driver verification documents via the trusted create_verification_document path.
    */
-  async submitDriverVerification({ nationalId, nationalIdPhoto, licenseUrl, vehicleDetails }) {
+  async submitDriverVerification({ nationalId, nationalIdPhoto, licenseUrl, vehicleDetails } = {}) {
     const account = getAppwriteAccount();
-    const user = await account.get();
-    if (!user) throw new Error("Not authenticated");
+    const user = await account.get().catch(() => null);
+    if (!user) throw new Error("You must be signed in to submit verification.");
 
-    // Update profile verification status
-    await this.updateProfile({
-      role: "driver",
-      verification_status: "pending"
-    });
+    const { VehicleService } = await import("./vehicles.js");
 
-    return true;
+    const docUploads = [
+      { file: nationalIdPhoto, type: "national_id" },
+      { file: licenseUrl, type: "driver_license" }
+    ].filter((d) => d.file);
+
+    const hasVehicle = Boolean(vehicleDetails && vehicleDetails.make);
+    if (docUploads.length === 0 && !hasVehicle) {
+      throw new Error("Nothing to submit. Attach your National ID or Driver's Licence document (and vehicle details) to apply for verification.");
+    }
+
+    const submitted = [];
+    for (const doc of docUploads) {
+      submitted.push(await VehicleService.uploadVerificationDocument(doc.file, doc.type));
+    }
+    if (hasVehicle) {
+      submitted.push(await VehicleService.addVehicle(vehicleDetails));
+    }
+
+    return submitted;
   },
 
   /**
@@ -491,15 +538,16 @@ export const AuthService = {
 
   /**
    * Requests additional role approval for user account.
+   * No backend exists for role requests yet, so this only activates
+   * roles the user genuinely already holds and otherwise fails honestly.
    */
   async requestAdditionalRole(user, roleName) {
-    const isAutoApproved = ["passenger", "machinery_hirer", "advertiser"].includes(roleName);
-    const status = isAutoApproved ? "active" : "pending";
-
-    if (isAutoApproved) {
+    const approvedRoles = await this.getApprovedRoles(user);
+    if (approvedRoles.includes(roleName)) {
       this.setActiveRole(user, roleName);
+      return { status: "active", alreadyApproved: true };
     }
-    return { status, isAutoApproved };
+    throw new Error("Additional role requests are not available yet. Roles are granted by TransMove after verification — please contact support.");
   },
 
   /**

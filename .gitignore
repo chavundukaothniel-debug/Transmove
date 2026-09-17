@@ -32,3 +32,5 @@ supabase/.temp/
 # OS / editor
 .DS_Store
 Thumbs.db
+
+reports/

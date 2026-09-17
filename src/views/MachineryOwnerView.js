@@ -6,6 +6,16 @@ import { EquipmentService } from "../services/equipment.js";
 import { renderEmptyState } from "../components/EmptyState.js";
 import { AdPlacement } from "../components/AdPlacement.js";
 
+const escapeHtml = (value) => {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+};
+
 export const MachineryOwnerView = {
   async render() {
     return `
@@ -25,7 +35,7 @@ export const MachineryOwnerView = {
         </div>
 
         <!-- Metric KPI Cards -->
-        <div class="kpi-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+        <div class="kpi-grid" id="machinery-owner-section-overview" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
           <div class="card" style="padding: 1rem;">
             <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">LISTED MACHINERY</div>
             <div id="kpi-mac-count" style="font-size: 1.6rem; font-weight: 800; color: var(--primary); margin-top: 0.25rem;">0</div>
@@ -33,17 +43,17 @@ export const MachineryOwnerView = {
           </div>
           <div class="card" style="padding: 1rem;">
             <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">ACTIVE RENTALS</div>
-            <div id="kpi-mac-rentals" style="font-size: 1.6rem; font-weight: 800; color: #10b981; margin-top: 0.25rem;">0</div>
+            <div id="kpi-mac-rentals" style="font-size: 1.6rem; font-weight: 800; color: #10b981; margin-top: 0.25rem;">—</div>
             <div style="font-size: 0.75rem; color: var(--text-muted);">Hired on site</div>
           </div>
           <div class="card" style="padding: 1rem;">
             <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">PENDING OFFERS</div>
-            <div id="kpi-mac-offers" style="font-size: 1.6rem; font-weight: 800; color: #f59e0b; margin-top: 0.25rem;">0</div>
+            <div id="kpi-mac-offers" style="font-size: 1.6rem; font-weight: 800; color: #f59e0b; margin-top: 0.25rem;">—</div>
             <div style="font-size: 0.75rem; color: var(--text-muted);">Contract proposals</div>
           </div>
           <div class="card" style="padding: 1rem;">
             <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">TOTAL REVENUE</div>
-            <div id="kpi-mac-revenue" style="font-size: 1.6rem; font-weight: 800; color: var(--text-main); margin-top: 0.25rem;">$0.00</div>
+            <div id="kpi-mac-revenue" style="font-size: 1.6rem; font-weight: 800; color: var(--text-main); margin-top: 0.25rem;">—</div>
             <div style="font-size: 0.75rem; color: var(--text-muted);">Equipment earnings</div>
           </div>
         </div>
@@ -52,7 +62,7 @@ export const MachineryOwnerView = {
 
         <div class="grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
           <!-- Publish Machinery Form -->
-          <div class="card">
+          <div class="card" id="machinery-owner-section-add">
             <h3 style="font-size: 1.15rem; font-weight: 800; margin-bottom: 1.25rem;">🚜 Add Heavy Machinery Listing</h3>
             <form id="machinery-owner-form">
               <div class="form-group">
@@ -104,7 +114,7 @@ export const MachineryOwnerView = {
           </div>
 
           <!-- Listed Machinery List -->
-          <div class="card">
+          <div class="card" id="machinery-owner-section-fleet">
             <h3 style="font-size: 1.15rem; font-weight: 800; margin-bottom: 1.25rem;">🚜 Active Heavy Machinery Fleet</h3>
             <div id="machinery-owner-list">
               <div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">
@@ -118,6 +128,15 @@ export const MachineryOwnerView = {
   },
 
   async init() {
+    const tab = new URLSearchParams((window.location.hash.split("?")[1] || "")).get("tab");
+    const sectionMap = {
+      machinery: "machinery-owner-section-fleet",
+      add: "machinery-owner-section-add",
+      earnings: "machinery-owner-section-overview"
+    };
+    const section = document.getElementById(sectionMap[tab] || "machinery-owner-section-overview");
+    section?.scrollIntoView({ block: "start" });
+
     this.bindEvents();
     await this.loadMachinery();
     AdPlacement.init("MACHINERY_OWNER_DASHBOARD");
@@ -142,10 +161,11 @@ export const MachineryOwnerView = {
           description: document.getElementById("mac-desc").value.trim()
         });
 
-        alert("Machinery listing published successfully and submitted for administrative verification!");
-        document.getElementById("machinery-owner-form").reset();
+        alert("Machinery listing submitted successfully! Pending verification before appearing in marketplace.");
+        document.getElementById("machinery-owner-form")?.reset();
         await this.loadMachinery();
       } catch (err) {
+        console.warn("Machinery listing publish failed:", err);
         alert("Could not publish machinery: " + err.message);
       } finally {
         saveBtn.disabled = false;
@@ -164,8 +184,8 @@ export const MachineryOwnerView = {
 
       if (!listings || listings.length === 0) {
         container.innerHTML = renderEmptyState({
-          title: "No heavy machinery listed yet",
-          description: "List your tractors, excavators, tippers, or mobile cranes to connect directly with farmers, mining companies, and civil contractors.",
+          title: "No machinery listings are available yet",
+          description: "Equipment listings are not live on TransMove yet. Please check back later.",
           icon: "tractor"
         });
         return;
@@ -174,23 +194,24 @@ export const MachineryOwnerView = {
       container.innerHTML = listings.map(m => `
         <div style="border: 1px solid var(--border-light); padding: 1rem; border-radius: var(--radius-md); margin-bottom: 0.75rem;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div style="font-weight: 700; font-size: 1rem;">${m.title}</div>
+            <div style="font-weight: 700; font-size: 1rem;">${escapeHtml(m.title)}</div>
             <span class="badge ${m.verification_status === "approved" ? "badge-success" : "badge-warning"}">
-              ${m.verification_status.toUpperCase()}
+              ${escapeHtml((m.verification_status || "unverified").toUpperCase())}
             </span>
           </div>
           <div style="font-size: 0.85rem; color: var(--text-muted); margin: 0.25rem 0;">
-            Location: <strong>${m.location_name}</strong> • Category: ${m.category}
+            Location: <strong>${escapeHtml(m.location_name)}</strong> • Category: ${escapeHtml(m.category)}
           </div>
           <div style="font-weight: 800; color: var(--primary);">
-            $${m.rate_per_day} / day ${m.rate_per_hour ? `• $${m.rate_per_hour} / hr` : ""}
+            $${escapeHtml(m.rate_per_day)} / day ${m.rate_per_hour ? `• $${escapeHtml(m.rate_per_hour)} / hr` : ""}
           </div>
         </div>
       `).join("");
     } catch (err) {
+      console.warn("Machinery fleet load failed:", err);
       container.innerHTML = renderEmptyState({
-        title: "Equipment System Ready",
-        description: "List heavy machinery to store records in Supabase.",
+        title: "No machinery listings are available yet",
+        description: "Equipment listings are not live on TransMove yet. Please check back later.",
         icon: "tractor"
       });
     }

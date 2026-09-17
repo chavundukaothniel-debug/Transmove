@@ -6,6 +6,16 @@ import { EquipmentService } from "../services/equipment.js";
 import { renderEmptyState } from "../components/EmptyState.js";
 import { Modal } from "../components/Modal.js";
 
+const escapeHtml = (value) => {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+};
+
 export const EquipmentView = {
   activeCategory: "all",
 
@@ -64,10 +74,8 @@ export const EquipmentView = {
 
       if (!listings || listings.length === 0) {
         container.innerHTML = renderEmptyState({
-          title: "No verified machinery listings found in this category",
-          description: "Are you an equipment owner? List your machinery to start receiving hire inquiries.",
-          actionText: "List Equipment",
-          actionLink: "#owner",
+          title: "No machinery listings are available yet",
+          description: "The equipment hire marketplace is not live on TransMove yet. Please check back later.",
           icon: "tractor"
         });
         return;
@@ -78,26 +86,26 @@ export const EquipmentView = {
           ${listings.map((item) => `
             <div class="card" style="display: flex; flex-direction: column;">
               <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
-                <span class="badge badge-info">${item.category.toUpperCase()}</span>
+                <span class="badge badge-info">${escapeHtml((item.category || "machinery").toUpperCase())}</span>
                 <span class="badge badge-success">VERIFIED OWNER</span>
               </div>
 
-              <h3 style="font-size: 1.2rem; font-weight: 800; margin-bottom: 0.25rem;">${item.title}</h3>
+              <h3 style="font-size: 1.2rem; font-weight: 800; margin-bottom: 0.25rem;">${escapeHtml(item.title)}</h3>
               <div style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 0.75rem;">
-                ${item.make} ${item.model} • 📍 ${item.location_name}
+                ${escapeHtml(item.make)} ${escapeHtml(item.model)} • 📍 ${escapeHtml(item.location_name)}
               </div>
 
               <p style="color: var(--text-muted); font-size: 0.9rem; flex: 1; margin-bottom: 1.25rem;">
-                ${item.description}
+                ${escapeHtml(item.description)}
               </p>
 
               <div style="border-top: 1px solid var(--border-light); padding-top: 1rem; display: flex; justify-content: space-between; align-items: center;">
                 <div>
-                  <div style="font-size: 1.4rem; font-weight: 900; color: var(--primary);">$${item.rate_per_day}</div>
-                  <div style="font-size: 0.75rem; color: var(--text-muted);">per day ${item.rate_per_hour ? `($${item.rate_per_hour}/hr)` : ""}</div>
+                  <div style="font-size: 1.4rem; font-weight: 900; color: var(--primary);">$${escapeHtml(item.rate_per_day)}</div>
+                  <div style="font-size: 0.75rem; color: var(--text-muted);">per day ${item.rate_per_hour ? `($${escapeHtml(item.rate_per_hour)}/hr)` : ""}</div>
                 </div>
 
-                <button class="btn btn-primary btn-sm btn-hire-equipment" data-eq-id="${item.id}" data-owner-name="${item.owner?.full_name || "Owner"}">
+                <button class="btn btn-primary btn-sm" disabled title="Equipment hire is not available on TransMove yet">
                   Hire Machine 🚜
                 </button>
               </div>
@@ -105,18 +113,11 @@ export const EquipmentView = {
           `).join("")}
         </div>
       `;
-
-      container.querySelectorAll(".btn-hire-equipment").forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-          const ownerName = e.currentTarget.getAttribute("data-owner-name");
-          alert(`Direct hire request initiated for ${ownerName}. Redirecting to request booking.`);
-          window.location.hash = "#customer";
-        });
-      });
     } catch (err) {
+      console.warn("Equipment marketplace load failed:", err);
       container.innerHTML = renderEmptyState({
-        title: "Database Ready",
-        description: "Connect your Supabase database to view equipment listings.",
+        title: "No machinery listings are available yet",
+        description: "The equipment hire marketplace is not live on TransMove yet. Please check back later.",
         icon: "tractor"
       });
     }

@@ -1,116 +1,64 @@
 // ==============================================================================
-// TRANSMOVE SUPPORT & DISPUTES SERVICE
-// Ticket Creation, Investigation & Admin Resolution
+// TRANSMOVE DISPUTES & USER REPORTING SERVICE
 // ==============================================================================
-import { getSupabase } from "../config/supabase.js";
-import { WalletService } from "./wallet.js";
+import { getTrustedApiEndpoint, getAppwriteAccount } from "../config/appwrite.js";
 
-export const DisputesService = {
+async function callTrustedApi(action, data = {}) {
+  const endpoint = getTrustedApiEndpoint();
+  const account = getAppwriteAccount();
+  const jwtRes = await account.createJWT();
+
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${jwtRes.jwt}`,
+      "X-Appwrite-JWT": jwtRes.jwt
+    },
+    body: JSON.stringify({ action, data })
+  });
+
+  const json = await res.json();
+  if (!res.ok) {
+    const err = new Error(json.error || "Dispute operation failed.");
+    err.status = res.status;
+    throw err;
+  }
+  return json;
+}
+
+export const DisputeService = {
   /**
-   * Submits a support dispute / ticket.
+   * Files a dispute tied to a legitimate booking.
    */
-  async createDispute(userId, category, subject, description, bookingId = null) {
-    const supabase = getSupabase();
-    if (!supabase) throw new Error("Supabase client uninitialized.");
-
-    const { data, error } = await supabase
-      .from("support_disputes")
-      .insert([
-        {
-          user_id: userId,
-          booking_id: bookingId,
-          category,
-          subject,
-          description,
-          status: "open"
-        }
-      ])
-      .select()
-      .single();
-
-    if (error) throw new Error(error.message);
-    return data;
+  async createDispute({ bookingId, reason, details, evidenceUrl }) {
+    if (!bookingId) throw new Error("bookingId is required.");
+    if (!reason) throw new Error("reason is required.");
+    return callTrustedApi("create_dispute", {
+      booking_id: bookingId,
+      reason,
+      details,
+      evidence_url: evidenceUrl
+    });
   },
 
   /**
-   * Retrieves disputes submitted by a user.
+   * Lists disputes. Returns participant's disputes for regular users, or all disputes for admin.
    */
-  async getUserDisputes(userId) {
-    const supabase = getSupabase();
-    if (!supabase) return [];
-    const { data, error } = await supabase
-      .from("support_disputes")
-      .select("*")
-      .eq("user_id", userId)
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.warn("Disputes fetch error:", error.message);
-      return [];
-    }
-    return data || [];
+  async listDisputes() {
+    const res = await callTrustedApi("list_disputes", {});
+    return res.disputes || [];
   },
 
   /**
-   * Admin: List all disputes.
+   * Admin: Resolves a dispute with resolution notes.
    */
-  async getAllDisputes() {
-    const supabase = getSupabase();
-    if (!supabase) return [];
-    const { data, error } = await supabase
-      .from("support_disputes")
-      .select("*, profiles:user_id(full_name, email, role)")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.warn("All disputes fetch error:", error.message);
-      return [];
-    }
-    return data || [];
-  },
-
-  /**
-   * Admin: Resolve a dispute (with optional refund).
-   */
-  async resolveDispute(disputeId, resolutionNotes, status = "resolved", refundAmount = 0) {
-    const supabase = getSupabase();
-    if (!supabase) throw new Error("Supabase client uninitialized.");
-
-    const { data: dispute, error: fetchErr } = await supabase
-      .from("support_disputes")
-      .select("*")
-      .eq("id", disputeId)
-      .single();
-
-    if (fetchErr || !dispute) throw new Error("Dispute record not found.");
-
-    const numRefund = parseFloat(refundAmount || 0);
-
-    // Process refund if specified
-    if (numRefund > 0) {
-      await WalletService.recordTransaction(
-        dispute.user_id,
-        numRefund,
-        "credit",
-        "refund",
-        `Refund for Dispute #${disputeId.slice(0, 8)}: ${resolutionNotes}`,
-        disputeId
-      );
-    }
-
-    const { data, error } = await supabase
-      .from("support_disputes")
-      .update({
-        status,
-        resolution_notes: resolutionNotes,
-        refund_amount: numRefund,
-        updated_at: new Date().toISOString()
-      })
-      .eq("id", disputeId)
-      .select()
-      .single();
-
-    if (error) throw new Error(error.message);
-    return data;
+  async resolveDispute({ disputeId, resolution }) {
+    if (!disputeId) throw new Error("disputeId is required.");
+    if (!resolution) throw new Error("resolution is required.");
+    return callTrustedApi("resolve_dispute", {
+      dispute_id: disputeId,
+      resolution
+    });
   }
 };

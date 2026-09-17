@@ -1,59 +1,109 @@
 // ==============================================================================
 // TRANSMOVE GLOBAL THEME MANAGEMENT SERVICE
-// Controls Light / Dark / System Theme switching and persistence
-// Default: LIGHT
+// Controls Light / Dark Theme switching, system preference detection & persistence
+// Primary Storage Key: transmove-theme
 // ==============================================================================
 
 export const ThemeService = {
-  getThemePreference() {
-    return localStorage.getItem("transmove_theme_preference") || "light";
-  },
+  /**
+   * Retrieves stored theme preference, falling back to system prefers-color-scheme.
+   * @returns {"light" | "dark"}
+   */
+  getStoredTheme() {
+    if (typeof localStorage === "undefined") return "light";
+    const stored = localStorage.getItem("transmove-theme")
+      || localStorage.getItem("transmove_theme")
+      || localStorage.getItem("transmove_theme_preference");
 
-  getEffectiveTheme(pref = this.getThemePreference()) {
-    if (pref === "system") {
-      return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light";
+    if (stored === "dark" || stored === "light") {
+      return stored;
     }
-    return pref === "dark" ? "dark" : "light";
+
+    // Default to system preference if user hasn't explicitly set one
+    if (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      return "dark";
+    }
+
+    return "light";
   },
 
-  setTheme(themePreference) {
-    const validPref = ["light", "dark", "system"].includes(themePreference) ? themePreference : "light";
-    localStorage.setItem("transmove_theme_preference", validPref);
-    
-    // Legacy compatibility key
-    const effective = this.getEffectiveTheme(validPref);
-    localStorage.setItem("transmove_theme", effective);
-    
-    document.documentElement.setAttribute("data-theme", effective);
-    document.documentElement.setAttribute("data-theme-preference", validPref);
-    
-    window.dispatchEvent(new CustomEvent("themechanged", { detail: { preference: validPref, theme: effective } }));
+  /**
+   * Returns current active theme ("light" or "dark").
+   */
+  getCurrentTheme() {
+    if (typeof document !== "undefined" && document.documentElement) {
+      const active = document.documentElement.dataset.theme || document.documentElement.getAttribute("data-theme");
+      if (active === "dark" || active === "light") return active;
+    }
+    return this.getStoredTheme();
   },
 
+  /**
+   * Applies theme to DOM, localStorage, and PWA meta tags.
+   * @param {"light" | "dark"} theme
+   */
+  setTheme(theme) {
+    const targetTheme = theme === "dark" ? "dark" : "light";
+
+    // Persist choice
+    if (typeof localStorage !== "undefined") {
+      try {
+        localStorage.setItem("transmove-theme", targetTheme);
+        localStorage.setItem("transmove_theme", targetTheme);
+        localStorage.setItem("transmove_theme_preference", targetTheme);
+      } catch (_) {}
+    }
+
+    if (typeof document !== "undefined" && document.documentElement) {
+      document.documentElement.dataset.theme = targetTheme;
+      document.documentElement.setAttribute("data-theme", targetTheme);
+
+      // Update PWA theme-color meta tag
+      const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+      if (metaThemeColor) {
+        metaThemeColor.setAttribute("content", targetTheme === "dark" ? "#0b1120" : "#059669");
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("themechanged", { detail: { theme: targetTheme } }));
+    }
+
+    return targetTheme;
+  },
+
+  /**
+   * Toggles between light and dark themes.
+   * @returns {"light" | "dark"} New active theme
+   */
   toggleTheme() {
-    const current = this.getThemePreference();
-    const nextMap = { light: "dark", dark: "system", system: "light" };
-    const next = nextMap[current] || "light";
-    this.setTheme(next);
-    return next;
+    const current = this.getCurrentTheme();
+    const next = current === "dark" ? "light" : "dark";
+    return this.setTheme(next);
   },
 
+  /**
+   * Initializes theme on application boot.
+   */
   init() {
-    const pref = this.getThemePreference();
-    this.setTheme(pref);
+    if (typeof window === "undefined") return;
+    const initial = this.getStoredTheme();
+    this.setTheme(initial);
 
-    // Listen for system theme changes when preference is 'system'
+    // Watch for OS preference changes only if user hasn't explicitly set a preference
     if (window.matchMedia) {
-      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-        if (this.getThemePreference() === "system") {
-          this.setTheme("system");
-        }
-      });
+      try {
+        window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+          const hasManualPreference = typeof localStorage !== "undefined" && localStorage.getItem("transmove-theme");
+          if (!hasManualPreference) {
+            this.setTheme(e.matches ? "dark" : "light");
+          }
+        });
+      } catch (_) {}
     }
   }
+
 };
 
+// Auto-run initialization immediately upon module load
 ThemeService.init();
-

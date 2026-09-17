@@ -18,6 +18,7 @@ globalThis.window = {
 };
 
 import fs from "fs";
+import { assertTestCleanupCapabilities, deleteOrThrow, runCleanupTasks } from "./test-hygiene.js";
 import { AuthService } from "../src/services/auth.js";
 import { VehicleService } from "../src/services/vehicles.js";
 import {
@@ -56,6 +57,7 @@ const cleanupTracking = {
 };
 
 async function runTestSuite() {
+  await assertTestCleanupCapabilities("storage-vehicles");
   console.log("==================================================");
   console.log("TRANSMOVE LIVE STORAGE & VEHICLES VERIFICATION");
   console.log("Endpoint:", APPWRITE_CONFIG.endpoint);
@@ -183,11 +185,11 @@ async function runTestSuite() {
       veh1 &&
       veh1.driver_id === driverAUser.$id &&
       veh1.is_primary === true &&
-      veh1.verification_status === "unverified"
+      veh1.verification_status === "pending"
     );
     console.log(" -> Vehicle 1 created:", vehicle1Id);
     console.log(" -> Auto-marked as primary:", veh1.is_primary);
-    console.log(" -> Verification status forced to unverified:", veh1.verification_status);
+    console.log(" -> Verification status submitted as pending:", veh1.verification_status);
 
     // -------------------------------------------------------------
     // 5. GET DRIVER VEHICLES
@@ -370,72 +372,45 @@ async function runTestSuite() {
 
   } catch (fatalErr) {
     console.error("FATAL ERROR in test execution:", fatalErr);
+    results["Suite Execution"] = false;
   } finally {
     // -------------------------------------------------------------
     // CLEANUP: Purge all created test records and files
     // -------------------------------------------------------------
     console.log("\n[CLEANUP] Purging test data...");
-    const databases = getAppwriteDatabases();
-
-    // Purge vehicle photos
-    for (const pId of cleanupTracking.photos) {
-      try {
-        await fetch(`${conf.APPWRITE_ENDPOINT}/databases/transmove/collections/vehicle_photos/documents/${pId}`, {
-          method: "DELETE",
-          headers: serverHeaders
-        });
-      } catch (_) {}
+    const tasks = [];
+    for (const [collection, ids] of [
+      ["vehicle_photos", cleanupTracking.photos],
+      ["verification_documents", cleanupTracking.documents],
+      ["vehicles", cleanupTracking.vehicles],
+      ["profiles", cleanupTracking.profiles]
+    ]) {
+      for (const id of ids) tasks.push({
+        label: `${collection}/${id}`,
+        run: () => deleteOrThrow(
+          `${conf.APPWRITE_ENDPOINT}/databases/transmove/collections/${collection}/documents/${id}`,
+          { headers: serverHeaders },
+          `${collection}/${id}`
+        )
+      });
     }
-
-    // Purge verification documents
-    for (const dId of cleanupTracking.documents) {
-      try {
-        await fetch(`${conf.APPWRITE_ENDPOINT}/databases/transmove/collections/verification_documents/documents/${dId}`, {
-          method: "DELETE",
-          headers: serverHeaders
-        });
-      } catch (_) {}
-    }
-
-    // Purge vehicles
-    for (const vId of cleanupTracking.vehicles) {
-      try {
-        await fetch(`${conf.APPWRITE_ENDPOINT}/databases/transmove/collections/vehicles/documents/${vId}`, {
-          method: "DELETE",
-          headers: serverHeaders
-        });
-      } catch (_) {}
-    }
-
-    // Purge storage files
-    for (const fId of cleanupTracking.files) {
-      try {
-        await fetch(`${conf.APPWRITE_ENDPOINT}/storage/buckets/${APPWRITE_CONFIG.bucketId}/files/${fId}`, {
-          method: "DELETE",
-          headers: serverHeaders
-        });
-      } catch (_) {}
-    }
-
-    // Purge profiles
-    for (const prId of cleanupTracking.profiles) {
-      try {
-        await fetch(`${conf.APPWRITE_ENDPOINT}/databases/transmove/collections/profiles/documents/${prId}`, {
-          method: "DELETE",
-          headers: serverHeaders
-        });
-      } catch (_) {}
-    }
-
-    // Purge users
-    for (const uId of cleanupTracking.users) {
-      try {
-        await fetch(`${conf.APPWRITE_ENDPOINT}/users/${uId}`, {
-          method: "DELETE",
-          headers: serverHeaders
-        });
-      } catch (_) {}
-    }
+    for (const fileId of cleanupTracking.files) tasks.push({
+      label: `file ${fileId}`,
+      run: () => deleteOrThrow(
+        `${conf.APPWRITE_ENDPOINT}/storage/buckets/${APPWRITE_CONFIG.bucketId}/files/${fileId}`,
+        { headers: serverHeaders },
+        `file ${fileId}`
+      )
+    });
+    for (const userId of cleanupTracking.users) tasks.push({
+      label: `Auth user ${userId}`,
+      run: () => deleteOrThrow(
+        `${conf.APPWRITE_ENDPOINT}/users/${userId}`,
+        { headers: serverHeaders },
+        `Auth user ${userId}`
+      )
+    });
+    await runCleanupTasks("storage-vehicles", tasks);
 
     console.log(" -> Cleanup completed successfully.");
   }
@@ -452,4 +427,7 @@ async function runTestSuite() {
   return allPass;
 }
 
-runTestSuite();
+runTestSuite().catch((error) => {
+  console.error(`FATAL: ${error.message}`);
+  process.exitCode = 1;
+});

@@ -1,6 +1,6 @@
 // ==============================================================================
 // TRANSMOVE WALLET & LEDGER SERVICE
-// Real Paynow Wallet Top-Up, Earnings, Withdrawals & Ledger Audit
+// Balance, Earnings, Withdrawals & Ledger Audit
 // ==============================================================================
 import { getAppwriteAccount, getTrustedApiEndpoint } from "../config/appwrite.js";
 

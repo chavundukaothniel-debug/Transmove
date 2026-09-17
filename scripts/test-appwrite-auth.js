@@ -10,6 +10,7 @@ globalThis.window = {
 
 import { Client, Account, Databases, ID, Query, Permission, Role } from "../assets/js/vendor/appwrite.js";
 import fs from "fs";
+import { assertTestCleanupCapabilities, deleteOrThrow, runCleanupTasks } from "./test-hygiene.js";
 
 // Load configuration safely without exposing keys in frontend
 const env = fs.readFileSync(".env.appwrite.setup", "utf8");
@@ -39,6 +40,7 @@ const testPhone = "+263771122334";
 const testRole = "passenger";
 
 async function runTests() {
+  await assertTestCleanupCapabilities("appwrite-auth");
   let createdUserId = null;
   let createdProfileDocId = null;
 
@@ -157,32 +159,35 @@ async function runTests() {
     console.log("==================================================");
   } catch (err) {
     console.error("\nFAIL in test suite:", err);
+    throw err;
   } finally {
-    // Cleanup test user and profile if needed using server key
-    if (createdProfileDocId || createdUserId) {
-      try {
-        const cleanupUrl = `${conf.APPWRITE_ENDPOINT}/databases/transmove/collections/profiles/documents/${createdProfileDocId}`;
-        await fetch(cleanupUrl, {
-          method: "DELETE",
-          headers: {
-            "X-Appwrite-Project": conf.APPWRITE_PROJECT_ID,
-            "X-Appwrite-Key": conf.APPWRITE_API_KEY
-          }
-        });
-        const userCleanupUrl = `${conf.APPWRITE_ENDPOINT}/users/${createdUserId}`;
-        await fetch(userCleanupUrl, {
-          method: "DELETE",
-          headers: {
-            "X-Appwrite-Project": conf.APPWRITE_PROJECT_ID,
-            "X-Appwrite-Key": conf.APPWRITE_API_KEY
-          }
-        });
-        console.log("Cleanup: Temporary test user and profile removed cleanly.");
-      } catch (e) {
-        console.log("Notice during cleanup:", e.message);
-      }
-    }
+    const cleanupHeaders = {
+      "X-Appwrite-Project": conf.APPWRITE_PROJECT_ID,
+      "X-Appwrite-Key": conf.APPWRITE_API_KEY
+    };
+    const tasks = [];
+    if (createdProfileDocId) tasks.push({
+      label: `profile ${createdProfileDocId}`,
+      run: () => deleteOrThrow(
+        `${conf.APPWRITE_ENDPOINT}/databases/transmove/collections/profiles/documents/${createdProfileDocId}`,
+        { headers: cleanupHeaders },
+        `profile ${createdProfileDocId}`
+      )
+    });
+    if (createdUserId) tasks.push({
+      label: `Auth user ${createdUserId}`,
+      run: () => deleteOrThrow(
+        `${conf.APPWRITE_ENDPOINT}/users/${createdUserId}`,
+        { headers: cleanupHeaders },
+        `Auth user ${createdUserId}`
+      )
+    });
+    await runCleanupTasks("appwrite-auth", tasks);
+    if (tasks.length) console.log("Cleanup: Temporary test user and profile removed cleanly.");
   }
 }
 
-runTests();
+runTests().catch((error) => {
+  console.error(`FATAL: ${error.message}`);
+  process.exitCode = 1;
+});

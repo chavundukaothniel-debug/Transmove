@@ -83,7 +83,6 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
       { route: "logistics?tab=earnings", label: "Earnings", icon: "💰" },
       { route: "logistics?tab=wallet", label: "Wallet", icon: "👛" },
       { route: "logistics?tab=documents", label: "Documents", icon: "📁" },
-      { route: "support", label: "Safety", icon: "🛡️" },
       { route: "support", label: "Support", icon: "🎧" },
       { route: "profile", label: "Settings", icon: "⚙️" }
     ],
@@ -153,14 +152,18 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
     ]
   };
 
-  const navItems = roleNavItems[activeRole] || [
+  const guestNavItems = [
     { route: "home", label: "Marketplace", icon: "🌐" },
     { route: "equipment", label: "Machinery & Freight", icon: "🚜" },
     { route: "business", label: "Business", icon: "🏢" },
     { route: "subscriptions", label: "Pricing & Plans", icon: "💳" },
     { route: "advertise", label: "Advertise", icon: "📢" },
-    { route: "support", label: "Support & Help", icon: "🎧" }
+    { route: "support", label: "Support & Help", icon: "🎧" },
+    { route: "login", label: "Sign In", icon: "🔑" },
+    { route: "register", label: "Create Account", icon: "📝" }
   ];
+
+  const navItems = (currentProfile && roleNavItems[activeRole]) ? roleNavItems[activeRole] : guestNavItems;
 
   return `
     <aside class="app-sidebar ${activeRole === "customer" ? "app-sidebar--passenger" : ""} ${isCollapsed ? "collapsed" : ""}" id="app-sidebar">
@@ -187,7 +190,7 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
 
       <div class="sidebar-role-tag">
         <span class="role-dot"></span>
-        <span class="role-name">${activeRole.toUpperCase().replace("_", " ")}</span>
+        <span class="role-name">${(currentProfile ? activeRole : "guest").toUpperCase().replace("_", " ")}</span>
       </div>
 
       <nav class="sidebar-nav">
@@ -207,14 +210,16 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
           `;
         }).join("")}
 
-        <a href="#logout" id="btn-sidebar-logout" class="sidebar-link" style="margin-top: auto; color: #94a3b8; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 0.75rem; margin-top: 1rem;">
-          <span class="link-icon">${activeRole === "customer" ? sidebarIcon("logout") : "🚪"}</span>
-          <span class="link-text">Logout</span>
-        </a>
+        ${currentProfile ? `
+          <a href="#logout" id="btn-sidebar-logout" class="sidebar-link" style="margin-top: auto; color: #94a3b8; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 0.75rem; margin-top: 1rem;">
+            <span class="link-icon">${activeRole === "customer" ? sidebarIcon("logout") : "🚪"}</span>
+            <span class="link-text">Logout</span>
+          </a>
+        ` : ""}
       </nav>
 
       <div class="sidebar-footer">
-        <a href="#profile" class="sidebar-user-card" title="Manage Account">
+        <a href="${currentProfile ? "#profile" : "#login"}" class="sidebar-user-card" title="${currentProfile ? "Manage Account" : "Click to Sign In"}">
           <div class="user-avatar">
             ${currentProfile?.full_name ? currentProfile.full_name.charAt(0).toUpperCase() : "👤"}
           </div>
@@ -234,3 +239,4 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
     </aside>
   `;
 }
+

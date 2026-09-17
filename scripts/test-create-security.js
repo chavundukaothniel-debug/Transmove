@@ -22,6 +22,7 @@ globalThis.window = {
 };
 
 import fs from "fs";
+import { assertTestCleanupCapabilities, deleteOrThrow, runCleanupTasks } from "./test-hygiene.js";
 import path from "path";
 import { Client, Account, Databases, Storage, ID, Permission, Role } from "../assets/js/vendor/appwrite.js";
 import { AuthService } from "../src/services/auth.js";
@@ -72,7 +73,49 @@ const testReport = {
 
 const livePermissions = {};
 
+async function cleanupTestArtifacts() {
+  const tasks = [];
+  const targets = [
+    ["verification_documents", cleanup.documents],
+    ["vehicle_photos", cleanup.photos],
+    ["vehicles", cleanup.vehicles],
+    ["profiles", cleanup.profiles]
+  ];
+  for (const [collection, ids] of targets) {
+    for (const id of ids) tasks.push({
+      label: `${collection}/${id}`,
+      run: () => deleteOrThrow(
+        `${ENDPOINT}/databases/transmove/collections/${collection}/documents/${id}`,
+        { headers: serverHeaders },
+        `${collection}/${id}`
+      )
+    });
+  }
+  for (const fileId of cleanup.files) {
+    tasks.push({
+      label: `file ${fileId}`,
+      run: () => deleteOrThrow(
+        `${ENDPOINT}/storage/buckets/${APPWRITE_CONFIG.bucketId}/files/${fileId}`,
+        { headers: serverHeaders },
+        `file ${fileId}`
+      )
+    });
+  }
+  for (const userId of cleanup.users) {
+    tasks.push({
+      label: `Auth user ${userId}`,
+      run: () => deleteOrThrow(
+        `${ENDPOINT}/users/${userId}`,
+        { headers: serverHeaders },
+        `Auth user ${userId}`
+      )
+    });
+  }
+  await runCleanupTasks("create-security", tasks);
+}
+
 async function run() {
+  await assertTestCleanupCapabilities("create-security");
   console.log("==================================================");
   console.log("TRANSMOVE CREATE-PERMISSION SECURITY TEST SUITE");
   console.log("==================================================");
@@ -300,7 +343,7 @@ async function run() {
     console.log("  [Direct Client] createDocument on vehicles REJECTED:", err.message);
   }
 
-  // 2. Trusted create_vehicle forces verification_status = "unverified"
+  // 2. Trusted create_vehicle submits the vehicle for verification.
   let trustedVehicleCreated = false;
   let vehicleA1 = null;
   const legitVehRes = await fetch(TRUSTED_API, {
@@ -331,13 +374,13 @@ async function run() {
     cleanup.vehicles.push(vehicleA1.$id);
     if (
       vehicleA1.driver_id === userA.$id &&
-      vehicleA1.verification_status === "unverified" &&
+      vehicleA1.verification_status === "pending" &&
       vehicleA1.is_primary === true
     ) {
       trustedVehicleCreated = true;
       console.log("  [Trusted API] Vehicle created successfully:", vehicleA1.$id);
       console.log(`    driver_id: ${vehicleA1.driver_id}`);
-      console.log(`    verification_status: ${vehicleA1.verification_status} (Forced unverified: true)`);
+      console.log(`    verification_status: ${vehicleA1.verification_status} (Submitted as pending: true)`);
       console.log(`    is_primary: ${vehicleA1.is_primary}`);
     }
   } else {
@@ -735,42 +778,7 @@ async function run() {
   // ==============================================================
   console.log("\n--- [STEP 4] PURGING ALL TEST ARTIFACTS ---");
 
-  for (const docId of cleanup.documents) {
-    await fetch(`${ENDPOINT}/databases/transmove/collections/verification_documents/documents/${docId}`, {
-      method: "DELETE",
-      headers: serverHeaders
-    }).catch(() => {});
-  }
-  for (const pId of cleanup.photos) {
-    await fetch(`${ENDPOINT}/databases/transmove/collections/vehicle_photos/documents/${pId}`, {
-      method: "DELETE",
-      headers: serverHeaders
-    }).catch(() => {});
-  }
-  for (const vId of cleanup.vehicles) {
-    await fetch(`${ENDPOINT}/databases/transmove/collections/vehicles/documents/${vId}`, {
-      method: "DELETE",
-      headers: serverHeaders
-    }).catch(() => {});
-  }
-  for (const profId of cleanup.profiles) {
-    await fetch(`${ENDPOINT}/databases/transmove/collections/profiles/documents/${profId}`, {
-      method: "DELETE",
-      headers: serverHeaders
-    }).catch(() => {});
-  }
-  for (const fileId of cleanup.files) {
-    await fetch(`${ENDPOINT}/storage/buckets/${APPWRITE_CONFIG.bucketId}/files/${fileId}`, {
-      method: "DELETE",
-      headers: serverHeaders
-    }).catch(() => {});
-  }
-  for (const uId of cleanup.users) {
-    await fetch(`${ENDPOINT}/users/${uId}`, {
-      method: "DELETE",
-      headers: serverHeaders
-    }).catch(() => {});
-  }
+  await cleanupTestArtifacts();
   console.log("Database and storage successfully purged of test records.");
 
   // ==============================================================
@@ -798,7 +806,8 @@ async function run() {
   }
 }
 
-run().catch((err) => {
+run().catch(async (err) => {
   console.error("FATAL ERROR during test execution:", err);
+  await cleanupTestArtifacts().catch((cleanupError) => console.error("CLEANUP FAILED:", cleanupError.message));
   process.exit(1);
 });

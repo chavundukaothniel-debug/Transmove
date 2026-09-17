@@ -10,6 +10,7 @@ globalThis.window = {
 };
 
 import fs from "fs";
+import { assertTestCleanupCapabilities } from "./test-hygiene.js";
 const env = fs.readFileSync(".env.appwrite.setup", "utf8");
 const conf = {};
 env.split("\n").forEach(l => {
@@ -20,19 +21,22 @@ env.split("\n").forEach(l => {
 import { Client, Account, Databases, ID, Permission, Role } from "../assets/js/vendor/appwrite.js";
 
 async function testRowPermissionBlock() {
+  await assertTestCleanupCapabilities("permission-block");
   console.log("Testing direct client row update blocking...");
 
   // 1. User registers & signs in
   const client = new Client().setEndpoint(conf.APPWRITE_ENDPOINT).setProject(conf.APPWRITE_PROJECT_ID);
   const account = new Account(client);
   const databases = new Databases(client);
-
-  const testEmail = `perm_test_${Date.now()}@transmove.test`;
-  const user = await account.create(ID.unique(), testEmail, "Password123!", "Perm Tester");
+  let user = null;
+  let doc = null;
+  try {
+  const testEmail = `__test__.permission.${Date.now()}@transmove.test`;
+  user = await account.create(ID.unique(), testEmail, "Password123!", "Permission Test User");
   await account.createEmailPasswordSession(testEmail, "Password123!");
 
   // 2. Create document with READ and DELETE only (NO UPDATE)
-  const doc = await databases.createDocument(
+  doc = await databases.createDocument(
     "transmove",
     "profiles",
     ID.unique(),
@@ -67,16 +71,26 @@ async function testRowPermissionBlock() {
     console.log("PASS: Direct client update REJECTED by Appwrite:", err.message);
   }
 
-  // 4. Cleanup
-  await fetch(`${conf.APPWRITE_ENDPOINT}/databases/transmove/collections/profiles/documents/${doc.$id}`, {
-    method: "DELETE",
-    headers: { "X-Appwrite-Project": conf.APPWRITE_PROJECT_ID, "X-Appwrite-Key": conf.APPWRITE_API_KEY }
-  });
-  await fetch(`${conf.APPWRITE_ENDPOINT}/users/${user.$id}`, {
-    method: "DELETE",
-    headers: { "X-Appwrite-Project": conf.APPWRITE_PROJECT_ID, "X-Appwrite-Key": conf.APPWRITE_API_KEY }
-  });
-  console.log("Cleanup finished.");
+  } finally {
+    if (doc?.$id) {
+      const response = await fetch(`${conf.APPWRITE_ENDPOINT}/databases/transmove/collections/profiles/documents/${doc.$id}`, {
+        method: "DELETE",
+        headers: { "X-Appwrite-Project": conf.APPWRITE_PROJECT_ID, "X-Appwrite-Key": conf.APPWRITE_API_KEY }
+      });
+      if (![200, 204, 404].includes(response.status)) throw new Error(`Profile cleanup failed: HTTP ${response.status}`);
+    }
+    if (user?.$id) {
+      const response = await fetch(`${conf.APPWRITE_ENDPOINT}/users/${user.$id}`, {
+        method: "DELETE",
+        headers: { "X-Appwrite-Project": conf.APPWRITE_PROJECT_ID, "X-Appwrite-Key": conf.APPWRITE_API_KEY }
+      });
+      if (![200, 204, 404].includes(response.status)) throw new Error(`Auth cleanup failed: HTTP ${response.status}`);
+    }
+    console.log("Cleanup finished.");
+  }
 }
 
-testRowPermissionBlock().catch(console.error);
+testRowPermissionBlock().catch((error) => {
+  console.error(`FATAL: ${error.message}`);
+  process.exitCode = 1;
+});

@@ -23,6 +23,12 @@ globalThis.window = {
 };
 
 import fs from "fs";
+import {
+  assertTestCleanupCapabilities,
+  createTestEmail,
+  deleteOrThrow,
+  runCleanupTasks
+} from "./test-hygiene.js";
 import path from "path";
 import {
   getAppwriteAccount,
@@ -56,6 +62,8 @@ const serverHeaders = {
 };
 
 const cleanup = {
+  users: [],
+  profiles: [],
   vehicles: [],
   photos: [],
   documents: [],
@@ -63,6 +71,11 @@ const cleanup = {
   request_images: [],
   files: []
 };
+
+function trackTestIdentity(registration) {
+  if (registration?.user?.$id) cleanup.users.push(registration.user.$id);
+  if (registration?.profile?.$id) cleanup.profiles.push(registration.profile.$id);
+}
 
 const results = {
   requestCreate: false,
@@ -129,41 +142,45 @@ async function getOrCreateUser(email, fullName, phoneNumber, role, city) {
 }
 
 async function run() {
+  await assertTestCleanupCapabilities("requests-matching");
   console.log("==================================================");
   console.log("TRANSMOVE REQUESTS + MATCHING TEST SUITE");
   console.log("==================================================");
 
   const timestamp = Date.now();
-  const baseTs = "1789563042071";
-
   try {
     // -------------------------------------------------------------
     // SETUP: Get or create the 5 test accounts
     // -------------------------------------------------------------
     console.log("\n[SETUP] Initializing test accounts...");
 
-    const emailP = `passenger_p_${baseTs}@transmove.test`;
+    const emailP = createTestEmail("requests-matching", "passenger-p");
     const regP = await getOrCreateUser(emailP, "Passenger Primus", "+263771000001", "passenger", "Harare");
+    trackTestIdentity(regP);
     const userP = regP.user;
     console.log("  Passenger P ready:", userP.$id);
 
-    const emailA = `driver_a_${baseTs}@transmove.test`;
+    const emailA = createTestEmail("requests-matching", "driver-a");
     const regA = await getOrCreateUser(emailA, "Driver Alpha", "+263771000002", "driver", "Harare");
+    trackTestIdentity(regA);
     const userA = regA.user;
     console.log("  Driver A ready:", userA.$id);
 
-    const emailB = `driver_b_${baseTs}@transmove.test`;
+    const emailB = createTestEmail("requests-matching", "driver-b");
     const regB = await getOrCreateUser(emailB, "Driver Bravo", "+263771000003", "driver", "Harare");
+    trackTestIdentity(regB);
     const userB = regB.user;
     console.log("  Driver B ready:", userB.$id);
 
-    const emailC = `driver_c_${baseTs}@transmove.test`;
+    const emailC = createTestEmail("requests-matching", "driver-c");
     const regC = await getOrCreateUser(emailC, "Driver Charlie", "+263771000004", "driver", "Harare");
+    trackTestIdentity(regC);
     const userC = regC.user;
     console.log("  Driver C ready:", userC.$id);
 
-    const emailX = `passenger_x_${baseTs}@transmove.test`;
+    const emailX = createTestEmail("requests-matching", "passenger-x");
     const regX = await getOrCreateUser(emailX, "Passenger Xray", "+263771000009", "passenger", "Bulawayo");
+    trackTestIdentity(regX);
     const userX = regX.user;
     console.log("  Passenger X ready:", userX.$id);
 
@@ -696,47 +713,47 @@ async function run() {
     console.log("  Existing vehicle regression:", results.existingVehicleRegression ? "PASS" : "FAIL");
   } catch (err) {
     console.error("ERROR during test execution:", err);
+    results.suiteExecution = false;
   } finally {
     // =============================================================
     // CLEANUP: Purge all temporary test entities
     // =============================================================
     console.log("\n[CLEANUP] Removing test artifacts from Appwrite...");
-    for (const rImgId of cleanup.request_images) {
-      await fetch(`${ENDPOINT}/databases/transmove/collections/request_images/documents/${rImgId}`, {
-        method: "DELETE",
-        headers: serverHeaders
-      }).catch(() => {});
+    const tasks = [];
+    for (const [collection, ids] of [
+      ["request_images", cleanup.request_images],
+      ["service_requests", cleanup.requests],
+      ["verification_documents", cleanup.documents],
+      ["vehicle_photos", cleanup.photos],
+      ["vehicles", cleanup.vehicles],
+      ["profiles", cleanup.profiles]
+    ]) {
+      for (const id of ids) tasks.push({
+        label: `${collection}/${id}`,
+        run: () => deleteOrThrow(
+          `${ENDPOINT}/databases/transmove/collections/${collection}/documents/${id}`,
+          { headers: serverHeaders },
+          `${collection}/${id}`
+        )
+      });
     }
-    for (const rId of cleanup.requests) {
-      await fetch(`${ENDPOINT}/databases/transmove/collections/service_requests/documents/${rId}`, {
-        method: "DELETE",
-        headers: serverHeaders
-      }).catch(() => {});
-    }
-    for (const dId of cleanup.documents) {
-      await fetch(`${ENDPOINT}/databases/transmove/collections/verification_documents/documents/${dId}`, {
-        method: "DELETE",
-        headers: serverHeaders
-      }).catch(() => {});
-    }
-    for (const pId of cleanup.photos) {
-      await fetch(`${ENDPOINT}/databases/transmove/collections/vehicle_photos/documents/${pId}`, {
-        method: "DELETE",
-        headers: serverHeaders
-      }).catch(() => {});
-    }
-    for (const vId of cleanup.vehicles) {
-      await fetch(`${ENDPOINT}/databases/transmove/collections/vehicles/documents/${vId}`, {
-        method: "DELETE",
-        headers: serverHeaders
-      }).catch(() => {});
-    }
-    for (const fileId of cleanup.files) {
-      await fetch(`${ENDPOINT}/storage/buckets/${APPWRITE_CONFIG.bucketId}/files/${fileId}`, {
-        method: "DELETE",
-        headers: serverHeaders
-      }).catch(() => {});
-    }
+    for (const fileId of cleanup.files) tasks.push({
+      label: `file ${fileId}`,
+      run: () => deleteOrThrow(
+        `${ENDPOINT}/storage/buckets/${APPWRITE_CONFIG.bucketId}/files/${fileId}`,
+        { headers: serverHeaders },
+        `file ${fileId}`
+      )
+    });
+    for (const userId of cleanup.users) tasks.push({
+      label: `Auth user ${userId}`,
+      run: () => deleteOrThrow(
+        `${ENDPOINT}/users/${userId}`,
+        { headers: serverHeaders },
+        `Auth user ${userId}`
+      )
+    });
+    await runCleanupTasks("requests-matching", tasks);
     console.log("Database and storage purged of all test records.");
   }
 
