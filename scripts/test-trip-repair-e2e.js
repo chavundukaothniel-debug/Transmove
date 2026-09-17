@@ -1,7 +1,7 @@
 // ==============================================================================
 // TRANSMOVE ACTIVE TRIP + GPS + RATINGS + COUNTER OFFER + PAYMENT CONFIRMATION
 // Comprehensive E2E Automated Verification Test Suite
-// Uses established permanent test users with 100% document cleanup.
+// Creates isolated temporary users and removes all test users/documents afterward.
 // ==============================================================================
 
 const storageMap = new Map();
@@ -17,7 +17,7 @@ globalThis.window = {
 
 import fs from "fs";
 import path from "path";
-import { Client as ServerClient, Databases, ID, Query } from "node-appwrite";
+import { Client as ServerClient, Databases, ID, Query, Users } from "node-appwrite";
 import { AuthService } from "../src/services/auth.js";
 import { getAppwriteAccount } from "../src/config/appwrite.js";
 import { handler } from "../netlify/functions/trusted-api.js";
@@ -40,6 +40,7 @@ const serverClient = new ServerClient()
   .setKey(API_KEY);
 
 const databases = new Databases(serverClient);
+const users = new Users(serverClient);
 const testPassword = "T3stP@ssword2026!#";
 
 const originalFetch = globalThis.fetch;
@@ -63,9 +64,10 @@ globalThis.fetch = async (url, options = {}) => {
   return originalFetch(url, options);
 };
 
-const passengerEmail = "bid.test.pass.p@tm.test";
-const driverEmail = "bid.test.drv.a@tm.test";
-const unassignedDriverEmail = "bid.test.drv.b@tm.test";
+const identityToken = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+const passengerEmail = `tmp.passenger.a.${identityToken}@tm.test`;
+const driverEmail = `tmp.driver.b.${identityToken}@tm.test`;
+const unassignedDriverEmail = `tmp.driver.security.${identityToken}@tm.test`;
 
 const cleanupTasks = [];
 
@@ -164,22 +166,30 @@ async function run() {
   console.log("==============================================================================");
 
   const runId = `e2e_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+  const tempUserIds = [];
   console.log(`Execution Run ID: ${runId}\n`);
 
   try {
     // --------------------------------------------------------------------------
     // SETUP: Authenticate Permanent Test Identities
     // --------------------------------------------------------------------------
-    console.log("--> [SETUP] Authenticating permanent verified test users...");
+    console.log("--> [SETUP] Creating isolated temporary verified test users...");
 
-    const passengerAuth = await ensureUserAndGetJwt(passengerEmail, "Passenger P", "+2637710000001", "passenger", "Harare");
+    const passengerAuth = await ensureUserAndGetJwt(passengerEmail, "Passenger A", "+2637710000001", "passenger", "Harare");
     console.log(`  ✓ Authenticated Passenger: ${passengerEmail} (${passengerAuth.user.id || passengerAuth.user.$id})`);
 
-    const driverAuth = await ensureUserAndGetJwt(driverEmail, "Driver A", "+2637710000003", "driver", "Harare");
-    console.log(`  ✓ Authenticated Driver A:  ${driverEmail} (${driverAuth.user.id || driverAuth.user.$id})`);
+    const driverAuth = await ensureUserAndGetJwt(driverEmail, "Driver B", "+2637710000003", "driver", "Harare");
+    console.log(`  ✓ Authenticated Driver B:  ${driverEmail} (${driverAuth.user.id || driverAuth.user.$id})`);
 
-    const unassignedAuth = await ensureUserAndGetJwt(unassignedDriverEmail, "Driver B", "+2637710000004", "driver", "Harare");
-    console.log(`  ✓ Authenticated Driver B (Unassigned): ${unassignedDriverEmail} (${unassignedAuth.user.id || unassignedAuth.user.$id})`);
+    const unassignedAuth = await ensureUserAndGetJwt(unassignedDriverEmail, "Security Driver", "+2637710000004", "driver", "Harare");
+    console.log(`  ✓ Authenticated Security Driver (Unassigned): ${unassignedDriverEmail} (${unassignedAuth.user.id || unassignedAuth.user.$id})`);
+
+    for (const auth of [passengerAuth, driverAuth, unassignedAuth]) {
+      const accountId = auth.user.id || auth.user.$id;
+      tempUserIds.push(accountId);
+      cleanupTasks.push(async () => { try { await users.delete(accountId); } catch (_) {} });
+      cleanupTasks.push(async () => { try { await databases.deleteDocument(DB_ID, "profiles", auth.profile.$id); } catch (_) {} });
+    }
 
     // Ensure Driver A and Driver B profiles are active and approved
     try {
@@ -619,6 +629,17 @@ async function run() {
         cleaned++;
       } catch (err) {
         console.warn("Notice: Non-fatal error during test cleanup:", err.message);
+      }
+    }
+    for (const [collection, field] of [["notifications", "user_id"], ["activity_logs", "user_id"], ["driver_presence", "driver_id"]]) {
+      for (const userId of tempUserIds) {
+        try {
+          const found = await databases.listDocuments(DB_ID, collection, [Query.equal(field, userId), Query.limit(100)]);
+          for (const document of found.documents) {
+            await databases.deleteDocument(DB_ID, collection, document.$id);
+            cleaned++;
+          }
+        } catch (_) {}
       }
     }
     console.log(`✓ 100% Cleanup complete (${cleaned} tasks executed). Zero orphan records remain.\n`);

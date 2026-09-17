@@ -57,6 +57,16 @@ export const AdvertisingService = {
     return result.packages || [];
   },
 
+  async getActivePopupAds() {
+    const result = await trustedCall("list_active_popup_ads", {});
+    return (result.campaigns || []).map((campaign) => ({
+      ...campaign,
+      image_url: campaign.image_file_id
+        ? String(getAppwriteStorage().getFileView(APPWRITE_CONFIG.bucketId, campaign.image_file_id))
+        : ""
+    }));
+  },
+
   /**
    * Calculates dynamic ad price via server validation.
    *

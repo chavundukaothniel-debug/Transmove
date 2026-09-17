@@ -1965,6 +1965,22 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       } catch (e) { /* profile fetch failure is non-fatal */ }
 
       try {
+        const revieweeQ = buildEqualQuery("reviewee_id", bid.driver_id);
+        const reviewLimitQ = buildLimitQuery(100);
+        const reviewRes = await fetch(
+          `${creds.endpoint}/databases/transmove/collections/reviews/documents?queries[]=${revieweeQ}&queries[]=${reviewLimitQ}`,
+          { headers: serverHeaders }
+        );
+        if (reviewRes.ok && driverProfile) {
+          const reviewData = await reviewRes.json();
+          const reviews = reviewData.documents || [];
+          const total = reviews.reduce((sum, review) => sum + Number(review.rating || 0), 0);
+          driverProfile.rating = reviews.length ? Number((total / reviews.length).toFixed(1)) : 0;
+          driverProfile.review_count = reviews.length;
+        }
+      } catch (e) { /* rating fetch failure is non-fatal */ }
+
+      try {
         if (bid.vehicle_id) {
           const vRes = await fetch(
             `${creds.endpoint}/databases/transmove/collections/vehicles/documents/${bid.vehicle_id}`,
@@ -4884,6 +4900,36 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
     const res = await fetch(`${creds.endpoint}/databases/transmove/collections/ad_packages/documents?${queryString}`, { headers: serverHeaders });
     const result = await res.json();
     return { packages: result.documents || [], total: result.total || 0 };
+  }
+
+  // -------------------------------------------------------------
+  // ACTION: list_active_popup_ads (AUTHENTICATED DASHBOARD USERS)
+  // Returns only approved, active and currently in-date campaign fields.
+  // -------------------------------------------------------------
+  if (action === "list_active_popup_ads") {
+    if (!verifiedUser) throw new Error("Unauthorized: Login required to view dashboard campaigns.");
+    const statusQ = buildEqualQuery("status", "active");
+    const orderQ = buildOrderDescQuery("updated_at");
+    const limitQ = buildLimitQuery(50);
+    const res = await fetch(`${creds.endpoint}/databases/transmove/collections/ad_campaigns/documents?queries[]=${statusQ}&queries[]=${orderQ}&queries[]=${limitQ}`, { headers: serverHeaders });
+    const result = await res.json();
+    const now = Date.now();
+    const campaigns = (result.documents || []).filter((campaign) => {
+      const startsAt = campaign.start_date ? new Date(campaign.start_date).getTime() : 0;
+      const endsAt = startsAt + Math.max(1, Number(campaign.duration_days || 1)) * 86400000;
+      return startsAt <= now && now < endsAt;
+    }).map((campaign) => ({
+      id: campaign.$id,
+      business_name: campaign.business_name,
+      title: campaign.title,
+      description: campaign.description,
+      image_file_id: campaign.image_file_id,
+      destination_url: campaign.destination_url,
+      placement: campaign.placement,
+      start_date: campaign.start_date,
+      duration_days: campaign.duration_days
+    }));
+    return { campaigns, total: campaigns.length };
   }
 
   // -------------------------------------------------------------
