@@ -37,85 +37,11 @@ export const SubscriptionService = {
    * Fetches active provider subscription plans from the server database.
    */
   async getPlans() {
-    try {
-      const result = await trustedCall("list_subscription_plans", {});
-      if (result.plans && result.plans.length > 0) {
-        return result.plans;
-      }
-    } catch (err) {
-      console.warn("Failed to fetch dynamic subscription plans, using fallback list:", err.message);
+    const result = await trustedCall("list_subscription_plans", {});
+    if (!Array.isArray(result.plans) || result.plans.length === 0) {
+      throw new Error("No active subscription plans are currently available.");
     }
-
-    // High-fidelity fallback if network error
-    return [
-      {
-        id: "flex-pass",
-        name: "Flex Pass",
-        slug: "flex-pass",
-        price: 5.00,
-        currency: "USD",
-        duration_days: 7,
-        recommended: false,
-        description: "7-day access for short-term and flexible providers",
-        features: [
-          "Full bidding access for 7 days",
-          "Direct passenger & shipper communication",
-          "Standard marketplace listing",
-          "EcoCash manual verification"
-        ]
-      },
-      {
-        id: "professional",
-        name: "TransMove Professional",
-        slug: "professional",
-        price: 15.00,
-        currency: "USD",
-        duration_days: 30,
-        recommended: true,
-        description: "Standard 30-day access with full bidding & route tools",
-        features: [
-          "Full bidding access for 30 days",
-          "Direct passenger & shipper communication",
-          "Priority vehicle listing in search",
-          "Verified Driver badge on profile",
-          "Automated receipt & invoice history"
-        ]
-      },
-      {
-        id: "pro-90",
-        name: "Pro 90",
-        slug: "pro-90",
-        price: 40.00,
-        currency: "USD",
-        duration_days: 90,
-        recommended: false,
-        description: "Quarterly savings for consistent transport professionals",
-        features: [
-          "Full bidding access for 90 days (save $5)",
-          "Featured placement in provider search",
-          "Direct customer phone & chat connections",
-          "Quarterly performance badge",
-          "Priority dispute resolution"
-        ]
-      },
-      {
-        id: "pro-annual",
-        name: "Pro Annual",
-        slug: "pro-annual",
-        price: 140.00,
-        currency: "USD",
-        duration_days: 365,
-        recommended: false,
-        description: "Best annual value with priority support and marketplace badge",
-        features: [
-          "Full bidding access for 365 days (save $40)",
-          "Top-tier priority in search & matching",
-          "Gold Verified Provider profile badge",
-          "Dedicated account & support line",
-          "Complimentary 7-day Search Sponsored ad"
-        ]
-      }
-    ];
+    return result.plans;
   },
 
   /**

@@ -122,7 +122,7 @@ const tables = [
   {
     id: 'subscriptions', name: 'Subscriptions',
     columns: [
-      V('user_id', 64, true), V('plan', 128, false, 'TransMove Professional'), F('amount', false, 15),
+      V('user_id', 64, true), V('plan_id', 64), V('plan', 128, false, 'TransMove Professional'), F('amount', false, 15),
       V('currency', 8, false, 'USD'), V('status', 32, false, 'inactive'), D('started_at'), D('expires_at'),
       D('created_at', true), D('updated_at', true),
     ],

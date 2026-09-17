@@ -197,6 +197,10 @@ export const AdminService = {
     });
   },
 
+  async openPaymentProof(paymentId) {
+    return trustedCall("admin_create_payment_proof_token", { payment_id: paymentId });
+  },
+
   // -------------------------------------------------------------
   // SUBSCRIPTION PLAN MANAGEMENT
   // -------------------------------------------------------------

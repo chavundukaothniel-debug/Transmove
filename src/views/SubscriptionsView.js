@@ -16,6 +16,9 @@ export const SubscriptionsView = {
   destinations: [],
   subStatus: null,
   paymentHistory: [],
+  refreshTimer: null,
+  refreshInFlight: false,
+  submissionInFlight: false,
 
   async render() {
     return `
@@ -29,6 +32,7 @@ export const SubscriptionsView = {
   },
 
   async init() {
+    this.stopLiveRefresh();
     const container = document.getElementById("subscription-page-container");
     if (!container) return;
 
@@ -67,6 +71,7 @@ export const SubscriptionsView = {
       this.paymentHistory = paymentHistory;
 
       this.renderFullView(container);
+      this.startLiveRefresh();
     } catch (err) {
       console.error("Subscription view load error:", err);
       container.innerHTML = `
@@ -196,7 +201,7 @@ export const SubscriptionsView = {
                     const isApp = p.status === "approved" || p.status === "paid";
                     const isRej = p.status === "rejected";
                     const statusClass = isApp ? "badge-success" : isRej ? "badge-danger" : "badge-warning";
-                    const statusText = isApp ? "APPROVED" : isRej ? "REJECTED" : "PENDING VERIFICATION";
+                    const statusText = isApp ? "APPROVED" : isRej ? "REJECTED" : "PENDING REVIEW";
 
                     return `
                       <tr style="border-bottom: 1px solid var(--border-light);">
@@ -276,7 +281,7 @@ export const SubscriptionsView = {
           </ul>
         </div>
 
-        <button class="btn ${isRecommended ? 'btn-primary' : 'btn-outline'} btn-full btn-select-plan" data-plan-id="${plan.$id || plan.id || plan.slug}" style="font-weight: 700;">
+        <button class="btn ${isRecommended ? 'btn-primary' : 'btn-outline'} btn-full btn-select-plan" data-plan-id="${plan.$id || plan.id}" style="font-weight: 700;">
           Subscribe · Pay $${plan.price}
         </button>
       </div>
@@ -288,7 +293,7 @@ export const SubscriptionsView = {
     container.querySelectorAll(".btn-select-plan").forEach(btn => {
       btn.addEventListener("click", () => {
         const planId = btn.dataset.planId;
-        const plan = this.plans.find(p => (p.$id || p.id || p.slug) === planId);
+        const plan = this.plans.find(p => (p.$id || p.id) === planId);
         if (plan) this.openEcocashPaymentModal(plan);
       });
     });
@@ -309,7 +314,6 @@ export const SubscriptionsView = {
       return;
     }
 
-    const modal = new Modal();
     const modalContent = `
       <div style="padding: 0.5rem;">
         <div style="text-align: center; margin-bottom: 1.5rem;">
@@ -369,26 +373,18 @@ export const SubscriptionsView = {
             </div>
           </div>
 
-          <div style="display: grid; grid-template-columns: 1.3fr 0.7fr; gap: 0.75rem;">
-            <div>
-              <label style="display: block; font-size: 0.75rem; font-weight: 700; margin-bottom: 0.25rem; color: var(--text-main);">
-                EcoCash Reference / SMS Code *
-              </label>
-              <input type="text" id="eco-transaction-ref" class="form-input" placeholder="e.g. MP260917.1320.A12345" required style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-light); border-radius: 6px; font-family: monospace; text-transform: uppercase;" />
-            </div>
-            <div>
-              <label style="display: block; font-size: 0.75rem; font-weight: 700; margin-bottom: 0.25rem; color: var(--text-main);">
-                Amount Sent ($) *
-              </label>
-              <input type="number" id="eco-amount-declared" class="form-input" value="${plan.price}" step="0.5" required style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-light); border-radius: 6px;" />
-            </div>
+          <div>
+            <label style="display: block; font-size: 0.75rem; font-weight: 700; margin-bottom: 0.25rem; color: var(--text-main);">
+              EcoCash Reference / SMS Code *
+            </label>
+            <input type="text" id="eco-transaction-ref" class="form-input" placeholder="e.g. MP260917.1320.A12345" required style="width: 100%; padding: 0.6rem; border: 1px solid var(--border-light); border-radius: 6px; font-family: monospace; text-transform: uppercase;" />
           </div>
 
           <div>
             <label style="display: block; font-size: 0.75rem; font-weight: 700; margin-bottom: 0.25rem; color: var(--text-main);">
               Proof of Payment Screenshot * (SMS or EcoCash App Receipt, Max 5MB)
             </label>
-            <input type="file" id="eco-proof-file" accept="image/*,.pdf" required style="width: 100%; font-size: 0.8rem;" />
+            <input type="file" id="eco-proof-file" accept="image/jpeg,image/png,image/webp" required style="width: 100%; font-size: 0.8rem;" />
           </div>
 
           <div style="background: #fffbeb; border: 1px solid #fef3c7; border-radius: 6px; padding: 0.75rem; font-size: 0.75rem; color: #92400e;">
@@ -404,8 +400,7 @@ export const SubscriptionsView = {
       </div>
     `;
 
-    modal.setContent(modalContent);
-    modal.open();
+    Modal.open(`${plan.name} EcoCash Payment`, modalContent);
 
     const form = document.getElementById("ecocash-submission-form");
     const submitBtn = document.getElementById("btn-submit-ecocash");
@@ -413,6 +408,7 @@ export const SubscriptionsView = {
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      if (this.submissionInFlight) return;
       errorDiv.style.display = "none";
 
       const selectedDestRadio = form.querySelector("input[name='ecocash_destination']:checked");
@@ -420,53 +416,119 @@ export const SubscriptionsView = {
       const senderName = document.getElementById("eco-sender-name").value.trim();
       const senderPhone = document.getElementById("eco-sender-phone").value.trim();
       const transactionRef = document.getElementById("eco-transaction-ref").value.trim().toUpperCase();
-      const amountDeclared = parseFloat(document.getElementById("eco-amount-declared").value);
       const proofFileInput = document.getElementById("eco-proof-file");
       const proofFile = proofFileInput.files ? proofFileInput.files[0] : null;
 
       if (!destinationId) {
-        errorDiv.textContent = "Please select an EcoCash destination account.";
+        errorDiv.textContent = "An EcoCash destination is required.";
+        errorDiv.style.display = "block";
+        return;
+      }
+      if (!senderName) {
+        errorDiv.textContent = "Sender full name is required.";
+        errorDiv.style.display = "block";
+        return;
+      }
+      if (!senderPhone) {
+        errorDiv.textContent = "Sender phone number is required.";
+        errorDiv.style.display = "block";
+        return;
+      }
+      if (!transactionRef) {
+        errorDiv.textContent = "EcoCash transaction reference is required.";
         errorDiv.style.display = "block";
         return;
       }
       if (!proofFile) {
-        errorDiv.textContent = "Please select a proof of payment screenshot or document.";
+        errorDiv.textContent = "Proof screenshot is required.";
         errorDiv.style.display = "block";
         return;
       }
 
+      let fileId = null;
       try {
+        this.submissionInFlight = true;
         submitBtn.disabled = true;
         submitBtn.textContent = "Uploading proof of payment...";
 
         // Step 1: Upload proof file
-        const fileId = await SubscriptionService.uploadProof(proofFile);
+        fileId = await SubscriptionService.uploadProof(proofFile);
 
         submitBtn.textContent = "Recording payment submission...";
 
         // Step 2: Submit payment
         await SubscriptionService.submitSubscriptionPayment({
-          planId: plan.$id || plan.id || plan.slug,
+          planId: plan.$id || plan.id,
           destinationId,
           senderName,
           senderPhone,
           transactionRef,
-          proofFileId: fileId,
-          amountDeclared
+          proofFileId: fileId
         });
 
-        modal.close();
-        alert("Payment Submitted! Your EcoCash transaction has been submitted for admin verification. You will be notified once it is approved.");
-
-        // Refresh view
-        this.init();
+        Modal.close();
+        await this.init();
+        Modal.open(
+          "Payment submitted successfully",
+          `<div style="padding: 0.5rem 0; color: var(--text-main);">Your EcoCash payment is awaiting admin approval.</div>`
+        );
       } catch (err) {
         console.error("Payment submission failure:", err);
-        errorDiv.textContent = err.message || "Failed to submit payment. Please try again.";
+        if (fileId) {
+          await PaymentService.deletePaymentProof(fileId).catch(() => {});
+        }
+        errorDiv.textContent = err.message || "Payment submission failed.";
         errorDiv.style.display = "block";
         submitBtn.disabled = false;
         submitBtn.textContent = "Submit EcoCash Payment for Verification";
+      } finally {
+        this.submissionInFlight = false;
       }
     });
+  },
+
+  startLiveRefresh() {
+    const signature = () => JSON.stringify({
+      active: Boolean(this.subStatus?.active),
+      plan: this.subStatus?.plan || null,
+      expiresAt: this.subStatus?.expires_at || null,
+      payments: this.paymentHistory.map((payment) => `${payment.$id || payment.id}:${payment.status}:${payment.rejection_reason || ""}`)
+    });
+    let previousSignature = signature();
+
+    this.refreshTimer = window.setInterval(async () => {
+      if (this.refreshInFlight || this.submissionInFlight || !document.getElementById("subscription-page-container")) return;
+      this.refreshInFlight = true;
+      try {
+        const [subStatus, paymentHistory] = await Promise.all([
+          SubscriptionService.getSubscriptionStatus(),
+          SubscriptionService.getPaymentHistory()
+        ]);
+        this.subStatus = subStatus;
+        this.paymentHistory = paymentHistory;
+        const nextSignature = signature();
+        if (nextSignature !== previousSignature) {
+          previousSignature = nextSignature;
+          const container = document.getElementById("subscription-page-container");
+          if (container) this.renderFullView(container);
+        }
+      } catch (error) {
+        console.warn("Subscription status refresh:", error.message);
+      } finally {
+        this.refreshInFlight = false;
+      }
+    }, 15000);
+  },
+
+  stopLiveRefresh() {
+    if (this.refreshTimer) {
+      window.clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+  },
+
+  destroy() {
+    this.stopLiveRefresh();
+    this.submissionInFlight = false;
   }
 };

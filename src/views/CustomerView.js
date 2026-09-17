@@ -81,6 +81,7 @@ export const CustomerView = {
   journeyRefreshTimer: null,
   journeySyncBusy: false,
   journeyStateSignature: "",
+  liveLocationWatchId: null,
   currentProfile: null,
 
   async render(currentProfile = null) {
@@ -720,7 +721,11 @@ export const CustomerView = {
         const newReq = await RequestService.createRequest({
           service_type: serviceType,
           pickup_location: pickupVal,
+          pickup_latitude: this.pickupCoords?.lat || null,
+          pickup_longitude: this.pickupCoords?.lng || null,
           destination: destVal,
+          destination_latitude: this.destCoords?.lat || null,
+          destination_longitude: this.destCoords?.lng || null,
           request_date: this.pendingRequestMeta?.requestDate || null,
           passenger_count: this.pendingRequestMeta?.passengerCount || null,
           goods_type: serviceType === "logistics" ? (document.getElementById("req-load-desc")?.value?.trim() || "") : "",
@@ -1270,15 +1275,47 @@ export const CustomerView = {
                   <div class="quote-actions">
                     <div class="bid-price" style="font-size: 1.25rem; font-weight: 900; color: var(--primary);">$${Number.parseFloat(bid.amount || 0).toFixed(2)}</div>
                     ${isPending ? `
-                      <button class="btn btn-outline btn-sm btn-fav-driver" data-driver-id="${escapeHtml(bid.driver_id || bid.driver?.id || "")}" title="Save Driver to Favourites">
-                        ❤️
-                      </button>
-                      <button class="btn btn-outline btn-sm btn-counter-offer" data-bid-id="${escapeHtml(bid.id)}" disabled title="Counter-offers are not available yet">
-                        Counter
-                      </button>
-                      <button class="btn btn-primary btn-sm btn-accept-offer" data-bid-id="${escapeHtml(bid.id)}">
-                        Accept
-                      </button>
+                      ${bid.negotiation_status === "countered_by_passenger" ? `
+                        <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 0.35rem 0.65rem; font-size: 0.8rem; color: #1e40af; margin-bottom: 0.4rem;">
+                          💬 Your counter: <strong>$${Number.parseFloat(bid.counter_amount || 0).toFixed(2)}</strong> (Pending driver)
+                        </div>
+                        <div style="display: flex; gap: 0.4rem; justify-content: flex-end;">
+                          <button class="btn btn-outline btn-sm btn-counter-offer" data-bid-id="${escapeHtml(bid.id)}" data-current-amount="${escapeHtml(bid.amount)}">
+                            Counter Again
+                          </button>
+                          <button class="btn btn-primary btn-sm btn-accept-offer" data-bid-id="${escapeHtml(bid.id)}">
+                            Accept ($${Number.parseFloat(bid.amount || 0).toFixed(2)})
+                          </button>
+                        </div>
+                      ` : bid.negotiation_status === "countered_by_driver" ? `
+                        <div style="background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 6px; padding: 0.5rem 0.75rem; margin-bottom: 0.4rem; text-align: left;">
+                          <div style="font-size: 0.85rem; color: #166534; font-weight: 800;">
+                            🎉 Driver counter offer: <strong>$${Number.parseFloat(bid.counter_amount || 0).toFixed(2)}</strong>
+                          </div>
+                          ${bid.counter_message ? `<div style="font-size: 0.78rem; color: #15803d; margin-top: 0.2rem;">“${escapeHtml(bid.counter_message)}”</div>` : ""}
+                          <div style="display: flex; gap: 0.4rem; margin-top: 0.45rem; flex-wrap: wrap;">
+                            <button type="button" class="btn btn-primary btn-sm btn-accept-driver-counter" data-bid-id="${escapeHtml(bid.id)}" style="background: #16a34a; border: none; font-weight: 700;">
+                              Accept $${Number.parseFloat(bid.counter_amount || 0).toFixed(2)}
+                            </button>
+                            <button type="button" class="btn btn-outline btn-sm btn-counter-offer" data-bid-id="${escapeHtml(bid.id)}" data-current-amount="${escapeHtml(bid.counter_amount)}">
+                              Counter Again
+                            </button>
+                            <button type="button" class="btn btn-outline btn-sm btn-decline-counter" data-bid-id="${escapeHtml(bid.id)}" style="color: #b91c1c; border-color: #fca5a5;">
+                              Decline
+                            </button>
+                          </div>
+                        </div>
+                      ` : `
+                        <button class="btn btn-outline btn-sm btn-fav-driver" data-driver-id="${escapeHtml(bid.driver_id || bid.driver?.id || "")}" title="Save Driver to Favourites">
+                          ❤️
+                        </button>
+                        <button class="btn btn-outline btn-sm btn-counter-offer" data-bid-id="${escapeHtml(bid.id)}" data-current-amount="${escapeHtml(bid.amount)}">
+                          Counter Offer
+                        </button>
+                        <button class="btn btn-primary btn-sm btn-accept-offer" data-bid-id="${escapeHtml(bid.id)}">
+                          Accept
+                        </button>
+                      `}
                     ` : `
                       <span class="badge ${bid.status === "accepted" ? "badge-success" : "badge-neutral"}">${escapeHtml(String(bid.status || "").toUpperCase())}</span>
                     `}
@@ -1307,6 +1344,50 @@ export const CustomerView = {
             await this.loadDashboardSummary();
           } catch (err) {
             alert("Could not save driver: " + err.message);
+          }
+        });
+      });
+
+      container.querySelectorAll(".btn-counter-offer").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          const bidId = e.currentTarget.getAttribute("data-bid-id");
+          const currentAmt = parseFloat(e.currentTarget.getAttribute("data-current-amount") || "0");
+          this.openPassengerCounterModal(bidId, currentAmt);
+        });
+      });
+
+      container.querySelectorAll(".btn-accept-driver-counter").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          const bidId = e.currentTarget.getAttribute("data-bid-id");
+          if (!bidId) return;
+          const actionBtn = e.currentTarget;
+          actionBtn.disabled = true;
+          actionBtn.innerText = "Accepting...";
+          try {
+            await BidService.acceptCounterOffer(bidId);
+            const result = await BidService.acceptBid(bidId);
+            alert("Counter offer accepted! Booking created & assigned to provider.");
+            const bookingId = result.bookingId || result.booking?.id || result.booking?.$id;
+            window.location.hash = `#customer?tab=booking-details&id=${bookingId}`;
+          } catch (err) {
+            alert("Could not accept counter offer: " + err.message);
+            actionBtn.disabled = false;
+            actionBtn.innerText = "Accept";
+          }
+        });
+      });
+
+      container.querySelectorAll(".btn-decline-counter").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          const bidId = e.currentTarget.getAttribute("data-bid-id");
+          if (!bidId) return;
+          if (!confirm("Decline this driver counter offer?")) return;
+          try {
+            await BidService.declineCounterOffer(bidId);
+            alert("Counter offer declined.");
+            await this.loadActiveBids();
+          } catch (err) {
+            alert("Could not decline counter offer: " + err.message);
           }
         });
       });
@@ -1346,6 +1427,77 @@ export const CustomerView = {
         icon: "car"
       });
     }
+  },
+
+  openPassengerCounterModal(bidId, currentAmount) {
+    let modal = document.getElementById("passenger-counter-modal");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "passenger-counter-modal";
+      modal.className = "modal-backdrop";
+      modal.style.cssText = "display: flex; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.7); z-index: 10000; align-items: center; justify-content: center; padding: 1rem; backdrop-filter: blur(4px);";
+      document.body.appendChild(modal);
+    }
+
+    const defaultCounter = (Math.max(1, (parseFloat(currentAmount) || 10) * 0.9)).toFixed(2);
+
+    modal.innerHTML = `
+      <div class="card counter-offer-dialog" style="background: var(--bg-card, #ffffff); max-width: 440px; width: 100%; border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.2); padding: 1.5rem; position: relative;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <h3 style="margin: 0; font-size: 1.2rem; font-weight: 800; color: var(--text-main, #0f172a);">Propose Counter Offer</h3>
+          <button type="button" id="close-counter-modal" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted, #64748b); line-height: 1;">&times;</button>
+        </div>
+        <p style="font-size: 0.88rem; color: var(--text-muted, #64748b); margin-bottom: 1rem;">
+          Current Quotation: <strong>$${Number.parseFloat(currentAmount || 0).toFixed(2)}</strong>. Enter your proposed fare below. The driver will be notified to respond.
+        </p>
+        <form id="passenger-counter-form">
+          <div style="margin-bottom: 1rem;">
+            <label style="display: block; font-size: 0.82rem; font-weight: 700; margin-bottom: 0.35rem; color: var(--text-main, #0f172a);">Your Proposed Fare ($ USD)</label>
+            <input type="number" step="0.50" min="1" id="counter-amount-input" class="form-input" value="${defaultCounter}" required style="font-size: 1.25rem; font-weight: 800; padding: 0.5rem 0.75rem; width: 100%; border-radius: 8px; border: 1.5px solid var(--border-color, #cbd5e1); box-sizing: border-box;">
+          </div>
+          <div style="margin-bottom: 1.25rem;">
+            <label style="display: block; font-size: 0.82rem; font-weight: 700; margin-bottom: 0.35rem; color: var(--text-main, #0f172a);">Note to Driver (Optional)</label>
+            <textarea id="counter-note-input" class="form-textarea" rows="2" placeholder="e.g. Can do $14 cash right now, ready immediately..." style="width: 100%; font-size: 0.88rem; padding: 0.5rem; border-radius: 8px; border: 1.5px solid var(--border-color, #cbd5e1); box-sizing: border-box;"></textarea>
+          </div>
+          <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
+            <button type="button" class="btn btn-outline" id="cancel-counter-btn">Cancel</button>
+            <button type="submit" class="btn btn-primary" id="submit-counter-btn">Send Counter Offer</button>
+          </div>
+        </form>
+      </div>
+    `;
+
+    modal.style.display = "flex";
+
+    const closeModal = () => {
+      modal.style.display = "none";
+    };
+
+    modal.querySelector("#close-counter-modal")?.addEventListener("click", closeModal);
+    modal.querySelector("#cancel-counter-btn")?.addEventListener("click", closeModal);
+
+    modal.querySelector("#passenger-counter-form")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const amount = parseFloat(document.getElementById("counter-amount-input")?.value || "0");
+      const message = document.getElementById("counter-note-input")?.value?.trim() || "";
+      if (!amount || amount <= 0) {
+        alert("Please enter a valid counter offer amount.");
+        return;
+      }
+      const submitBtn = modal.querySelector("#submit-counter-btn");
+      submitBtn.disabled = true;
+      submitBtn.innerText = "Submitting...";
+      try {
+        await BidService.counterBid(bidId, { amount, message });
+        closeModal();
+        alert("Counter offer sent to driver! They will be notified to respond.");
+        await this.loadActiveBids();
+      } catch (err) {
+        alert("Could not submit counter offer: " + err.message);
+        submitBtn.disabled = false;
+        submitBtn.innerText = "Send Counter Offer";
+      }
+    });
   },
 
   async loadBookings(filter = "all") {
@@ -1491,12 +1643,40 @@ export const CustomerView = {
             </div>
 
             ${booking.trip_pin ? `
-              <div class="trip-pin-box" style="margin-top: 1rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; background: #ecfdf5; border: 1.5px dashed #059669; padding: 0.75rem 1rem; border-radius: 8px;">
-                <div style="display: flex; align-items: center; gap: 0.65rem;">
-                  <span style="font-weight: 800; font-size: 0.85rem; color: #065f46;">TRIP PIN:</span>
-                  <span class="trip-pin-code" style="font-size: 1.5rem; letter-spacing: 4px; font-weight: 900; color: #047857; font-family: monospace;">${escapeHtml(booking.trip_pin)}</span>
+              <div class="trip-pin-box" style="margin-top: 1rem; background: ${booking.status === "arrived" ? "#fef3c7" : "#ecfdf5"}; border: 2px ${booking.status === "arrived" ? "solid #f59e0b" : "dashed #059669"}; padding: 1rem; border-radius: 10px; box-shadow: ${booking.status === "arrived" ? "0 4px 14px rgba(245, 158, 11, 0.25)" : "none"};">
+                ${booking.status === "arrived" ? `
+                  <div style="font-weight: 800; color: #b45309; font-size: 0.95rem; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.4rem;">
+                    <span>🔔 Your driver has arrived!</span>
+                  </div>
+                  <div style="font-size: 0.82rem; color: #78350f; margin-bottom: 0.6rem;">
+                    Please meet your driver and share your Trip PIN to begin the journey:
+                  </div>
+                ` : ""}
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+                  <div style="display: flex; align-items: center; gap: 0.65rem;">
+                    <span style="font-weight: 800; font-size: 0.85rem; color: ${booking.status === "arrived" ? "#92400e" : "#065f46"};">TRIP PIN:</span>
+                    <span class="trip-pin-code" style="font-size: 1.75rem; letter-spacing: 5px; font-weight: 900; color: ${booking.status === "arrived" ? "#b45309" : "#047857"}; font-family: monospace;">${escapeHtml(booking.trip_pin)}</span>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    ${booking.status !== "arrived" ? `<small style="color: #047857;">Share with driver to start trip</small>` : ""}
+                    <button type="button" class="btn btn-outline btn-sm btn-copy-pin" data-pin="${escapeHtml(booking.trip_pin)}" style="padding: 0.25rem 0.65rem; font-size: 0.8rem; background: #ffffff; border-color: ${booking.status === "arrived" ? "#d97706" : "#059669"}; color: ${booking.status === "arrived" ? "#b45309" : "#047857"}; font-weight: 700;">📋 Copy PIN</button>
+                  </div>
                 </div>
-                <small style="color: #047857;">Share with your driver to start trip</small>
+              </div>
+            ` : ""}
+
+            ${["confirmed", "driver_arriving", "arrived"].includes(booking.status) ? `
+              <div class="card" style="margin-top: 1rem; padding: 0.85rem 1rem; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
+                <div>
+                  <div style="font-weight: 700; font-size: 0.88rem; color: #1e293b;">
+                    📍 Share live pickup location with driver
+                  </div>
+                  <small style="color: #64748b; font-size: 0.78rem;">Allows your driver to see your exact pickup point in real time.</small>
+                </div>
+                <label style="position: relative; display: inline-block; width: 44px; height: 24px; margin: 0; cursor: pointer;">
+                  <input type="checkbox" id="toggle-passenger-live-loc" ${booking.live_location_active ? "checked" : ""} style="opacity: 0; width: 0; height: 0;">
+                  <span style="position: absolute; inset: 0; background-color: ${booking.live_location_active ? '#059669' : '#cbd5e1'}; border-radius: 24px; transition: .3s;" id="toggle-live-loc-slider"></span>
+                </label>
               </div>
             ` : ""}
 
@@ -1523,6 +1703,20 @@ export const CustomerView = {
         </div>
 
         ${isCompleted ? `
+          <div class="card" style="margin-top: 1.25rem; padding: 1rem 1.25rem; background: #ffffff; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; border-left: 4px solid ${booking.payment_status === "received" ? "#10b981" : "#f59e0b"};">
+            <div>
+              <div style="font-size: 0.82rem; color: var(--text-muted); font-weight: 600;">Trip Fare Settlement</div>
+              <div style="font-size: 1.25rem; font-weight: 800; color: var(--text-main);">$${Number.parseFloat(booking.amount || 0).toFixed(2)}</div>
+            </div>
+            <div>
+              ${booking.payment_status === "received" ? `
+                <span class="settlement-badge-received">✓ Payment Confirmed by Driver</span>
+              ` : `
+                <span class="settlement-badge-pending">⏳ Awaiting Driver Payment Confirmation</span>
+              `}
+            </div>
+          </div>
+
           <section class="card" style="margin-top: 1.25rem; padding: 1.25rem; background: #ffffff;">
             <h3 style="font-size: 1rem; font-weight: 800; color: #0f172a; margin-bottom: 0.5rem;">Driver Rating &amp; Review</h3>
             ${existingReview ? `
@@ -1652,6 +1846,92 @@ export const CustomerView = {
           btn.innerText = "Submit Review";
         }
       });
+
+      container.querySelectorAll(".btn-copy-pin").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          const pin = e.currentTarget.getAttribute("data-pin");
+          if (pin) {
+            navigator.clipboard?.writeText(pin).then(() => {
+              e.currentTarget.innerText = "✓ Copied!";
+              setTimeout(() => { e.currentTarget.innerText = "📋 Copy PIN"; }, 2000);
+            }).catch(() => {
+              prompt("Your Trip PIN:", pin);
+            });
+          }
+        });
+      });
+
+      const liveLocToggle = container.querySelector("#toggle-passenger-live-loc");
+      if (liveLocToggle) {
+        liveLocToggle.addEventListener("change", async (e) => {
+          const isSharing = e.target.checked;
+          const slider = document.getElementById("toggle-live-loc-slider");
+          if (slider) slider.style.backgroundColor = isSharing ? "#059669" : "#cbd5e1";
+
+          if (isSharing) {
+            if (!navigator.geolocation) {
+              alert("Geolocation is not supported by your browser.");
+              e.target.checked = false;
+              if (slider) slider.style.backgroundColor = "#cbd5e1";
+              return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+              async (pos) => {
+                try {
+                  await BookingService.updatePassengerLiveLocation(booking.id, {
+                    active: true,
+                    latitude: pos.coords.latitude,
+                    longitude: pos.coords.longitude
+                  });
+                } catch (err) {
+                  console.warn("Could not activate live location:", err.message);
+                }
+              },
+              (err) => {
+                alert("Location access denied or unavailable: " + err.message);
+                e.target.checked = false;
+                if (slider) slider.style.backgroundColor = "#cbd5e1";
+              },
+              { enableHighAccuracy: true, timeout: 10000 }
+            );
+
+            if (this.liveLocationWatchId) {
+              navigator.geolocation.clearWatch(this.liveLocationWatchId);
+            }
+            this.liveLocationWatchId = navigator.geolocation.watchPosition(
+              async (pos) => {
+                try {
+                  await BookingService.updatePassengerLiveLocation(booking.id, {
+                    active: true,
+                    latitude: pos.coords.latitude,
+                    longitude: pos.coords.longitude
+                  });
+                } catch (err) {
+                  console.warn("Live location watch update error:", err.message);
+                }
+              },
+              (err) => console.warn("Live location watch error:", err.message),
+              { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+            );
+          } else {
+            if (this.liveLocationWatchId) {
+              navigator.geolocation.clearWatch(this.liveLocationWatchId);
+              this.liveLocationWatchId = null;
+            }
+            try {
+              await BookingService.updatePassengerLiveLocation(booking.id, { active: false });
+            } catch (err) {
+              console.warn("Could not deactivate live location:", err.message);
+            }
+          }
+        });
+      }
+
+      if (["in_progress", "completed", "cancelled"].includes(booking.status) && this.liveLocationWatchId) {
+        navigator.geolocation.clearWatch(this.liveLocationWatchId);
+        this.liveLocationWatchId = null;
+      }
     } catch (error) {
       container.innerHTML = renderEmptyState({ title: "Booking unavailable", description: "This booking could not be loaded.", icon: "car" });
     }

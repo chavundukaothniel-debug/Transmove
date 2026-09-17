@@ -132,6 +132,35 @@ export const BidService = {
   },
 
   /**
+   * PASSENGER / DRIVER: Submit a counter offer on a pending quotation.
+   */
+  async counterBid({ bidId, counterAmount, message = "" }) {
+    if (!bidId) throw new Error("bidId is required.");
+    if (counterAmount === undefined || counterAmount === null) throw new Error("counterAmount is required.");
+    return callTrustedApi("counter_bid", {
+      bid_id: bidId,
+      counter_amount: parseFloat(counterAmount),
+      message
+    });
+  },
+
+  /**
+   * PASSENGER / DRIVER: Accept the negotiated counter offer amount.
+   */
+  async acceptCounterOffer(bidId) {
+    if (!bidId) throw new Error("bidId is required.");
+    return callTrustedApi("accept_counter_offer", { bid_id: bidId });
+  },
+
+  /**
+   * PASSENGER / DRIVER: Decline a counter offer.
+   */
+  async declineCounterOffer(bidId) {
+    if (!bidId) throw new Error("bidId is required.");
+    return callTrustedApi("decline_counter_offer", { bid_id: bidId });
+  },
+
+  /**
    * Subscribe to the protected journey collections. Appwrite only delivers
    * rows the authenticated user can read; callers still reconcile through the
    * trusted read endpoints so realtime is an accelerator, never the authority.
@@ -265,6 +294,27 @@ export const BookingService = {
       status: "cancelled",
       reason,
       notes
+    });
+  },
+
+  /**
+   * DRIVER: Confirms receipt of agreed trip payment from passenger.
+   */
+  async confirmTripPayment(bookingId) {
+    if (!bookingId) throw new Error("bookingId is required.");
+    return callTrustedApi("confirm_trip_payment", { booking_id: bookingId });
+  },
+
+  /**
+   * PASSENGER: Update live pickup location sharing for assigned driver.
+   */
+  async updatePassengerLiveLocation({ bookingId, latitude, longitude, active = true }) {
+    if (!bookingId) throw new Error("bookingId is required.");
+    return callTrustedApi("update_passenger_live_location", {
+      booking_id: bookingId,
+      latitude,
+      longitude,
+      active
     });
   }
 };

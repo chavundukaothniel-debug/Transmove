@@ -65,12 +65,18 @@ export const PaymentService = {
    * @returns {Promise<string>} Appwrite file ID
    */
   async uploadPaymentProof(file) {
-    if (!file) throw new Error("No proof file provided for upload.");
+    if (!file) throw new Error("Proof screenshot is required.");
 
     // Validate size (max 5MB)
     const MAX_SIZE = 5 * 1024 * 1024;
     if (file.size > MAX_SIZE) {
       throw new Error("Proof file exceeds maximum size of 5MB. Please upload a smaller image.");
+    }
+
+    const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+    const allowedExtension = /\.(?:jpe?g|png|webp)$/i.test(file.name || "");
+    if (!allowedTypes.has(String(file.type || "").toLowerCase()) || !allowedExtension) {
+      throw new Error("Proof must be a JPG, PNG, or WebP image.");
     }
 
     const account = getAppwriteAccount();
@@ -91,6 +97,11 @@ export const PaymentService = {
     );
 
     return uploaded.$id;
+  },
+
+  async deletePaymentProof(fileId) {
+    if (!fileId) return;
+    await getAppwriteStorage().deleteFile(APPWRITE_CONFIG.bucketId, fileId);
   },
 
   /**

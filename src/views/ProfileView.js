@@ -6,6 +6,7 @@
 import { AuthService } from "../services/auth.js";
 import { VehicleService } from "../services/vehicles.js";
 import { BookingService } from "../services/bids.js";
+import { ReviewService } from "../services/reviews.js";
 import { getAppwriteStorage, APPWRITE_CONFIG } from "../config/appwrite.js";
 
 const escapeHtmlValue = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
@@ -118,6 +119,7 @@ export const ProfileView = {
             <button class="btn btn-outline btn-sm prof-tab-btn active" data-tab="details">Personal Profile</button>
             <button class="btn btn-outline btn-sm prof-tab-btn" data-tab="verification">Verification &amp; Documents</button>
             <button class="btn btn-outline btn-sm prof-tab-btn" data-tab="vehicles">My Vehicles &amp; Equipment</button>
+            <button class="btn btn-outline btn-sm prof-tab-btn" data-tab="reviews">Ratings &amp; Reviews</button>
           </div>
 
           <!-- TAB 1: PERSONAL DETAILS FORM -->
@@ -201,6 +203,14 @@ export const ProfileView = {
             <div id="prof-vehicles-list">Loading vehicles...</div>
           </div>
 
+          <!-- TAB 4: RATINGS & REVIEWS -->
+          <div id="prof-tab-reviews" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+              <h3 style="font-size: 1.1rem; font-weight: 800; color: #0f172a; margin: 0;">Verified Passenger Reviews</h3>
+            </div>
+            <div id="prof-recent-reviews-list">Loading reviews...</div>
+          </div>
+
         </div>
       </div>
     `;
@@ -249,6 +259,31 @@ export const ProfileView = {
       createdDateEl.innerText = `Member since ${d.toLocaleDateString([], { month: "short", year: "numeric" })}`;
     }
 
+    // Hydrate Driver Ratings & Reviews from Appwrite
+    const driverUserId = this.profile.user_id || this.profile.id;
+    const ratingBadgeEl = document.getElementById("prof-rating-badge");
+    if (driverUserId) {
+      try {
+        const reviewData = await ReviewService.getDriverReviews(driverUserId);
+        this.driverReviews = reviewData.reviews || [];
+        const count = reviewData.review_count || 0;
+        const rating = reviewData.rating;
+
+        if (ratingBadgeEl) {
+          if (count > 0 && rating !== null) {
+            ratingBadgeEl.innerHTML = `★ ${rating.toFixed(1)} <span style="font-weight: 500; color: #64748b;">(${count} ${count === 1 ? "review" : "reviews"})</span>`;
+            ratingBadgeEl.style.color = "#d97706";
+          } else {
+            ratingBadgeEl.innerText = "No ratings yet";
+            ratingBadgeEl.style.color = "#64748b";
+          }
+        }
+      } catch (revErr) {
+        console.warn("Could not load driver ratings:", revErr.message);
+        if (ratingBadgeEl) ratingBadgeEl.innerText = "No ratings yet";
+      }
+    }
+
     // Avatar image or initials
     const avatarPlaceholder = document.getElementById("prof-avatar-placeholder");
     const avatarImg = document.getElementById("prof-avatar-img");
@@ -283,13 +318,14 @@ export const ProfileView = {
         document.querySelectorAll(".prof-tab-btn").forEach(b => b.classList.remove("active"));
         e.currentTarget.classList.add("active");
 
-        ["details", "verification", "vehicles"].forEach(t => {
+        ["details", "verification", "vehicles", "reviews"].forEach(t => {
           const el = document.getElementById(`prof-tab-${t}`);
           if (el) el.style.display = t === tab ? "block" : "none";
         });
 
         if (tab === "vehicles") this.loadProfileVehicles();
         if (tab === "verification") this.loadVerificationState();
+        if (tab === "reviews") this.renderDriverReviewsTab();
       });
     });
 
@@ -507,5 +543,39 @@ export const ProfileView = {
     } catch (err) {
       container.innerHTML = `<div style="padding: 1rem; color: #ef4444;">Error loading vehicles.</div>`;
     }
+  },
+
+  renderDriverReviewsTab() {
+    const container = document.getElementById("prof-recent-reviews-list");
+    if (!container) return;
+
+    const reviews = this.driverReviews || [];
+    if (reviews.length === 0) {
+      container.innerHTML = `
+        <div style="padding: 2rem; text-align: center; color: #64748b; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;">
+          <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">⭐</div>
+          <div style="font-weight: 700; font-size: 0.95rem; color: #0f172a; margin-bottom: 0.25rem;">No ratings yet</div>
+          <div style="font-size: 0.85rem; color: #64748b;">As passengers complete and review journeys with you, their ratings and feedback will display here.</div>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = reviews.map((r) => {
+      const starRating = Math.max(1, Math.min(5, Number(r.rating) || 5));
+      const stars = "★".repeat(starRating) + "☆".repeat(5 - starRating);
+      const dateStr = r.created_at ? new Date(r.created_at).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "";
+      const comment = r.comment ? escapeHtmlValue(r.comment) : "<em>No written feedback provided.</em>";
+
+      return `
+        <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; background: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+            <span style="color: #f59e0b; font-size: 1.1rem; letter-spacing: 2px;">${stars}</span>
+            <small style="color: #94a3b8; font-size: 0.8rem;">${dateStr}</small>
+          </div>
+          <div style="font-size: 0.9rem; color: #334155; line-height: 1.4;">${comment}</div>
+        </div>
+      `;
+    }).join("");
   }
 };

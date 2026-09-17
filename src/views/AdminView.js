@@ -1032,7 +1032,7 @@ export const AdminView = {
                 const isApproved = t.status === "approved";
                 const isRejected = t.status === "rejected";
                 const badgeClass = isApproved ? "badge-success" : isRejected ? "badge-danger" : "badge-warning";
-                const proofUrl = t.proof_file_id ? PaymentService.getProofViewUrl(t.proof_file_id) : null;
+                const hasProof = Boolean(t.proof_file_id);
                 const paymentId = t.$id || t.id;
 
                 return `
@@ -1047,14 +1047,17 @@ export const AdminView = {
                     <td style="padding: 0.75rem;">
                       <span class="badge badge-neutral" style="text-transform: uppercase; font-size: 0.72rem;">${escapeHtml(t.payment_type || "payment")}</span>
                       <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">
-                        ID: ${escapeHtml(t.related_id || t.subscription_id || t.booking_id || "—")}
+                        ${escapeHtml(t.plan_name || t.related_id || t.subscription_id || t.booking_id || "—")}
                       </div>
+                      ${t.plan_duration_days ? `<div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(t.plan_duration_days)} days</div>` : ""}
                     </td>
                     <td style="padding: 0.75rem;">
                       <div style="font-weight: 600;">${escapeHtml(t.recipient_name || "EcoCash Admin")}</div>
                       <div style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(t.recipient_number || "—")}</div>
                     </td>
                     <td style="padding: 0.75rem;">
+                      <div style="font-weight: 700; color: var(--text-main);">${escapeHtml(t.provider_name || "Unknown provider")}</div>
+                      ${t.provider_email ? `<div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(t.provider_email)}</div>` : ""}
                       <div style="font-weight: 600;">${escapeHtml(t.sender_name || "—")}</div>
                       <div style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(t.sender_phone || "—")}</div>
                       <div style="font-size: 0.75rem; color: var(--text-muted);">User: ${escapeHtml(t.user_id ? t.user_id.slice(0, 10) + "..." : "—")}</div>
@@ -1070,10 +1073,10 @@ export const AdminView = {
                       ` : ""}
                     </td>
                     <td style="padding: 0.75rem;">
-                      ${proofUrl ? `
-                        <a href="${escapeHtml(proofUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">
+                      ${hasProof ? `
+                        <button type="button" class="btn btn-outline btn-sm btn-view-payment-proof" data-payment-id="${paymentId}" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">
                           🔍 View Proof
-                        </a>
+                        </button>
                       ` : `<span style="font-size: 0.8rem; color: var(--text-muted);">No file</span>`}
                     </td>
                     <td style="padding: 0.75rem;">
@@ -1106,6 +1109,28 @@ export const AdminView = {
       `;
 
       // Wire up approval / rejection handlers
+      container.querySelectorAll(".btn-view-payment-proof").forEach((btn) => {
+        btn.addEventListener("click", async (event) => {
+          const target = event.currentTarget;
+          const paymentId = target.getAttribute("data-payment-id");
+          const previewWindow = window.open("", "_blank");
+          target.disabled = true;
+          try {
+            const result = await AdminService.openPaymentProof(paymentId);
+            if (previewWindow) {
+              previewWindow.location = result.view_url;
+            } else {
+              window.open(result.view_url, "_blank", "noopener,noreferrer");
+            }
+          } catch (error) {
+            previewWindow?.close();
+            alert("Could not open payment proof: " + error.message);
+          } finally {
+            target.disabled = false;
+          }
+        });
+      });
+
       container.querySelectorAll(".btn-approve-payment").forEach((btn) => {
         btn.addEventListener("click", async (e) => {
           const paymentId = e.currentTarget.getAttribute("data-payment-id");

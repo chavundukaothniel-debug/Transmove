@@ -241,6 +241,8 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
   const publicActions = [
     "get_shared_trip",
     "get_public_provider_profile",
+    "get_driver_reviews",
+    "get_booking_reviews",
     "list_payment_destinations",
     "list_subscription_plans",
     "list_ad_rate_cards",
@@ -1275,6 +1277,10 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
     const budget = data.budget !== undefined ? parseFloat(data.budget) : (data.suggested_price !== undefined ? parseFloat(data.suggested_price) : null);
     const requestDate = data.request_date || null;
     const preferredTime = data.preferred_time ? String(data.preferred_time).trim() : "";
+    const pickupLat = (data.pickup_latitude !== undefined && data.pickup_latitude !== null && !isNaN(Number(data.pickup_latitude))) ? Number(data.pickup_latitude) : null;
+    const pickupLng = (data.pickup_longitude !== undefined && data.pickup_longitude !== null && !isNaN(Number(data.pickup_longitude))) ? Number(data.pickup_longitude) : null;
+    const destLat = (data.destination_latitude !== undefined && data.destination_latitude !== null && !isNaN(Number(data.destination_latitude))) ? Number(data.destination_latitude) : null;
+    const destLng = (data.destination_longitude !== undefined && data.destination_longitude !== null && !isNaN(Number(data.destination_longitude))) ? Number(data.destination_longitude) : null;
 
     // 6. Idempotent submission protection
     const rawSubmissionId = data.submission_id || data.idempotency_key;
@@ -1304,6 +1310,10 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       service_type: serviceType,
       pickup_location: pickup,
       destination: destination,
+      pickup_latitude: pickupLat,
+      pickup_longitude: pickupLng,
+      destination_latitude: destLat,
+      destination_longitude: destLng,
       request_date: requestDate,
       preferred_time: preferredTime,
       passenger_count: passengerCount,
@@ -2133,6 +2143,8 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       amount: finalPrice,
       trip_pin: tripPin,
       status: "confirmed",
+      payment_status: "pending",
+      live_location_active: false,
       created_at: nowIso,
       updated_at: nowIso
     };
@@ -2290,7 +2302,11 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
             service_type: rDoc.service_type,
             pickup_location: rDoc.pickup_location,
             destination: rDoc.destination,
-            request_date: rDoc.request_date
+            request_date: rDoc.request_date,
+            pickup_latitude: rDoc.pickup_latitude,
+            pickup_longitude: rDoc.pickup_longitude,
+            destination_latitude: rDoc.destination_latitude,
+            destination_longitude: rDoc.destination_longitude
           };
         }
       } catch (e) {}
@@ -2337,10 +2353,14 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       return {
         ...bk,
         id: bk.$id,
+        trip_pin: bk.trip_pin,
         customer_id: bk.passenger_id,
         request: requestInfo,
         driver: driverInfo,
-        vehicle: vehicleInfo
+        vehicle: vehicleInfo,
+        payment_status: bk.payment_status || "pending",
+        payment_confirmed_at: bk.payment_confirmed_at || null,
+        payment_confirmed_by: bk.payment_confirmed_by || null
       };
     }));
 
@@ -2384,7 +2404,11 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
             preferred_time: rDoc.preferred_time,
             passenger_count: rDoc.passenger_count,
             goods_type: rDoc.goods_type,
-            details: rDoc.details
+            details: rDoc.details,
+            pickup_latitude: rDoc.pickup_latitude,
+            pickup_longitude: rDoc.pickup_longitude,
+            destination_latitude: rDoc.destination_latitude,
+            destination_longitude: rDoc.destination_longitude
           };
         }
       } catch (e) {}
@@ -2424,6 +2448,9 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
         }
       } catch (e) {}
 
+      const isAssignedActiveTrip = (bk.driver_id === driverId) && ["confirmed", "driver_arriving", "arrived"].includes(bk.status);
+      const isLiveActive = Boolean(bk.live_location_active && isAssignedActiveTrip);
+
       return {
         ...bk,
         id: bk.$id,
@@ -2431,7 +2458,13 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
         customer_id: bk.passenger_id,
         request: requestInfo,
         passenger: passengerInfo,
-        vehicle: vehicleInfo
+        vehicle: vehicleInfo,
+        passenger_live_lat: isLiveActive ? bk.passenger_live_lat : undefined,
+        passenger_live_lng: isLiveActive ? bk.passenger_live_lng : undefined,
+        live_location_active: isLiveActive,
+        payment_status: bk.payment_status || "pending",
+        payment_confirmed_at: bk.payment_confirmed_at || null,
+        payment_confirmed_by: bk.payment_confirmed_by || null
       };
     }));
 
@@ -2511,10 +2544,16 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
         }
       }
       updateData.started_at = new Date().toISOString();
+      updateData.live_location_active = false;
+      updateData.passenger_live_lat = null;
+      updateData.passenger_live_lng = null;
     }
 
     if (newStatus === "completed") {
       updateData.completed_at = new Date().toISOString();
+      updateData.live_location_active = false;
+      updateData.passenger_live_lat = null;
+      updateData.passenger_live_lng = null;
     }
 
     if (newStatus === "cancelled") {
@@ -2524,6 +2563,9 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       updateData.cancellation_reason = fullReason;
       updateData.cancelled_by = callerId;
       updateData.cancelled_at = new Date().toISOString();
+      updateData.live_location_active = false;
+      updateData.passenger_live_lat = null;
+      updateData.passenger_live_lng = null;
     }
 
     const updateRes = await fetch(
@@ -2610,6 +2652,440 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
     });
 
     return { ...updatedBk, id: updatedBk.$id };
+  }
+
+  // -------------------------------------------------------------
+  // ACTION: update_passenger_live_location
+  // Passenger securely shares/stops live pickup location with driver
+  // -------------------------------------------------------------
+  if (action === "update_passenger_live_location") {
+    const passengerId = verifiedUser.$id;
+    const bookingId = data.booking_id || data.bookingId;
+    if (!bookingId) throw new Error("Missing required parameter: booking_id");
+
+    const bkRes = await fetch(
+      `${creds.endpoint}/databases/transmove/collections/bookings/documents/${bookingId}`,
+      { headers: serverHeaders }
+    );
+    if (!bkRes.ok) throw new Error("Booking not found.");
+    const bkDoc = await bkRes.json();
+
+    if (bkDoc.passenger_id !== passengerId) {
+      throw new Error("Forbidden: You are not the passenger of this booking.");
+    }
+
+    if (!["confirmed", "driver_arriving", "arrived"].includes(bkDoc.status)) {
+      throw new Error(`Live location cannot be updated for booking with status '${bkDoc.status}'.`);
+    }
+
+    const active = Boolean(data.active);
+    let patchData = {};
+    if (!active) {
+      patchData = {
+        live_location_active: false,
+        passenger_live_lat: null,
+        passenger_live_lng: null,
+        live_location_updated_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+    } else {
+      const lat = parseFloat(data.latitude ?? data.lat);
+      const lng = parseFloat(data.longitude ?? data.lng);
+      if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        throw new Error("Invalid latitude/longitude coordinates.");
+      }
+      patchData = {
+        live_location_active: true,
+        passenger_live_lat: lat,
+        passenger_live_lng: lng,
+        live_location_updated_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+    }
+
+    const patchRes = await fetch(
+      `${creds.endpoint}/databases/transmove/collections/bookings/documents/${bookingId}`,
+      {
+        method: "PATCH",
+        headers: serverHeaders,
+        body: JSON.stringify({ data: patchData })
+      }
+    );
+    if (!patchRes.ok) {
+      const err = await patchRes.json().catch(() => ({}));
+      throw new Error(err.message || "Failed to update passenger live location.");
+    }
+    const updatedBk = await patchRes.json();
+    return {
+      success: true,
+      live_location_active: updatedBk.live_location_active,
+      latitude: updatedBk.passenger_live_lat,
+      longitude: updatedBk.passenger_live_lng
+    };
+  }
+
+  // -------------------------------------------------------------
+  // ACTION: confirm_trip_payment (DRIVER CONFIRMS TRIP FARE RECEIVED)
+  // Dedicated to trip fare settlement; separate from EcoCash subscription approvals.
+  // -------------------------------------------------------------
+  if (action === "confirm_trip_payment") {
+    const driverId = verifiedUser.$id;
+    const bookingId = data.booking_id || data.bookingId;
+    if (!bookingId) throw new Error("Missing required parameter: booking_id");
+
+    const bkRes = await fetch(
+      `${creds.endpoint}/databases/transmove/collections/bookings/documents/${bookingId}`,
+      { headers: serverHeaders }
+    );
+    if (!bkRes.ok) throw new Error("Booking not found.");
+    const bkDoc = await bkRes.json();
+
+    if (bkDoc.driver_id !== driverId) {
+      throw new Error("Forbidden: You are not the assigned driver for this booking.");
+    }
+
+    if (bkDoc.status !== "completed") {
+      throw new Error(`Cannot confirm payment for trip with status '${bkDoc.status}'. Trip must be completed.`);
+    }
+
+    // Idempotent: if already confirmed, return success immediately
+    if (bkDoc.payment_status === "received") {
+      return {
+        success: true,
+        already_confirmed: true,
+        payment_status: "received",
+        payment_confirmed_at: bkDoc.payment_confirmed_at,
+        payment_confirmed_by: bkDoc.payment_confirmed_by
+      };
+    }
+
+    const nowIso = new Date().toISOString();
+    const updateRes = await fetch(
+      `${creds.endpoint}/databases/transmove/collections/bookings/documents/${bookingId}`,
+      {
+        method: "PATCH",
+        headers: serverHeaders,
+        body: JSON.stringify({
+          data: {
+            payment_status: "received",
+            payment_confirmed_at: nowIso,
+            payment_confirmed_by: driverId,
+            updated_at: nowIso
+          }
+        })
+      }
+    );
+
+    if (!updateRes.ok) {
+      const err = await updateRes.json().catch(() => ({}));
+      throw new Error(err.message || "Failed to record payment confirmation.");
+    }
+
+    const updatedBk = await updateRes.json();
+
+    await logActivity({
+      userId: driverId,
+      activityType: "trip_payment_confirmed",
+      title: "Trip Payment Confirmed",
+      description: `Driver confirmed receipt of $${Number.parseFloat(bkDoc.amount || 0).toFixed(2)} trip payment for booking #${bookingId.slice(0, 8)}`,
+      relatedId: bookingId
+    });
+
+    if (bkDoc.passenger_id) {
+      await createNotification(creds, serverHeaders, {
+        userId: bkDoc.passenger_id,
+        type: "trip_payment_confirmed",
+        title: "Payment Confirmed",
+        message: `Your driver confirmed receipt of the agreed trip fare payment ($${Number.parseFloat(bkDoc.amount || 0).toFixed(2)}).`,
+        relatedId: bookingId
+      });
+    }
+
+    return {
+      success: true,
+      payment_status: "received",
+      payment_confirmed_at: nowIso,
+      payment_confirmed_by: driverId,
+      booking: { ...updatedBk, id: updatedBk.$id }
+    };
+  }
+
+  // -------------------------------------------------------------
+  // ACTION: counter_bid (PASSENGER OR DRIVER NEGOTIATES QUOTE)
+  // -------------------------------------------------------------
+  if (action === "counter_bid") {
+    const callerId = verifiedUser.$id;
+    const bidId = data.bid_id || data.bidId;
+    if (!bidId) throw new Error("Missing required parameter: bid_id");
+
+    const counterAmount = parseFloat(data.counter_amount ?? data.amount);
+    if (isNaN(counterAmount) || counterAmount <= 0) {
+      throw new Error("Invalid counter amount. Must be greater than 0.");
+    }
+
+    const bidRes = await fetch(
+      `${creds.endpoint}/databases/transmove/collections/bids/documents/${bidId}`,
+      { headers: serverHeaders }
+    );
+    if (!bidRes.ok) throw new Error("Quotation not found.");
+    const bidDoc = await bidRes.json();
+
+    if (bidDoc.status !== "pending") {
+      throw new Error(`Cannot counter a quotation with status '${bidDoc.status}'.`);
+    }
+
+    const reqRes = await fetch(
+      `${creds.endpoint}/databases/transmove/collections/service_requests/documents/${bidDoc.request_id}`,
+      { headers: serverHeaders }
+    );
+    if (!reqRes.ok) throw new Error("Service request not found.");
+    const reqDoc = await reqRes.json();
+
+    if (!["open_for_bids", "bids_received"].includes(reqDoc.status)) {
+      throw new Error(`Cannot counter quotation for request with status '${reqDoc.status}'.`);
+    }
+
+    const isPassenger = reqDoc.passenger_id === callerId;
+    const isDriver = bidDoc.driver_id === callerId;
+
+    if (!isPassenger && !isDriver) {
+      throw new Error("Forbidden: You are not a party to this quotation.");
+    }
+
+    let negotiationStatus = "";
+    let counterBy = "";
+    let targetNotifyUserId = "";
+    let notifTitle = "";
+    let notifMessage = "";
+
+    if (isPassenger) {
+      counterBy = "passenger";
+      negotiationStatus = "countered_by_passenger";
+      targetNotifyUserId = bidDoc.driver_id;
+      notifTitle = "Passenger sent a counter offer";
+      notifMessage = `Passenger countered $${counterAmount.toFixed(2)} for your quote on ${reqDoc.pickup_location || "trip"}.`;
+    } else {
+      if (bidDoc.negotiation_status !== "countered_by_passenger") {
+        throw new Error("Drivers may only counter in response to a passenger's counter offer.");
+      }
+      counterBy = "driver";
+      negotiationStatus = "countered_by_driver";
+      targetNotifyUserId = reqDoc.passenger_id;
+      notifTitle = "Driver sent an updated offer";
+      notifMessage = `Driver countered $${counterAmount.toFixed(2)} for your request to ${reqDoc.destination || "destination"}.`;
+    }
+
+    const nowIso = new Date().toISOString();
+    const patchData = {
+      counter_amount: counterAmount,
+      counter_by: counterBy,
+      counter_message: data.message ? String(data.message).trim().slice(0, 1000) : "",
+      negotiation_status: negotiationStatus,
+      original_amount: bidDoc.original_amount !== undefined && bidDoc.original_amount !== null ? bidDoc.original_amount : bidDoc.amount,
+      updated_at: nowIso
+    };
+
+    const updateRes = await fetch(
+      `${creds.endpoint}/databases/transmove/collections/bids/documents/${bidId}`,
+      {
+        method: "PATCH",
+        headers: serverHeaders,
+        body: JSON.stringify({ data: patchData })
+      }
+    );
+
+    if (!updateRes.ok) {
+      const err = await updateRes.json().catch(() => ({}));
+      throw new Error(err.message || "Failed to submit counter offer.");
+    }
+
+    const updatedBid = await updateRes.json();
+
+    await logActivity({
+      userId: callerId,
+      activityType: "bid_countered",
+      title: notifTitle,
+      description: `Counter offer of $${counterAmount.toFixed(2)} submitted for quotation #${bidId.slice(0, 8)}`,
+      relatedId: bidId
+    });
+
+    if (targetNotifyUserId) {
+      await createNotification(creds, serverHeaders, {
+        userId: targetNotifyUserId,
+        type: "counter_offer",
+        title: notifTitle,
+        message: notifMessage,
+        relatedId: bidId
+      });
+    }
+
+    return {
+      success: true,
+      bid: { ...updatedBid, id: updatedBid.$id }
+    };
+  }
+
+  // -------------------------------------------------------------
+  // ACTION: accept_counter_offer (ACCEPTS NEGOTIATED FARE AMOUNT)
+  // -------------------------------------------------------------
+  if (action === "accept_counter_offer") {
+    const callerId = verifiedUser.$id;
+    const bidId = data.bid_id || data.bidId;
+    if (!bidId) throw new Error("Missing required parameter: bid_id");
+
+    const bidRes = await fetch(
+      `${creds.endpoint}/databases/transmove/collections/bids/documents/${bidId}`,
+      { headers: serverHeaders }
+    );
+    if (!bidRes.ok) throw new Error("Quotation not found.");
+    const bidDoc = await bidRes.json();
+
+    if (bidDoc.status !== "pending") {
+      throw new Error(`Cannot accept counter offer on quotation with status '${bidDoc.status}'.`);
+    }
+
+    const reqRes = await fetch(
+      `${creds.endpoint}/databases/transmove/collections/service_requests/documents/${bidDoc.request_id}`,
+      { headers: serverHeaders }
+    );
+    if (!reqRes.ok) throw new Error("Service request not found.");
+    const reqDoc = await reqRes.json();
+
+    const isDriver = bidDoc.driver_id === callerId;
+    const isPassenger = reqDoc.passenger_id === callerId;
+
+    if (!isDriver && !isPassenger) {
+      throw new Error("Forbidden: You are not authorized to accept this counter offer.");
+    }
+
+    let finalPrice = 0;
+    let targetNotifyUserId = "";
+    let notifTitle = "";
+    let notifMsg = "";
+
+    if (isDriver) {
+      if (bidDoc.negotiation_status !== "countered_by_passenger") {
+        throw new Error("No active passenger counter offer to accept.");
+      }
+      finalPrice = bidDoc.counter_amount;
+      targetNotifyUserId = reqDoc.passenger_id;
+      notifTitle = "Driver accepted your counter offer";
+      notifMsg = `Driver accepted your offer of $${Number.parseFloat(finalPrice).toFixed(2)}. You may now confirm the booking.`;
+    } else if (isPassenger) {
+      if (bidDoc.negotiation_status !== "countered_by_driver") {
+        throw new Error("No active driver counter offer to accept.");
+      }
+      finalPrice = bidDoc.counter_amount;
+      targetNotifyUserId = bidDoc.driver_id;
+      notifTitle = "Passenger accepted your counter offer";
+      notifMsg = `Passenger accepted your offer of $${Number.parseFloat(finalPrice).toFixed(2)}.`;
+    }
+
+    const nowIso = new Date().toISOString();
+    const updateRes = await fetch(
+      `${creds.endpoint}/databases/transmove/collections/bids/documents/${bidId}`,
+      {
+        method: "PATCH",
+        headers: serverHeaders,
+        body: JSON.stringify({
+          data: {
+            amount: finalPrice,
+            negotiation_status: "accepted",
+            updated_at: nowIso
+          }
+        })
+      }
+    );
+
+    if (!updateRes.ok) {
+      const err = await updateRes.json().catch(() => ({}));
+      throw new Error(err.message || "Failed to accept counter offer.");
+    }
+
+    const updatedBid = await updateRes.json();
+
+    if (targetNotifyUserId) {
+      await createNotification(creds, serverHeaders, {
+        userId: targetNotifyUserId,
+        type: "counter_accepted",
+        title: notifTitle,
+        message: notifMsg,
+        relatedId: bidId
+      });
+    }
+
+    return {
+      success: true,
+      amount: finalPrice,
+      bid: { ...updatedBid, id: updatedBid.$id }
+    };
+  }
+
+  // -------------------------------------------------------------
+  // ACTION: decline_counter_offer
+  // -------------------------------------------------------------
+  if (action === "decline_counter_offer") {
+    const callerId = verifiedUser.$id;
+    const bidId = data.bid_id || data.bidId;
+    if (!bidId) throw new Error("Missing required parameter: bid_id");
+
+    const bidRes = await fetch(
+      `${creds.endpoint}/databases/transmove/collections/bids/documents/${bidId}`,
+      { headers: serverHeaders }
+    );
+    if (!bidRes.ok) throw new Error("Quotation not found.");
+    const bidDoc = await bidRes.json();
+
+    const reqRes = await fetch(
+      `${creds.endpoint}/databases/transmove/collections/service_requests/documents/${bidDoc.request_id}`,
+      { headers: serverHeaders }
+    );
+    if (!reqRes.ok) throw new Error("Service request not found.");
+    const reqDoc = await reqRes.json();
+
+    const isDriver = bidDoc.driver_id === callerId;
+    const isPassenger = reqDoc.passenger_id === callerId;
+
+    if (!isDriver && !isPassenger) {
+      throw new Error("Forbidden: You are not authorized to decline this counter offer.");
+    }
+
+    const nowIso = new Date().toISOString();
+    const updateRes = await fetch(
+      `${creds.endpoint}/databases/transmove/collections/bids/documents/${bidId}`,
+      {
+        method: "PATCH",
+        headers: serverHeaders,
+        body: JSON.stringify({
+          data: {
+            negotiation_status: "rejected",
+            updated_at: nowIso
+          }
+        })
+      }
+    );
+
+    if (!updateRes.ok) {
+      const err = await updateRes.json().catch(() => ({}));
+      throw new Error(err.message || "Failed to decline counter offer.");
+    }
+
+    const updatedBid = await updateRes.json();
+    const targetUserId = isDriver ? reqDoc.passenger_id : bidDoc.driver_id;
+    if (targetUserId) {
+      await createNotification(creds, serverHeaders, {
+        userId: targetUserId,
+        type: "counter_declined",
+        title: "Counter Offer Declined",
+        message: `The counter offer for quotation #${bidId.slice(0, 8)} was declined.`,
+        relatedId: bidId
+      });
+    }
+
+    return {
+      success: true,
+      bid: { ...updatedBid, id: updatedBid.$id }
+    };
   }
 
   // -------------------------------------------------------------
@@ -3468,6 +3944,7 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       return {
         active: true,
         status: "active",
+        plan_id: activeSub.plan_id || null,
         plan: activeSub.plan || "TransMove Professional",
         amount: activeSub.amount || 15.0,
         currency: activeSub.currency || "USD",
@@ -3489,6 +3966,7 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       return {
         active: false,
         status: latestSub.status === "active" ? "expired" : latestSub.status,
+        plan_id: latestSub.plan_id || null,
         plan: latestSub.plan || "TransMove Professional",
         amount: latestSub.amount || 15.0,
         currency: latestSub.currency || "USD",
@@ -3508,6 +3986,7 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
     return {
       active: false,
       status: "inactive",
+      plan_id: null,
       plan: null,
       amount: 15.0,
       currency: "USD",
@@ -3826,9 +4305,15 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
     if (!verifiedUser) throw new Error("Unauthorized: You must be logged in to submit a payment.");
     const callerId = verifiedUser.$id;
 
-    // Reject client attempting to set status
-    if (data.status && data.status !== "pending_review") {
-      throw new Error("Privilege escalation blocked: Cannot set payment status directly.");
+    // Payment state and subscription lifecycle fields are always server-derived.
+    const privilegedPaymentFields = [
+      "user_id", "status", "amount", "amount_expected", "approved_at", "paid_at",
+      "reviewed_at", "reviewed_by", "started_at", "expires_at", "subscription_activation_date"
+    ];
+    for (const field of privilegedPaymentFields) {
+      if (data[field] !== undefined) {
+        throw new Error(`Privilege escalation blocked: Cannot supply '${field}' during payment submission.`);
+      }
     }
 
     const {
@@ -3876,6 +4361,7 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
     let targetRelatedId = related_id || "";
 
     if (payment_type === "subscription") {
+      await requireProvider();
       let planDoc = null;
       if (targetRelatedId) {
         const byId = await fetch(
@@ -3931,21 +4417,41 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
 
     const cleanRef = String(transaction_reference).trim().toUpperCase();
 
-    // 3. Duplicate approved reference check
+    // 3. Transaction references are single-use. This also makes retries fail safely
+    // before a second payment record can be created.
     const refQ = buildEqualQuery("transaction_reference", cleanRef);
-    const statQ = buildEqualQuery("status", "approved");
     const checkDup = await fetch(
-      `${creds.endpoint}/databases/transmove/collections/payments/documents?queries[]=${refQ}&queries[]=${statQ}`,
+      `${creds.endpoint}/databases/transmove/collections/payments/documents?queries[]=${refQ}&queries[]=${buildLimitQuery(1)}`,
       { headers: serverHeaders }
     );
     if (checkDup.ok) {
       const dupData = await checkDup.json();
       if ((dupData.documents || []).length > 0) {
-        throw new Error("Conflict: This EcoCash transaction reference has already been verified for an approved payment.");
+        throw new Error("Transaction reference already used.");
       }
     }
 
-    // 4. Create payment record (strictly status: pending_review)
+    // 4. Proof must be a real, user-owned image in the private Appwrite bucket.
+    const cleanProofFileId = String(proof_file_id).trim();
+    const proofRes = await fetch(
+      `${creds.endpoint}/storage/buckets/transmove-files/files/${cleanProofFileId}`,
+      { headers: serverHeaders }
+    );
+    if (!proofRes.ok) throw new Error("Unable to verify uploaded proof screenshot.");
+    const proofFile = await proofRes.json();
+    const ownerReadPermission = `read("user:${callerId}")`;
+    if (!(proofFile.$permissions || []).includes(ownerReadPermission)) {
+      throw new Error("Forbidden: The proof screenshot is not owned by the authenticated user.");
+    }
+    const allowedProofTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+    if (!allowedProofTypes.has(String(proofFile.mimeType || "").toLowerCase())) {
+      throw new Error("Proof must be a JPG, PNG, or WebP image.");
+    }
+    if (Number(proofFile.sizeOriginal || 0) > 5 * 1024 * 1024) {
+      throw new Error("Proof file exceeds maximum size of 5MB.");
+    }
+
+    // 5. Create payment record (strictly status: pending_review)
     const now = new Date().toISOString();
     const paymentRef = `ECO-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
@@ -3964,7 +4470,7 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       recipient_number: recipientNumber,
       sender_name: String(sender_name).trim(),
       sender_phone: String(sender_phone).trim(),
-      proof_file_id: String(proof_file_id).trim(),
+      proof_file_id: cleanProofFileId,
       amount: amountExpected,
       amount_expected: amountExpected,
       amount_declared: amount_declared !== undefined ? parseFloat(amount_declared) : amountExpected,
@@ -4036,9 +4542,91 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       { headers: serverHeaders }
     );
     const result = await res.json();
+    const payments = await Promise.all((result.documents || []).map(async (payment) => {
+      let providerName = "Unknown provider";
+      let providerEmail = "";
+      let planName = "";
+      let planDurationDays = null;
+
+      const profileQuery = buildEqualQuery("user_id", payment.user_id);
+      const profileRes = await fetch(
+        `${creds.endpoint}/databases/transmove/collections/profiles/documents?queries[]=${profileQuery}&queries[]=${buildLimitQuery(1)}`,
+        { headers: serverHeaders }
+      );
+      if (profileRes.ok) {
+        const profile = (await profileRes.json()).documents?.[0];
+        if (profile) {
+          providerName = profile.full_name || providerName;
+          providerEmail = profile.email || "";
+        }
+      }
+
+      if (payment.payment_type === "subscription" && payment.related_id) {
+        const planRes = await fetch(
+          `${creds.endpoint}/databases/transmove/collections/subscription_plans/documents/${payment.related_id}`,
+          { headers: serverHeaders }
+        );
+        if (planRes.ok) {
+          const plan = await planRes.json();
+          planName = plan.name || "";
+          planDurationDays = plan.duration_days || null;
+        }
+      }
+
+      return {
+        ...payment,
+        provider_name: providerName,
+        provider_email: providerEmail,
+        plan_name: planName,
+        plan_duration_days: planDurationDays
+      };
+    }));
     return {
-      payments: result.documents || [],
+      payments,
       total: result.total || 0
+    };
+  }
+
+  // -------------------------------------------------------------
+  // ACTION: admin_create_payment_proof_token (ADMIN ONLY)
+  // -------------------------------------------------------------
+  if (action === "admin_create_payment_proof_token") {
+    await requireAdmin();
+    const paymentId = data.payment_id || data.id;
+    if (!paymentId) throw new Error("payment_id is required.");
+
+    const paymentRes = await fetch(
+      `${creds.endpoint}/databases/transmove/collections/payments/documents/${paymentId}`,
+      { headers: serverHeaders }
+    );
+    if (!paymentRes.ok) throw new Error("Payment record not found.");
+    const payment = await paymentRes.json();
+    if (!payment.proof_file_id) throw new Error("Payment proof screenshot is not available.");
+
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    const tokenRes = await fetch(
+      `${creds.endpoint}/tokens/buckets/transmove-files/files/${payment.proof_file_id}`,
+      {
+        method: "POST",
+        headers: serverHeaders,
+        body: JSON.stringify({ expire: expiresAt })
+      }
+    );
+    if (!tokenRes.ok) {
+      const error = await tokenRes.json().catch(() => ({}));
+      throw new Error(error.message || "Unable to authorize payment proof viewing.");
+    }
+    const token = await tokenRes.json();
+    await logActivity({
+      userId,
+      activityType: "payment_proof_view_authorized",
+      title: "Private payment proof opened",
+      description: `Admin ${userId} received time-limited access to payment proof for ${paymentId}.`,
+      relatedId: paymentId
+    });
+    return {
+      view_url: `${creds.endpoint}/storage/buckets/transmove-files/files/${payment.proof_file_id}/view?project=${creds.projectId}&token=${encodeURIComponent(token.secret)}`,
+      expires_at: expiresAt
     };
   }
 
@@ -4061,8 +4649,8 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       throw new Error("Forbidden: Administrators cannot approve their own payments.");
     }
 
-    if (payment.status === "approved") {
-      throw new Error("Conflict: Payment is already approved.");
+    if (payment.status !== "pending_review") {
+      throw new Error(`Conflict: Only pending-review payments can be approved (current status: ${payment.status}).`);
     }
 
     // Duplicate approved reference check
@@ -4084,6 +4672,98 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
 
     const now = new Date().toISOString();
 
+    if (payment.payment_type === "subscription") {
+      let planDurationDays = 30;
+      let planName = "TransMove Professional";
+      let planId = payment.related_id || payment.subscription_id;
+      if (payment.related_id) {
+        const planRes = await fetch(`${creds.endpoint}/databases/transmove/collections/subscription_plans/documents/${payment.related_id}`, { headers: serverHeaders });
+        if (!planRes.ok) throw new Error("Subscription plan linked to this payment no longer exists.");
+        const plan = await planRes.json();
+        planId = plan.$id;
+        planDurationDays = plan.duration_days || 30;
+        planName = plan.name || planName;
+      }
+
+      const subUserQ = buildEqualQuery("user_id", payment.user_id);
+      const subRes = await fetch(`${creds.endpoint}/databases/transmove/collections/subscriptions/documents?queries[]=${subUserQ}`, { headers: serverHeaders });
+      const subDocs = subRes.ok ? ((await subRes.json()).documents || []) : [];
+      const activeSub = subDocs.find(s => s.status === "active" && s.expires_at && new Date(s.expires_at) > new Date());
+
+      let newExpiresAt;
+      if (activeSub) {
+        newExpiresAt = new Date(new Date(activeSub.expires_at).getTime() + planDurationDays * 86400000).toISOString();
+        const subscriptionResponse = await fetch(`${creds.endpoint}/databases/transmove/collections/subscriptions/documents/${activeSub.$id}`, {
+          method: "PATCH",
+          headers: serverHeaders,
+          body: JSON.stringify({
+            data: {
+              plan_id: planId,
+              plan: planName,
+              amount: payment.amount,
+              currency: payment.currency || "USD",
+              status: "active",
+              expires_at: newExpiresAt,
+              updated_at: now
+            }
+          })
+        });
+        if (!subscriptionResponse.ok) throw new Error("Failed to extend the active subscription.");
+      } else {
+        newExpiresAt = new Date(Date.now() + planDurationDays * 86400000).toISOString();
+        const subscriptionResponse = await fetch(`${creds.endpoint}/databases/transmove/collections/subscriptions/documents`, {
+          method: "POST",
+          headers: serverHeaders,
+          body: JSON.stringify({
+            documentId: "unique()",
+            data: {
+              user_id: payment.user_id,
+              plan_id: planId,
+              plan: planName,
+              amount: payment.amount,
+              currency: payment.currency || "USD",
+              status: "active",
+              started_at: now,
+              expires_at: newExpiresAt,
+              created_at: now,
+              updated_at: now
+            },
+            permissions: []
+          })
+        });
+        if (!subscriptionResponse.ok) throw new Error("Failed to activate the subscription.");
+      }
+
+      await createNotification(creds, serverHeaders, {
+        userId: payment.user_id,
+        type: "subscription_activated",
+        title: "Subscription Activated",
+        message: `Your EcoCash payment for ${planName} has been verified! Active until ${new Date(newExpiresAt).toLocaleDateString()}.`,
+        relatedId: payment.$id
+      });
+    } else if (payment.payment_type === "advertising") {
+      if (payment.related_id) {
+        const campaignResponse = await fetch(`${creds.endpoint}/databases/transmove/collections/ad_campaigns/documents/${payment.related_id}`, {
+          method: "PATCH",
+          headers: serverHeaders,
+          body: JSON.stringify({
+            data: {
+              status: "approved",
+              updated_at: now
+            }
+          })
+        });
+        if (!campaignResponse.ok) throw new Error("Failed to activate the advertising campaign.");
+        await createNotification(creds, serverHeaders, {
+          userId: payment.user_id,
+          type: "ad_payment_approved",
+          title: "Ad Campaign Payment Approved",
+          message: `Your payment of $${payment.amount} for ad campaign has been approved. Your campaign is now live!`,
+          relatedId: payment.related_id
+        });
+      }
+    }
+
     const patchRes = await fetch(`${creds.endpoint}/databases/transmove/collections/payments/documents/${payment.$id}`, {
       method: "PATCH",
       headers: serverHeaders,
@@ -4098,92 +4778,6 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       })
     });
     if (!patchRes.ok) throw new Error("Failed to update payment status.");
-
-    if (payment.payment_type === "subscription") {
-      let planDurationDays = 30;
-      let planName = "TransMove Professional";
-      if (payment.related_id) {
-        const planRes = await fetch(`${creds.endpoint}/databases/transmove/collections/subscription_plans/documents/${payment.related_id}`, { headers: serverHeaders });
-        if (planRes.ok) {
-          const plan = await planRes.json();
-          planDurationDays = plan.duration_days || 30;
-          planName = plan.name || planName;
-        }
-      }
-
-      const subUserQ = buildEqualQuery("user_id", payment.user_id);
-      const subRes = await fetch(`${creds.endpoint}/databases/transmove/collections/subscriptions/documents?queries[]=${subUserQ}`, { headers: serverHeaders });
-      const subDocs = subRes.ok ? ((await subRes.json()).documents || []) : [];
-      const activeSub = subDocs.find(s => s.status === "active" && s.expires_at && new Date(s.expires_at) > new Date());
-
-      let newExpiresAt;
-      if (activeSub) {
-        newExpiresAt = new Date(new Date(activeSub.expires_at).getTime() + planDurationDays * 86400000).toISOString();
-        await fetch(`${creds.endpoint}/databases/transmove/collections/subscriptions/documents/${activeSub.$id}`, {
-          method: "PATCH",
-          headers: serverHeaders,
-          body: JSON.stringify({
-            data: {
-              plan: planName,
-              amount: payment.amount,
-              currency: payment.currency || "USD",
-              status: "active",
-              expires_at: newExpiresAt,
-              updated_at: now
-            }
-          })
-        });
-      } else {
-        newExpiresAt = new Date(Date.now() + planDurationDays * 86400000).toISOString();
-        await fetch(`${creds.endpoint}/databases/transmove/collections/subscriptions/documents`, {
-          method: "POST",
-          headers: serverHeaders,
-          body: JSON.stringify({
-            documentId: "unique()",
-            data: {
-              user_id: payment.user_id,
-              plan: planName,
-              amount: payment.amount,
-              currency: payment.currency || "USD",
-              status: "active",
-              started_at: now,
-              expires_at: newExpiresAt,
-              created_at: now,
-              updated_at: now
-            },
-            permissions: []
-          })
-        });
-      }
-
-      await createNotification(creds, serverHeaders, {
-        userId: payment.user_id,
-        type: "subscription_activated",
-        title: "Subscription Activated",
-        message: `Your EcoCash payment for ${planName} has been verified! Active until ${new Date(newExpiresAt).toLocaleDateString()}.`,
-        relatedId: payment.$id
-      });
-    } else if (payment.payment_type === "advertising") {
-      if (payment.related_id) {
-        await fetch(`${creds.endpoint}/databases/transmove/collections/ad_campaigns/documents/${payment.related_id}`, {
-          method: "PATCH",
-          headers: serverHeaders,
-          body: JSON.stringify({
-            data: {
-              status: "approved",
-              updated_at: now
-            }
-          })
-        });
-        await createNotification(creds, serverHeaders, {
-          userId: payment.user_id,
-          type: "ad_payment_approved",
-          title: "Ad Campaign Payment Approved",
-          message: `Your payment of $${payment.amount} for ad campaign has been approved. Your campaign is now live!`,
-          relatedId: payment.related_id
-        });
-      }
-    }
 
     await logActivity({
       userId: verifiedUser.$id,
@@ -4215,9 +4809,12 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
     if (payment.user_id === verifiedUser.$id) {
       throw new Error("Forbidden: Administrators cannot reject their own payments.");
     }
+    if (payment.status !== "pending_review") {
+      throw new Error(`Conflict: Only pending-review payments can be rejected (current status: ${payment.status}).`);
+    }
 
     const now = new Date().toISOString();
-    await fetch(`${creds.endpoint}/databases/transmove/collections/payments/documents/${payment.$id}`, {
+    const rejectionResponse = await fetch(`${creds.endpoint}/databases/transmove/collections/payments/documents/${payment.$id}`, {
       method: "PATCH",
       headers: serverHeaders,
       body: JSON.stringify({
@@ -4230,6 +4827,7 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
         }
       })
     });
+    if (!rejectionResponse.ok) throw new Error("Failed to reject payment.");
 
     if (payment.payment_type === "advertising" && payment.related_id) {
       await fetch(`${creds.endpoint}/databases/transmove/collections/ad_campaigns/documents/${payment.related_id}`, {
@@ -4808,15 +5406,14 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       throw new Error("Reviews are only permitted for completed bookings.");
     }
 
-    // 3. Verify reviewer is a participant
+    // 3. Verify reviewer is the passenger belonging to this completed booking
     const isPassenger = bkDoc.passenger_id === reviewerId;
-    const isDriver = bkDoc.driver_id === reviewerId;
-    if (!isPassenger && !isDriver) {
-      throw new Error("Forbidden: You are not a participant in this booking.");
+    if (!isPassenger) {
+      throw new Error("Forbidden: Only the passenger belonging to this completed booking may submit a driver review.");
     }
 
-    // 4. Resolve reviewee
-    const revieweeId = isPassenger ? bkDoc.driver_id : bkDoc.passenger_id;
+    // 4. Resolve reviewee (the assigned driver)
+    const revieweeId = bkDoc.driver_id;
 
     // 5. Prevent duplicate review
     const bIdQ = buildEqualQuery("booking_id", bookingId);
@@ -4908,10 +5505,10 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
     const resData = await res.json();
     const reviews = resData.documents || [];
     const count = reviews.length;
-    const avg = count > 0 ? (reviews.reduce((acc, r) => acc + (r.rating || 0), 0) / count) : 5.0;
+    const avg = count > 0 ? (reviews.reduce((acc, r) => acc + (r.rating || 0), 0) / count) : null;
     return {
       driver_id: targetDriverId,
-      rating: parseFloat(avg.toFixed(1)),
+      rating: avg !== null ? parseFloat(avg.toFixed(1)) : null,
       review_count: count,
       reviews: reviews.map(r => ({
         id: r.$id,

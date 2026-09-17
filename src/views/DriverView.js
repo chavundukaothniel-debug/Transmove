@@ -52,6 +52,7 @@ export const DriverView = {
   syncRefreshTimer: null,
   syncBusy: false,
   journeyStateSignature: "",
+  tripMap: null,
   currentTab: "dashboard", // 'dashboard' | 'available' | 'offers' | 'vehicles' | 'earnings'
 
   async render() {
@@ -89,20 +90,6 @@ export const DriverView = {
               <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981;"></span>
               Online
             </div>
-
-            <!-- Driver Avatar & Info Dropdown -->
-            <a href="#profile" style="display: flex; align-items: center; gap: 0.75rem; text-decoration: none;" title="Edit Driver Profile">
-              <div id="hdr-driver-avatar" style="width: 42px; height: 42px; border-radius: 50%; background: #2563eb; color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; overflow: hidden; border: 1px solid #e2e8f0;">
-                <span id="hdr-avatar-initials">D</span>
-                <img id="hdr-avatar-img" src="" alt="Avatar" style="width: 100%; height: 100%; object-fit: cover; display: none;" />
-              </div>
-              <div style="text-align: left;">
-                <div style="font-size: 0.9rem; font-weight: 700; color: #0f172a;" id="hdr-driver-name">Driver</div>
-                <div style="font-size: 0.75rem; color: #64748b; font-weight: 500;">Driver</div>
-                <div id="hdr-primary-vehicle" style="display: none; font-size: 0.7rem; color: #2563eb; font-weight: 600;"></div>
-              </div>
-              <span style="font-size: 0.75rem; color: #94a3b8; margin-left: 0.25rem;">▼</span>
-            </a>
           </div>
         </div>
 
@@ -515,22 +502,8 @@ export const DriverView = {
 
         const displayName = this.driverProfile.full_name || "Driver";
         const nameEl = document.getElementById("driver-display-name");
-        const hdrNameEl = document.getElementById("hdr-driver-name");
-        const initialsEl = document.getElementById("hdr-avatar-initials");
-        const imgEl = document.getElementById("hdr-avatar-img");
 
         if (nameEl) nameEl.innerText = displayName;
-        if (hdrNameEl) hdrNameEl.innerText = displayName;
-        
-        if (this.driverProfile.profile_photo_url) {
-          if (initialsEl) initialsEl.style.display = "none";
-          if (imgEl) {
-            imgEl.src = this.driverProfile.profile_photo_url;
-            imgEl.style.display = "block";
-          }
-        } else if (initialsEl) {
-          initialsEl.innerText = displayName.charAt(0).toUpperCase();
-        }
       }
 
       // Fetch driver status, bookings, vehicles & limits
@@ -730,21 +703,165 @@ export const DriverView = {
     }
   },
 
+  initTripMap(booking, passengerLat, passengerLng, hasLivePassenger) {
+    const mapEl = document.getElementById("driver-trip-map");
+    if (!mapEl || !window.L) return;
+
+    if (this.tripMap) {
+      try {
+        this.tripMap.remove();
+      } catch (_) {}
+      this.tripMap = null;
+    }
+
+    try {
+      const map = window.L.map("driver-trip-map", {
+        center: [passengerLat, passengerLng],
+        zoom: 14,
+        zoomControl: true
+      });
+      this.tripMap = map;
+
+      window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19
+      }).addTo(map);
+
+      const pulseIcon = window.L.divIcon({
+        className: "passenger-pulse-marker-wrapper",
+        html: `
+          <div class="passenger-pulse-marker-container">
+            <div class="passenger-pulse-ring"></div>
+            <div class="passenger-pulse-ring-outer"></div>
+            <div class="passenger-marker-dot">👤</div>
+            <div class="passenger-marker-label">${hasLivePassenger ? "Passenger (Live)" : "Passenger pickup"}</div>
+          </div>
+        `,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15]
+      });
+
+      const passengerMarker = window.L.marker([passengerLat, passengerLng], { icon: pulseIcon }).addTo(map);
+      passengerMarker.bindPopup(`<strong>${hasLivePassenger ? "Passenger Live Location" : "Passenger Pickup"}</strong><br>${escapeHtml(booking.request?.pickup_location || "")}`);
+
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            if (!this.tripMap) return;
+            const dLat = pos.coords.latitude;
+            const dLng = pos.coords.longitude;
+
+            const driverIcon = window.L.divIcon({
+              className: "driver-marker-wrapper",
+              html: `<div class="driver-gps-marker">🚗</div>`,
+              iconSize: [26, 26],
+              iconAnchor: [13, 13]
+            });
+
+            const driverMarker = window.L.marker([dLat, dLng], { icon: driverIcon }).addTo(map);
+            driverMarker.bindPopup("<strong>You (Driver GPS)</strong>");
+
+            const bounds = window.L.latLngBounds([[dLat, dLng], [passengerLat, passengerLng]]);
+            map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+          },
+          (err) => {
+            console.warn("Driver geolocation unavailable for map:", err.message);
+          },
+          { enableHighAccuracy: true, timeout: 8000 }
+        );
+      }
+
+      if (booking.status === "in_progress" && booking.request?.destination_latitude && booking.request?.destination_longitude) {
+        const dLat = Number(booking.request.destination_latitude);
+        const dLng = Number(booking.request.destination_longitude);
+        const destMarker = window.L.marker([dLat, dLng]).addTo(map);
+        destMarker.bindPopup(`<strong>Destination</strong><br>${escapeHtml(booking.request?.destination || "")}`);
+      }
+
+      setTimeout(() => {
+        if (this.tripMap) this.tripMap.invalidateSize();
+      }, 250);
+    } catch (err) {
+      console.warn("Could not initialize driver trip map:", err.message);
+    }
+  },
+
   renderActiveTripCard() {
     const container = document.getElementById("driver-active-trip-container");
     if (!container) return;
 
     if (!this.activeBooking) {
+      const unconfirmedBooking = (this.driverBookings || []).find(b => b.status === "completed" && b.payment_status !== "received");
+      if (unconfirmedBooking) {
+        const pickup = escapeHtml(unconfirmedBooking.request?.pickup_location || "Pickup Location");
+        const dest = escapeHtml(unconfirmedBooking.request?.destination || "Destination");
+        const passengerName = escapeHtml(unconfirmedBooking.passenger?.full_name || "Passenger");
+        const amount = Number.parseFloat(unconfirmedBooking.amount || 0).toFixed(2);
+
+        container.innerHTML = `
+          <div class="card" style="background: #ffffff; padding: 1.25rem 1.5rem; border-radius: 8px; border: 2px solid #10b981; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.75rem;">
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span style="font-size: 1.3rem;">🎉</span>
+                <h3 style="font-size: 1.1rem; font-weight: 800; color: #0f172a; margin: 0;">Trip Completed · Payment Settlement</h3>
+              </div>
+              <span class="settlement-badge-pending">AWAITING PAYMENT CONFIRMATION</span>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+              <div>
+                <div style="font-size: 1rem; font-weight: 800; color: #0f172a; margin-bottom: 0.25rem;">
+                  ${pickup} → ${dest}
+                </div>
+                <div style="font-size: 0.85rem; color: #64748b;">
+                  Passenger: <strong>${passengerName}</strong> · Fare: <strong>$${amount}</strong>
+                </div>
+              </div>
+              <div>
+                <button type="button" class="btn btn-primary btn-confirm-trip-payment" data-booking-id="${unconfirmedBooking.id}" style="background: #059669; color: #ffffff; padding: 0.55rem 1.25rem; border-radius: 6px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem;">
+                  ✓ CONFIRM PAYMENT RECEIVED
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+
+        container.querySelector(".btn-confirm-trip-payment")?.addEventListener("click", async (e) => {
+          const bId = e.currentTarget.getAttribute("data-booking-id");
+          if (!bId) return;
+          if (!confirm(`Confirm that you have received trip payment of $${amount} from ${passengerName}?`)) return;
+          const btn = e.currentTarget;
+          btn.disabled = true;
+          btn.innerText = "Confirming...";
+          try {
+            await BookingService.confirmTripPayment(bId);
+            alert("Payment confirmed! The trip is fully settled.");
+            await this.loadDriverData();
+            await this.loadRecentActivity();
+            if (this.currentTab === "offers") await this.renderOffersTab();
+          } catch (err) {
+            alert("Could not confirm payment: " + err.message);
+            btn.disabled = false;
+            btn.innerText = "✓ CONFIRM PAYMENT RECEIVED";
+          }
+        });
+        return;
+      }
+
       container.innerHTML = "";
+      if (this.tripMap) {
+        try { this.tripMap.remove(); } catch (_) {}
+        this.tripMap = null;
+      }
       return;
     }
 
     const booking = this.activeBooking;
     const statusLabels = {
-      confirmed: "BOOKING ACCEPTED",
+      confirmed: "BOOKING ACCEPTED · START TO PICKUP",
       driver_arriving: "DRIVER EN ROUTE TO PICKUP",
-      arrived: "ARRIVED · WAITING FOR TRIP PIN",
-      in_progress: "TRIP IN PROGRESS"
+      arrived: "ARRIVED AT PICKUP · VERIFY PIN",
+      in_progress: "TRIP IN PROGRESS TO DESTINATION"
     };
     const displayStatus = statusLabels[booking.status] || booking.status.toUpperCase();
     const pickup = escapeHtml(booking.request?.pickup_location || "Pickup Location");
@@ -752,35 +869,48 @@ export const DriverView = {
     const passengerName = escapeHtml(booking.passenger?.full_name || "Passenger");
     const amount = Number.parseFloat(booking.amount || 0).toFixed(2);
 
-    let nextActionBtn = "";
+    const hasLivePassenger = Boolean(booking.live_location_active && booking.passenger_live_lat && booking.passenger_live_lng);
+    const passengerLat = hasLivePassenger ? Number(booking.passenger_live_lat) : (booking.request?.pickup_latitude ? Number(booking.request.pickup_latitude) : -17.824858);
+    const passengerLng = hasLivePassenger ? Number(booking.passenger_live_lng) : (booking.request?.pickup_longitude ? Number(booking.request.pickup_longitude) : 31.053028);
+
+    const destLat = booking.request?.destination_latitude ? Number(booking.request.destination_latitude) : null;
+    const destLng = booking.request?.destination_longitude ? Number(booking.request.destination_longitude) : null;
+
+    const navLat = booking.status === "in_progress" && destLat ? destLat : passengerLat;
+    const navLng = booking.status === "in_progress" && destLng ? destLng : passengerLng;
+
+    let nextActionBlock = "";
     if (booking.status === "confirmed") {
-      nextActionBtn = `
-        <button type="button" class="btn btn-primary btn-sm btn-advance-status" data-booking-id="${booking.id}" data-next-status="driver_arriving" style="background: #2563eb; color: #ffffff; padding: 0.5rem 1rem; border-radius: 6px; font-weight: 700; border: none;">
-          I am on my way 🚗
+      nextActionBlock = `
+        <button type="button" class="btn btn-primary btn-advance-status" data-booking-id="${booking.id}" data-next-status="driver_arriving" style="background: #2563eb; color: #ffffff; padding: 0.6rem 1.25rem; border-radius: 6px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem;">
+          START DRIVING TO PASSENGER 🚗
         </button>
       `;
     } else if (booking.status === "driver_arriving") {
-      nextActionBtn = `
-        <button type="button" class="btn btn-primary btn-sm btn-advance-status" data-booking-id="${booking.id}" data-next-status="arrived" style="background: #2563eb; color: #ffffff; padding: 0.5rem 1rem; border-radius: 6px; font-weight: 700; border: none;">
-          I have arrived 📍
+      nextActionBlock = `
+        <button type="button" class="btn btn-primary btn-advance-status" data-booking-id="${booking.id}" data-next-status="arrived" style="background: #059669; color: #ffffff; padding: 0.6rem 1.25rem; border-radius: 6px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem;">
+          I'VE ARRIVED 📍
         </button>
       `;
     } else if (booking.status === "arrived") {
-      nextActionBtn = `
-        <button type="button" class="btn btn-primary btn-sm btn-advance-status" data-booking-id="${booking.id}" data-next-status="in_progress" style="background: #2563eb; color: #ffffff; padding: 0.5rem 1rem; border-radius: 6px; font-weight: 700; border: none;">
-          Start Trip 🏁
-        </button>
+      nextActionBlock = `
+        <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+          <input type="text" id="driver-pin-input" maxlength="4" placeholder="PIN" style="width: 85px; font-size: 1.25rem; font-weight: 900; letter-spacing: 4px; text-align: center; padding: 0.45rem 0.5rem; border-radius: 6px; border: 2px solid #2563eb; font-family: monospace; box-sizing: border-box;">
+          <button type="button" class="btn btn-primary btn-verify-start-trip" data-booking-id="${booking.id}" style="background: #2563eb; color: #ffffff; padding: 0.6rem 1.25rem; border-radius: 6px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem;">
+            VERIFY PIN &amp; START JOURNEY 🏁
+          </button>
+        </div>
       `;
     } else if (booking.status === "in_progress") {
-      nextActionBtn = `
-        <button type="button" class="btn btn-primary btn-sm btn-advance-status" data-booking-id="${booking.id}" data-next-status="completed" style="background: #059669; color: #ffffff; padding: 0.5rem 1rem; border-radius: 6px; font-weight: 700; border: none;">
-          Complete Trip ✓
+      nextActionBlock = `
+        <button type="button" class="btn btn-primary btn-advance-status" data-booking-id="${booking.id}" data-next-status="completed" style="background: #059669; color: #ffffff; padding: 0.6rem 1.25rem; border-radius: 6px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem;">
+          COMPLETE JOURNEY ✓
         </button>
       `;
     }
 
     container.innerHTML = `
-      <div class="card" style="background: #ffffff; padding: 1.25rem 1.5rem; border-radius: 8px; border: 2px solid #2563eb; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+      <div class="card" style="background: #ffffff; padding: 1.25rem 1.5rem; border-radius: 8px; border: 2px solid #2563eb; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 1.25rem;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.75rem;">
           <div style="display: flex; align-items: center; gap: 0.5rem;">
             <span style="font-size: 1.3rem;">🚗</span>
@@ -791,9 +921,9 @@ export const DriverView = {
           </span>
         </div>
 
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 0.75rem;">
           <div>
-            <div style="font-size: 1rem; font-weight: 800; color: #0f172a; margin-bottom: 0.25rem;">
+            <div style="font-size: 1.05rem; font-weight: 800; color: #0f172a; margin-bottom: 0.25rem;">
               ${pickup} → ${dest}
             </div>
             <div style="font-size: 0.85rem; color: #64748b;">
@@ -802,13 +932,29 @@ export const DriverView = {
           </div>
           <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
             <a href="#messages?booking=${booking.id}" class="btn btn-outline btn-sm" style="border: 1px solid #cbd5e1; color: #475569; padding: 0.45rem 0.85rem; border-radius: 6px; font-weight: 600; text-decoration: none;">
-              💬 Message Passenger
+              💬 Message
             </a>
-            ${nextActionBtn}
+            <a href="https://www.google.com/maps/dir/?api=1&destination=${navLat},${navLng}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="border: 1.5px solid #2563eb; color: #2563eb; padding: 0.45rem 0.85rem; border-radius: 6px; font-weight: 700; text-decoration: none; background: #eff6ff; display: inline-flex; align-items: center; gap: 0.35rem;">
+              📍 OPEN IN MAPS
+            </a>
+          </div>
+        </div>
+
+        <!-- GPS MAP CONTAINER -->
+        <div id="driver-trip-map" style="width: 100%; height: 260px; border-radius: 8px; border: 1px solid #cbd5e1; margin-bottom: 0.75rem; position: relative; z-index: 1;"></div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; padding-top: 0.25rem;">
+          <div style="font-size: 0.8rem; color: #64748b;">
+            ${hasLivePassenger ? `<span style="color: #059669; font-weight: 700;">🟢 Passenger is sharing live location</span>` : `<span>📍 Map centered on pickup coordinates</span>`}
+          </div>
+          <div>
+            ${nextActionBlock}
           </div>
         </div>
       </div>
     `;
+
+    this.initTripMap(booking, passengerLat, passengerLng, hasLivePassenger);
 
     container.querySelectorAll(".btn-advance-status").forEach((btn) => {
       btn.addEventListener("click", async (e) => {
@@ -818,24 +964,11 @@ export const DriverView = {
 
         const actionBtn = e.currentTarget;
         const originalLabel = actionBtn.innerText;
-
-        let options = {};
-        if (nextStatus === "in_progress") {
-          const pin = prompt("Please enter the 4-digit Trip PIN provided by the passenger to start the trip:");
-          if (!pin) return;
-          if (pin.trim().length !== 4) {
-            alert("Trip PIN must be exactly 4 digits.");
-            return;
-          }
-          options.pin = pin.trim();
-        }
-
         actionBtn.disabled = true;
         actionBtn.innerText = "Updating...";
 
         try {
-          await BookingService.updateBookingStatus(bId, nextStatus, options);
-          alert(`Trip status successfully updated to: ${nextStatus.replace("_", " ").toUpperCase()}`);
+          await BookingService.updateBookingStatus(bId, nextStatus);
           await this.loadDriverData();
           await this.loadRecentActivity();
           if (this.currentTab === "offers") await this.renderOffersTab();
@@ -846,6 +979,36 @@ export const DriverView = {
         }
       });
     });
+
+    const verifyBtn = container.querySelector(".btn-verify-start-trip");
+    if (verifyBtn) {
+      verifyBtn.addEventListener("click", async (e) => {
+        const bId = e.currentTarget.getAttribute("data-booking-id");
+        const pinInput = document.getElementById("driver-pin-input");
+        const pin = pinInput ? pinInput.value.trim() : "";
+        if (!pin || pin.length !== 4) {
+          alert("Please enter the 4-digit Trip PIN provided by the passenger.");
+          pinInput?.focus();
+          return;
+        }
+
+        const actionBtn = e.currentTarget;
+        actionBtn.disabled = true;
+        actionBtn.innerText = "Verifying PIN...";
+
+        try {
+          await BookingService.updateBookingStatus(bId, "in_progress", { pin });
+          alert("Trip PIN verified! Journey is now in progress.");
+          await this.loadDriverData();
+          await this.loadRecentActivity();
+          if (this.currentTab === "offers") await this.renderOffersTab();
+        } catch (err) {
+          alert("Could not start journey: " + err.message);
+          actionBtn.disabled = false;
+          actionBtn.innerText = "VERIFY PIN & START JOURNEY 🏁";
+        }
+      });
+    }
   },
 
   async loadDriverVehicles() {
@@ -854,11 +1017,6 @@ export const DriverView = {
       
       if (this.driverVehicles.length > 0) {
         this.primaryVehicle = this.driverVehicles.find((v) => v.is_primary) || this.driverVehicles[0];
-        const primaryEl = document.getElementById("hdr-primary-vehicle");
-        if (primaryEl) {
-          primaryEl.innerText = `${this.primaryVehicle.make} ${this.primaryVehicle.model} • ${this.primaryVehicle.registration_number}`;
-          primaryEl.style.display = "block";
-        }
       }
 
       const hasPhoto = Boolean(this.driverProfile?.profile_photo_url);
@@ -1090,16 +1248,47 @@ export const DriverView = {
             const req = bid.request || {};
             const pickup = escapeHtml(req.pickup_location || "Pickup");
             const dest = escapeHtml(req.destination || "Destination");
+            const isCounteredByPassenger = bid.negotiation_status === "countered_by_passenger";
+            const isCounteredByDriver = bid.negotiation_status === "countered_by_driver";
+
             return `
-              <div style="border: 1px solid #e2e8f0; background: #ffffff; border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-                <div>
-                  <div style="font-weight: 700; color: #0f172a; font-size: 0.95rem;">${pickup} → ${dest}</div>
-                  <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.2rem;">Your Bid: <strong>$${Number.parseFloat(bid.amount || 0).toFixed(2)}</strong> · ETA: ~${bid.estimated_arrival_minutes || 15} mins · Submitted ${timeAgo(bid.created_at)}</div>
-                  ${bid.message ? `<div style="font-size: 0.8rem; color: #64748b; font-style: italic; margin-top: 0.2rem;">“${escapeHtml(bid.message)}”</div>` : ""}
+              <div style="border: 1.5px solid ${isCounteredByPassenger ? '#86efac' : '#e2e8f0'}; background: #ffffff; border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+                  <div>
+                    <div style="font-weight: 700; color: #0f172a; font-size: 0.95rem;">${pickup} → ${dest}</div>
+                    <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.2rem;">Your Bid: <strong>$${Number.parseFloat(bid.amount || 0).toFixed(2)}</strong> · ETA: ~${bid.estimated_arrival_minutes || 15} mins · Submitted ${timeAgo(bid.created_at)}</div>
+                    ${bid.message ? `<div style="font-size: 0.8rem; color: #64748b; font-style: italic; margin-top: 0.2rem;">“${escapeHtml(bid.message)}”</div>` : ""}
+                  </div>
+                  <div>
+                    <span class="badge" style="background: ${isCounteredByPassenger ? '#dcfce7' : '#fef3c7'}; color: ${isCounteredByPassenger ? '#15803d' : '#92400e'}; padding: 0.25rem 0.6rem; border-radius: 4px; font-weight: 700; font-size: 0.75rem;">
+                      ${isCounteredByPassenger ? 'COUNTER OFFER RECEIVED' : isCounteredByDriver ? 'COUNTER SENT' : 'PENDING REVIEW'}
+                    </span>
+                  </div>
                 </div>
-                <div>
-                  <span class="badge" style="background: #fef3c7; color: #92400e; padding: 0.25rem 0.6rem; border-radius: 4px; font-weight: 700; font-size: 0.75rem;">PENDING REVIEW</span>
-                </div>
+
+                ${isCounteredByPassenger ? `
+                  <div style="margin-top: 0.75rem; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 0.65rem 0.85rem;">
+                    <div style="font-weight: 800; color: #166534; font-size: 0.88rem;">
+                      💬 Passenger proposed counter fare: <strong>$${Number.parseFloat(bid.counter_amount || 0).toFixed(2)}</strong>
+                    </div>
+                    ${bid.counter_message ? `<div style="font-size: 0.8rem; color: #15803d; margin-top: 0.2rem;">“${escapeHtml(bid.counter_message)}”</div>` : ""}
+                    <div style="display: flex; gap: 0.4rem; margin-top: 0.5rem; flex-wrap: wrap;">
+                      <button type="button" class="btn btn-primary btn-sm btn-driver-accept-counter" data-bid-id="${escapeHtml(bid.id)}" data-amount="${escapeHtml(bid.counter_amount)}" style="background: #16a34a; border: none; font-weight: 700; padding: 0.35rem 0.75rem; border-radius: 4px; font-size: 0.82rem;">
+                        Accept $${Number.parseFloat(bid.counter_amount || 0).toFixed(2)}
+                      </button>
+                      <button type="button" class="btn btn-outline btn-sm btn-driver-counter-again" data-bid-id="${escapeHtml(bid.id)}" data-current-counter="${escapeHtml(bid.counter_amount)}" style="border: 1px solid #cbd5e1; font-weight: 600; padding: 0.35rem 0.75rem; border-radius: 4px; font-size: 0.82rem;">
+                        Counter Again
+                      </button>
+                      <button type="button" class="btn btn-outline btn-sm btn-driver-decline-counter" data-bid-id="${escapeHtml(bid.id)}" style="color: #b91c1c; border: 1px solid #fca5a5; font-weight: 600; padding: 0.35rem 0.75rem; border-radius: 4px; font-size: 0.82rem;">
+                        Decline
+                      </button>
+                    </div>
+                  </div>
+                ` : isCounteredByDriver ? `
+                  <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #1e40af; background: #eff6ff; padding: 0.4rem 0.75rem; border-radius: 6px; border: 1px solid #bfdbfe;">
+                    ⏳ You countered with: <strong>$${Number.parseFloat(bid.counter_amount || 0).toFixed(2)}</strong> (Awaiting passenger response)
+                  </div>
+                ` : ""}
               </div>
             `;
           }).join("")}
@@ -1115,18 +1304,112 @@ export const DriverView = {
           ` : completedList.map(b => {
             const pickup = escapeHtml(b.request?.pickup_location || "Pickup");
             const dest = escapeHtml(b.request?.destination || "Destination");
+            const passenger = escapeHtml(b.passenger?.full_name || "Passenger");
+            const isSettled = b.payment_status === "received";
+
             return `
               <div style="border: 1px solid #e2e8f0; background: #ffffff; border-radius: 8px; padding: 1rem; margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
                 <div>
                   <div style="font-weight: 700; color: #0f172a; font-size: 0.95rem;">${pickup} → ${dest}</div>
-                  <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.2rem;">Earned: <strong>$${Number.parseFloat(b.amount || 0).toFixed(2)}</strong> · Completed ${timeAgo(b.completed_at || b.updated_at)}</div>
+                  <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.2rem;">Fare: <strong>$${Number.parseFloat(b.amount || 0).toFixed(2)}</strong> · Passenger: <strong>${passenger}</strong> · Completed ${timeAgo(b.completed_at || b.updated_at)}</div>
                 </div>
-                <span class="badge" style="background: #dcfce7; color: #15803d; padding: 0.25rem 0.6rem; border-radius: 4px; font-weight: 700; font-size: 0.75rem;">COMPLETED ✓</span>
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                  <span class="badge" style="background: #dcfce7; color: #15803d; padding: 0.25rem 0.6rem; border-radius: 4px; font-weight: 700; font-size: 0.75rem;">COMPLETED ✓</span>
+                  ${isSettled ? `
+                    <span class="settlement-badge-received">✓ Payment Confirmed</span>
+                  ` : `
+                    <button type="button" class="btn btn-sm btn-confirm-payment-list" data-booking-id="${escapeHtml(b.id)}" data-amount="${escapeHtml(b.amount)}" data-passenger="${passenger}" style="background: #059669; color: #ffffff; border: none; font-weight: 700; padding: 0.35rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 0.82rem;">
+                      ✓ Confirm Payment Received
+                    </button>
+                  `}
+                </div>
               </div>
             `;
           }).join("")}
         </div>
       `;
+
+      container.querySelectorAll(".btn-driver-accept-counter").forEach(btn => {
+        btn.addEventListener("click", async (e) => {
+          const bidId = e.currentTarget.getAttribute("data-bid-id");
+          const amount = e.currentTarget.getAttribute("data-amount");
+          if (!bidId) return;
+          if (!confirm(`Accept passenger counter offer of $${amount}?`)) return;
+          const actionBtn = e.currentTarget;
+          actionBtn.disabled = true;
+          actionBtn.innerText = "Accepting...";
+          try {
+            await BidService.acceptCounterOffer(bidId);
+            alert("Counter offer accepted! Booking will be created once confirmed.");
+            await this.renderOffersTab();
+          } catch (err) {
+            alert("Could not accept counter offer: " + err.message);
+            actionBtn.disabled = false;
+            actionBtn.innerText = `Accept $${amount}`;
+          }
+        });
+      });
+
+      container.querySelectorAll(".btn-driver-counter-again").forEach(btn => {
+        btn.addEventListener("click", async (e) => {
+          const bidId = e.currentTarget.getAttribute("data-bid-id");
+          const curCounter = e.currentTarget.getAttribute("data-current-counter");
+          if (!bidId) return;
+          const newAmountStr = prompt("Enter your counter proposal ($ USD):", curCounter);
+          if (!newAmountStr) return;
+          const newAmount = parseFloat(newAmountStr);
+          if (!newAmount || newAmount <= 0) {
+            alert("Invalid counter amount entered.");
+            return;
+          }
+          const message = prompt("Optional message to passenger (e.g. Can meet in 10 mins):") || "";
+          try {
+            await BidService.counterBid(bidId, { amount: newAmount, message });
+            alert("Counter proposal sent to passenger!");
+            await this.renderOffersTab();
+          } catch (err) {
+            alert("Could not send counter offer: " + err.message);
+          }
+        });
+      });
+
+      container.querySelectorAll(".btn-driver-decline-counter").forEach(btn => {
+        btn.addEventListener("click", async (e) => {
+          const bidId = e.currentTarget.getAttribute("data-bid-id");
+          if (!bidId) return;
+          if (!confirm("Decline this passenger counter offer?")) return;
+          try {
+            await BidService.declineCounterOffer(bidId);
+            alert("Counter offer declined.");
+            await this.renderOffersTab();
+          } catch (err) {
+            alert("Could not decline counter offer: " + err.message);
+          }
+        });
+      });
+
+      container.querySelectorAll(".btn-confirm-payment-list").forEach(btn => {
+        btn.addEventListener("click", async (e) => {
+          const bId = e.currentTarget.getAttribute("data-booking-id");
+          const amount = e.currentTarget.getAttribute("data-amount");
+          const passenger = e.currentTarget.getAttribute("data-passenger");
+          if (!bId) return;
+          if (!confirm(`Confirm that you have received payment of $${amount} from ${passenger}?`)) return;
+          const actionBtn = e.currentTarget;
+          actionBtn.disabled = true;
+          actionBtn.innerText = "Confirming...";
+          try {
+            await BookingService.confirmTripPayment(bId);
+            alert("Payment confirmed! The trip is fully settled.");
+            await this.loadDriverData();
+            await this.renderOffersTab();
+          } catch (err) {
+            alert("Could not confirm payment: " + err.message);
+            actionBtn.disabled = false;
+            actionBtn.innerText = "✓ Confirm Payment Received";
+          }
+        });
+      });
     } catch (err) {
       container.innerHTML = `<div style="padding: 2rem; text-align: center; color: #ef4444;">Could not load offers data: ${escapeHtml(err.message)}</div>`;
     }

@@ -310,6 +310,10 @@ const PAYMENTS_INDEXES = [
   K('idx_payment_destination', ['payment_destination_id']),
 ];
 
+const SUBSCRIPTIONS_EXTENSIONS = [
+  V('plan_id', 64),
+];
+
 // -----------------------------------------------------------------------------
 // Seed Data
 // -----------------------------------------------------------------------------
@@ -653,6 +657,11 @@ async function run() {
   }
   for (const idx of PAYMENTS_INDEXES) {
     await ensureIndex('payments', idx);
+  }
+
+  console.log('\nExtending "subscriptions" table...');
+  for (const col of SUBSCRIPTIONS_EXTENSIONS) {
+    await ensureColumn('subscriptions', col);
   }
 
   // Step 3: Seed Payment Destinations
