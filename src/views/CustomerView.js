@@ -173,6 +173,9 @@ export const CustomerView = {
             </div>
           </section>
 
+          <!-- ACTIVE REQUESTS & DRIVER QUOTATIONS ON OVERVIEW -->
+          <section id="cust-overview-active-requests-section" style="display: none; margin-bottom: 1.5rem;" aria-label="Active requests and quotations"></section>
+
           <div class="passenger-main-grid">
             <section class="passenger-panel passenger-find-panel" aria-labelledby="find-transport-title">
               <div class="passenger-panel-header">
@@ -942,11 +945,12 @@ export const CustomerView = {
       );
       const bidsByRequest = new Map();
       await Promise.all(relevantRequests.map(async (request) => {
+        const reqId = request.$id || request.id;
         try {
-          const result = await BidService.getBidsForRequest(request.id || request.$id);
-          bidsByRequest.set(request.id || request.$id, result.bids || []);
+          const result = await BidService.getBidsForRequest(reqId);
+          bidsByRequest.set(reqId, Array.isArray(result) ? result : (result?.bids || []));
         } catch (_) {
-          bidsByRequest.set(request.id || request.$id, []);
+          bidsByRequest.set(reqId, []);
         }
       }));
 
@@ -980,10 +984,11 @@ export const CustomerView = {
           })
         : [];
       const signature = JSON.stringify({
-        requests: relevantRequests.map((request) => [request.id || request.$id, request.status, request.updated_at]),
+        requests: relevantRequests.map((request) => [request.$id || request.id, request.status, request.updated_at]),
         bids: relevantRequests.map((request) => {
-          const requestBids = bidsByRequest.get(request.id || request.$id) || [];
-          return [request.id || request.$id, ...requestBids.map((bid) => [bid.id || bid.$id, bid.status, bid.negotiation_status, bid.counter_amount, bid.updated_at])];
+          const reqId = request.$id || request.id;
+          const requestBids = bidsByRequest.get(reqId) || [];
+          return [reqId, ...requestBids.map((bid) => [bid.id || bid.$id, bid.status, bid.negotiation_status, bid.counter_amount, bid.updated_at])];
         }),
         bookings: (bookings || []).map((booking) => [booking.id || booking.$id, booking.request_id, booking.status, booking.payment_status, booking.updated_at]),
         notifications: (notifications || []).slice(0, 10).map((notification) => [notification.id || notification.$id, notification.is_read ?? notification.read])
@@ -1210,7 +1215,8 @@ export const CustomerView = {
   async loadOverviewData() {
     await Promise.all([
       this.loadDashboardSummary(),
-      this.loadOverviewBookings()
+      this.loadOverviewBookings(),
+      this.loadOverviewActiveRequests()
     ]);
   },
 
@@ -1345,6 +1351,250 @@ export const CustomerView = {
     }
   },
 
+  async loadOverviewData() {
+    await Promise.all([
+      this.loadDashboardSummary(),
+      this.loadOverviewBookings(),
+      this.loadOverviewActiveRequests()
+    ]);
+  },
+
+  async loadOverviewActiveRequests() {
+    const section = document.getElementById("cust-overview-active-requests-section");
+    if (!section) return;
+
+    try {
+      const [requests, bookings] = await Promise.all([
+        RequestService.getCustomerRequests(),
+        BookingService.getPassengerBookings()
+      ]);
+      const bookingsByRequest = new Map((bookings || []).map((booking) => [booking.request_id, booking]));
+      const openRequests = (requests || []).filter((request) =>
+        !bookingsByRequest.has(request.$id || request.id)
+        && !["cancelled", "completed"].includes(request.status)
+      );
+
+      if (openRequests.length === 0) {
+        section.style.display = "none";
+        section.innerHTML = "";
+        return;
+      }
+
+      section.style.display = "block";
+      const bidsByRequest = await Promise.all(
+        openRequests.map(async (req) => {
+          try {
+            const reqId = req.$id || req.id;
+            const result = await BidService.getBidsForRequest(reqId);
+            return Array.isArray(result) ? result : (result?.bids || []);
+          } catch (err) {
+            console.warn("Could not load quotations for overview request:", err.message);
+            return [];
+          }
+        })
+      );
+
+      section.innerHTML = `
+        <div style="margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
+          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: var(--text-main, #0f172a);">
+            Active Requests &amp; Driver Quotations
+          </h3>
+          <button type="button" class="passenger-link-button btn-go-to-quotes" style="font-size: 0.85rem; font-weight: 700; color: #2563eb; background: none; border: none; cursor: pointer;">
+            View Full Board →
+          </button>
+        </div>
+        ${this.renderActiveRequestsHtml(openRequests, bidsByRequest)}
+      `;
+
+      section.querySelector(".btn-go-to-quotes")?.addEventListener("click", () => {
+        this.switchTab("active-bids");
+      });
+      this.attachBidActionHandlers(section);
+    } catch (err) {
+      console.warn("Notice: loadOverviewActiveRequests:", err.message);
+    }
+  },
+
+  renderQuotationCardHtml(bid, req) {
+    const driverName = bid.driver?.full_name || "Verified Driver";
+    const avatarUrl = fileViewUrl(bid.driver?.profile_image_id);
+    const vehicleSummary = bid.vehicle
+      ? [bid.vehicle.make, bid.vehicle.model, bid.vehicle.year].filter(Boolean).join(" ")
+      : "";
+    const isVerified = bid.driver?.verification_status === "approved";
+    const isPending = bid.status === "pending";
+    const driverRating = Number(bid.driver?.rating || 0);
+    const etaMinutes = bid.estimated_arrival_minutes || bid.estimated_arrival_mins || 15;
+    const bidId = bid.$id || bid.id;
+    const bidAmount = Number.parseFloat(bid.amount || 0).toFixed(2);
+
+    return `
+    <div class="bid-card quote-driver-row" data-bid-id="${escapeHtml(bidId)}" style="margin-bottom: 0.85rem; padding: 1rem 1.15rem; border: 1.5px solid var(--border-light, #e2e8f0); border-radius: 10px; background: var(--bg-surface, #ffffff); box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+      <div class="bid-driver-info" style="display: flex; gap: 0.85rem; align-items: flex-start;">
+        <div class="driver-avatar" style="width: 44px; height: 44px; border-radius: 50%; overflow: hidden; background: #e0e7ff; display: grid; place-items: center; font-weight: 800; font-size: 1.1rem; color: #4338ca; flex-shrink: 0;">
+          ${avatarUrl ? `<img src="${avatarUrl}" alt="${escapeHtml(driverName)}" style="width:100%;height:100%;object-fit:cover;">` : escapeHtml(driverName.charAt(0))}
+        </div>
+        <div style="flex: 1; min-width: 0;">
+          <div style="font-weight: 800; font-size: 1rem; color: var(--text-main, #0f172a);">${escapeHtml(driverName)}</div>
+          <div class="quote-driver-meta" style="font-size: 0.8rem; color: var(--text-muted, #64748b); margin-top: 0.15rem;">
+            ${isVerified ? "✓ Verified · " : ""}${escapeHtml(bid.driver?.city || "Harare")}${vehicleSummary ? ` · ${escapeHtml(vehicleSummary)}` : ""}
+          </div>
+          <div class="quote-driver-meta" style="font-size: 0.8rem; color: var(--text-muted, #64748b); margin-top: 0.15rem;">
+            ${driverRating > 0 ? `★ ${driverRating.toFixed(1)} (${Number(bid.driver?.review_count || 0)})` : "No ratings yet"} · ⏱️ ETA ${escapeHtml(etaMinutes)} mins
+          </div>
+          ${bid.message ? `<div class="quote-driver-meta" style="margin-top: 0.35rem; font-size: 0.83rem; font-style: italic; color: var(--text-main, #334155); background: var(--bg-subtle, #f8fafc); padding: 0.35rem 0.6rem; border-radius: 6px;">“${escapeHtml(bid.message)}”</div>` : ""}
+        </div>
+      </div>
+
+      <div class="quote-actions" style="margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px solid var(--border-light, #f1f5f9); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">
+        <div class="bid-price" style="font-size: 1.35rem; font-weight: 900; color: #059669;">
+          $${bidAmount}
+        </div>
+        <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+          ${isPending ? `
+            ${bid.negotiation_status === "countered_by_passenger" ? `
+              <span style="font-size: 0.8rem; color: #1e40af; font-weight: 600;">Counter pending ($${Number.parseFloat(bid.counter_amount || 0).toFixed(2)})</span>
+            ` : bid.negotiation_status === "countered_by_driver" ? `
+              <button type="button" class="btn btn-primary btn-sm btn-accept-driver-counter" data-bid-id="${escapeHtml(bidId)}" style="background: #16a34a; font-weight: 700; padding: 0.4rem 0.85rem;">
+                Accept $${Number.parseFloat(bid.counter_amount || 0).toFixed(2)}
+              </button>
+            ` : ""}
+            <button type="button" class="btn btn-outline btn-sm btn-counter-offer" data-bid-id="${escapeHtml(bidId)}" data-current-amount="${escapeHtml(bid.counter_amount || bid.amount)}" style="padding: 0.4rem 0.85rem; font-weight: 700;">
+              COUNTER OFFER
+            </button>
+            <button type="button" class="btn btn-primary btn-sm btn-accept-offer" data-bid-id="${escapeHtml(bidId)}" style="font-weight: 700; background: #2563eb; color: #ffffff; padding: 0.4rem 0.95rem;">
+              ACCEPT QUOTE
+            </button>
+          ` : `
+            <span class="badge ${bid.status === "accepted" ? "badge-success" : "badge-neutral"}">${escapeHtml(String(bid.status || "").toUpperCase())}</span>
+          `}
+        </div>
+      </div>
+    </div>
+    `;
+  },
+
+  renderActiveRequestsHtml(openRequests, bidsByRequest) {
+    return openRequests.map((req, index) => {
+      const bids = bidsByRequest[index] || [];
+      const bidList = Array.isArray(bids) ? bids : (bids.bids || []);
+      const reqId = req.$id || req.id;
+
+      return `
+      <div class="card passenger-quote-request" data-request-id="${escapeHtml(reqId)}" style="margin-bottom: 1.25rem; border: 1.5px solid var(--border-light, #e2e8f0); border-radius: 12px; padding: 1.25rem; background: var(--bg-card, #ffffff);">
+        <div class="card-header quote-request-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; border-bottom: 1px solid var(--border-light, #f1f5f9); padding-bottom: 0.65rem;">
+          <div>
+            <span class="badge ${bidList.length > 0 ? "badge-success" : "badge-warning"}">
+              ${bidList.length > 0 ? "QUOTATION RECEIVED" : "OPEN FOR BIDS"}
+            </span>
+            <span style="font-weight: 700; margin-left: 0.5rem;">${escapeHtml((req.request_type || req.service_type || "ride").toUpperCase())}</span>
+          </div>
+          <div style="font-size: 1.1rem; font-weight: 800; color: var(--primary, #2563eb);">
+            Budget: $${Number.parseFloat(req.budget || req.suggested_price || 0).toFixed(2)}
+          </div>
+        </div>
+
+        <div class="quote-route-summary" style="display: flex; gap: 1.5rem; margin-bottom: 1rem; font-size: 0.9rem;">
+          <div><small style="color: #64748b; display: block;">Route</small><strong>${escapeHtml(req.pickup_address || req.pickup_location)} → ${escapeHtml(req.destination_address || req.destination)}</strong></div>
+          <div><small style="color: #64748b; display: block;">Request ID</small><strong style="font-family: monospace;">#${escapeHtml(String(reqId).slice(0, 10).toUpperCase())}</strong></div>
+        </div>
+
+        ${bidList.length > 0 ? `
+          <h4 style="font-size: 0.95rem; font-weight: 800; color: #065f46; margin-bottom: 0.75rem;">
+            Quotation received (${bidList.length})
+          </h4>
+          <div class="offers-list">
+            ${bidList.map((bid) => this.renderQuotationCardHtml(bid, req)).join("")}
+          </div>
+        ` : `
+          <div class="waiting-quotes-box" style="background: var(--bg-subtle, #f8fafc); padding: 1.25rem; border-radius: 8px; text-align: center; color: var(--text-muted, #64748b); font-size: 0.9rem;">
+            ⏳ Waiting for driver's quotations...
+          </div>
+        `}
+      </div>
+      `;
+    }).join("");
+  },
+
+  attachBidActionHandlers(container) {
+    if (!container) return;
+
+    container.querySelectorAll(".btn-counter-offer").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        const bidId = e.currentTarget.getAttribute("data-bid-id");
+        const currentAmt = parseFloat(e.currentTarget.getAttribute("data-current-amount") || "0");
+        this.openPassengerCounterModal(bidId, currentAmt);
+      });
+    });
+
+    container.querySelectorAll(".btn-accept-driver-counter").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        const bidId = e.currentTarget.getAttribute("data-bid-id");
+        if (!bidId) return;
+        const actionBtn = e.currentTarget;
+        actionBtn.disabled = true;
+        actionBtn.innerText = "Accepting...";
+        try {
+          await BidService.acceptCounterOffer(bidId);
+          const result = await BidService.acceptBid(bidId);
+          const bookingId = result.bookingId || result.booking?.id || result.booking?.$id;
+          const confirmed = (await BookingService.getPassengerBookings().catch(() => [])).find((booking) => (booking.id || booking.$id) === bookingId);
+          if (confirmed) this.showDriverConfirmedPopup(confirmed);
+          window.location.hash = `#customer?tab=booking-details&id=${bookingId}`;
+        } catch (err) {
+          alert("Could not accept counter offer: " + err.message);
+          actionBtn.disabled = false;
+          actionBtn.innerText = "Accept";
+        }
+      });
+    });
+
+    container.querySelectorAll(".btn-decline-counter").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        const bidId = e.currentTarget.getAttribute("data-bid-id");
+        if (!bidId) return;
+        if (!confirm("Decline this driver counter offer?")) return;
+        try {
+          await BidService.declineCounterOffer(bidId);
+          alert("Counter offer declined.");
+          await Promise.allSettled([this.loadActiveBids(), this.loadOverviewActiveRequests()]);
+        } catch (err) {
+          alert("Could not decline counter offer: " + err.message);
+        }
+      });
+    });
+
+    container.querySelectorAll(".btn-accept-offer").forEach((button) => {
+      button.addEventListener("click", async (event) => {
+        const bidId = event.currentTarget.getAttribute("data-bid-id");
+        if (!bidId) return;
+        if (!confirm("Accept this driver quotation? (This locks the driver for this request and closes other quotes)")) return;
+
+        const acceptButton = event.currentTarget;
+        const originalLabel = acceptButton.innerText;
+        acceptButton.disabled = true;
+        acceptButton.innerText = "Accepting...";
+
+        try {
+          const result = await BidService.acceptBid(bidId);
+          const bookingId = result.bookingId || result.booking?.id || result.booking?.$id;
+          if (!bookingId) throw new Error("The booking was created but no booking ID was returned.");
+          const confirmed = (await BookingService.getPassengerBookings().catch(() => [])).find((booking) => (booking.id || booking.$id) === bookingId);
+          if (confirmed) this.showDriverConfirmedPopup(confirmed);
+          window.location.hash = `#customer?tab=booking-details&id=${bookingId}`;
+        } catch (err) {
+          if (err.subscriptionRequired) {
+            alert("That provider is currently unavailable. Please choose another quotation.");
+          } else {
+            alert("Could not accept quotation: " + err.message);
+          }
+          acceptButton.disabled = false;
+          acceptButton.innerText = originalLabel;
+        }
+      });
+    });
+  },
+
   async loadActiveBids() {
     const container = document.getElementById("active-requests-board");
     if (!container) return;
@@ -1361,12 +1611,9 @@ export const CustomerView = {
         return;
       }
 
-      // A booking always wins over an older request row. Accepted requests are
-      // shown only during the brief reconciliation window before their booking
-      // becomes readable; they can never fall back to the waiting state.
       const openRequests = (requests || []).filter((request) =>
-        !bookingsByRequest.has(request.id || request.$id)
-        && (OPEN_REQUEST_STATUSES.includes(request.status) || request.status === "accepted")
+        !bookingsByRequest.has(request.$id || request.id)
+        && !["cancelled", "completed"].includes(request.status)
       );
 
       if (openRequests.length === 0) {
@@ -1383,237 +1630,18 @@ export const CustomerView = {
       const bidsByRequest = await Promise.all(
         openRequests.map(async (req) => {
           try {
-            const result = await BidService.getBidsForRequest(req.id || req.$id);
-            return result.bids || [];
+            const reqId = req.$id || req.id;
+            const result = await BidService.getBidsForRequest(reqId);
+            return Array.isArray(result) ? result : (result?.bids || []);
           } catch (err) {
-            console.warn(`Could not load quotations for request ${req.id}:`, err.message);
-            return null;
+            console.warn(`Could not load quotations for request ${req.$id || req.id}:`, err.message);
+            return [];
           }
         })
       );
 
-      container.innerHTML = openRequests.map((req, index) => {
-        const bids = bidsByRequest[index];
-        const bidsFailed = bids === null;
-        const bidList = bids || [];
-        const pendingCount = bidList.filter((bid) => bid.status === "pending").length;
-
-        return `
-        <div class="card passenger-quote-request" style="margin-bottom: 1.25rem;">
-          <div class="card-header quote-request-header">
-            <div>
-              <span class="badge ${req.status === "bids_received" ? "badge-success" : "badge-warning"}">
-                STATUS: ${this.getDisplayStatus(req.status)}
-              </span>
-              <span style="font-weight: 700; margin-left: 0.5rem;">${escapeHtml((req.request_type || "").toUpperCase())}</span>
-            </div>
-            <div style="font-size: 1.25rem; font-weight: 800; color: var(--primary);">
-              Suggested: $${Number.parseFloat(req.suggested_price || 0).toFixed(2)}
-            </div>
-          </div>
-
-          <div class="quote-route-summary">
-            <div><small>Route</small><strong>${escapeHtml(req.pickup_address)} → ${escapeHtml(req.destination_address)}</strong></div>
-            <div><small>Request ID</small><strong>${escapeHtml(String(req.id || "").slice(0, 10).toUpperCase())}</strong></div>
-          </div>
-
-          <h4 style="font-size: 1rem; font-weight: 700; margin-bottom: 0.75rem;">
-            Driver Quotations Received (${bidList.length})
-          </h4>
-
-          ${bidsFailed ? `
-            <div style="background: var(--bg-subtle); padding: 1.25rem; border-radius: var(--radius-md); text-align: center; color: var(--text-muted); font-size: 0.9rem;">
-              ⚠️ Quotations could not be loaded for this request. Please try again.
-            </div>
-          ` : bidList.length === 0 && OPEN_REQUEST_STATUSES.includes(req.status) ? `
-            <div style="background: var(--bg-subtle); padding: 1.25rem; border-radius: var(--radius-md); text-align: center; color: var(--text-muted); font-size: 0.9rem;">
-              ⏳ Waiting for nearby verified drivers to submit quotations...
-            </div>
-          ` : bidList.length === 0 ? `
-            <div style="background: var(--bg-subtle); padding: 1.25rem; border-radius: var(--radius-md); text-align: center; color: var(--text-muted); font-size: 0.9rem;">
-              Quotation accepted. Preparing your active booking…
-            </div>
-          ` : `
-            <div class="offers-list">
-              ${bidList.map((bid) => {
-                const driverName = bid.driver?.full_name || "Verified Driver";
-                const avatarUrl = fileViewUrl(bid.driver?.profile_image_id);
-                const vehicleSummary = bid.vehicle
-                  ? [bid.vehicle.make, bid.vehicle.model, bid.vehicle.year].filter(Boolean).join(" ")
-                  : "";
-                const isVerified = bid.driver?.verification_status === "approved";
-                const isPending = bid.status === "pending";
-                const driverRating = Number(bid.driver?.rating || 0);
-                const etaMinutes = bid.estimated_arrival_minutes || bid.estimated_arrival_mins;
-
-                return `
-                <div class="bid-card quote-driver-row">
-                  <div class="bid-driver-info">
-                    <div class="driver-avatar">
-                      ${avatarUrl ? `<img src="${avatarUrl}" alt="${escapeHtml(driverName)}">` : escapeHtml(driverName.charAt(0))}
-                    </div>
-                    <div>
-                      <div style="font-weight: 700;">${escapeHtml(driverName)}</div>
-                      <div class="quote-driver-meta">
-                        ${isVerified ? "✓ Verified · " : ""}${escapeHtml(bid.driver?.city || "")}${vehicleSummary ? ` · ${escapeHtml(vehicleSummary)}` : ""}
-                      </div>
-                      <div class="quote-driver-meta">
-                        ${driverRating > 0 ? `${driverRating.toFixed(1)} ★ (${Number(bid.driver?.review_count || 0)})` : "No ratings yet"}${etaMinutes ? ` · ETA ${escapeHtml(etaMinutes)} mins` : ""} · ${escapeHtml(String(bid.status || "pending").toUpperCase())}
-                      </div>
-                      ${bid.message ? `<div class="quote-driver-meta" style="margin-top: 0.2rem;">“${escapeHtml(bid.message)}”</div>` : ""}
-                    </div>
-                  </div>
-
-                  <div class="quote-actions">
-                    <div class="bid-price" style="font-size: 1.25rem; font-weight: 900; color: var(--primary);">$${Number.parseFloat(bid.amount || 0).toFixed(2)}</div>
-                    ${isPending ? `
-                      ${bid.negotiation_status === "countered_by_passenger" ? `
-                        <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 0.35rem 0.65rem; font-size: 0.8rem; color: #1e40af; margin-bottom: 0.4rem;">
-                          💬 Your counter: <strong>$${Number.parseFloat(bid.counter_amount || 0).toFixed(2)}</strong> (Pending driver)
-                        </div>
-                        <div style="display: flex; gap: 0.4rem; justify-content: flex-end;">
-                          <button class="btn btn-outline btn-sm btn-counter-offer" data-bid-id="${escapeHtml(bid.id)}" data-current-amount="${escapeHtml(bid.amount)}">
-                            Counter Again
-                          </button>
-                          <button class="btn btn-primary btn-sm btn-accept-offer" data-bid-id="${escapeHtml(bid.id)}">
-                            Accept ($${Number.parseFloat(bid.amount || 0).toFixed(2)})
-                          </button>
-                        </div>
-                      ` : bid.negotiation_status === "countered_by_driver" ? `
-                        <div style="background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 6px; padding: 0.5rem 0.75rem; margin-bottom: 0.4rem; text-align: left;">
-                          <div style="font-size: 0.85rem; color: #166534; font-weight: 800;">
-                            🎉 Driver counter offer: <strong>$${Number.parseFloat(bid.counter_amount || 0).toFixed(2)}</strong>
-                          </div>
-                          ${bid.counter_message ? `<div style="font-size: 0.78rem; color: #15803d; margin-top: 0.2rem;">“${escapeHtml(bid.counter_message)}”</div>` : ""}
-                          <div style="display: flex; gap: 0.4rem; margin-top: 0.45rem; flex-wrap: wrap;">
-                            <button type="button" class="btn btn-primary btn-sm btn-accept-driver-counter" data-bid-id="${escapeHtml(bid.id)}" style="background: #16a34a; border: none; font-weight: 700;">
-                              Accept $${Number.parseFloat(bid.counter_amount || 0).toFixed(2)}
-                            </button>
-                            <button type="button" class="btn btn-outline btn-sm btn-counter-offer" data-bid-id="${escapeHtml(bid.id)}" data-current-amount="${escapeHtml(bid.counter_amount)}">
-                              Counter Again
-                            </button>
-                            <button type="button" class="btn btn-outline btn-sm btn-decline-counter" data-bid-id="${escapeHtml(bid.id)}" style="color: #b91c1c; border-color: #fca5a5;">
-                              Decline
-                            </button>
-                          </div>
-                        </div>
-                      ` : `
-                        <button class="btn btn-outline btn-sm btn-fav-driver" data-driver-id="${escapeHtml(bid.driver_id || bid.driver?.id || "")}" title="Save Driver to Favourites">
-                          ❤️
-                        </button>
-                        <button class="btn btn-outline btn-sm btn-counter-offer" data-bid-id="${escapeHtml(bid.id)}" data-current-amount="${escapeHtml(bid.amount)}">
-                          Counter Offer
-                        </button>
-                        <button class="btn btn-primary btn-sm btn-accept-offer" data-bid-id="${escapeHtml(bid.id)}">
-                          ACCEPT QUOTE
-                        </button>
-                      `}
-                    ` : `
-                      <span class="badge ${bid.status === "accepted" ? "badge-success" : "badge-neutral"}">${escapeHtml(String(bid.status || "").toUpperCase())}</span>
-                    `}
-                  </div>
-                </div>
-              `;
-              }).join("")}
-            </div>
-            ${pendingCount === 0 ? `
-              <div style="margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted);">
-                No quotations are currently available to accept on this request.
-              </div>
-            ` : ""}
-          `}
-        </div>
-      `;
-      }).join("");
-
-      container.querySelectorAll(".btn-fav-driver").forEach((btn) => {
-        btn.addEventListener("click", async (e) => {
-          const dId = e.currentTarget.getAttribute("data-driver-id");
-          if (!dId) return;
-          try {
-            await FavouritesService.addFavourite(dId);
-            alert("Driver added to your saved favourites!");
-            await this.loadDashboardSummary();
-          } catch (err) {
-            alert("Could not save driver: " + err.message);
-          }
-        });
-      });
-
-      container.querySelectorAll(".btn-counter-offer").forEach((btn) => {
-        btn.addEventListener("click", (e) => {
-          const bidId = e.currentTarget.getAttribute("data-bid-id");
-          const currentAmt = parseFloat(e.currentTarget.getAttribute("data-current-amount") || "0");
-          this.openPassengerCounterModal(bidId, currentAmt);
-        });
-      });
-
-      container.querySelectorAll(".btn-accept-driver-counter").forEach((btn) => {
-        btn.addEventListener("click", async (e) => {
-          const bidId = e.currentTarget.getAttribute("data-bid-id");
-          if (!bidId) return;
-          const actionBtn = e.currentTarget;
-          actionBtn.disabled = true;
-          actionBtn.innerText = "Accepting...";
-          try {
-            await BidService.acceptCounterOffer(bidId);
-            const result = await BidService.acceptBid(bidId);
-            const bookingId = result.bookingId || result.booking?.id || result.booking?.$id;
-            const confirmed = (await BookingService.getPassengerBookings().catch(() => [])).find((booking) => (booking.id || booking.$id) === bookingId);
-            if (confirmed) this.showDriverConfirmedPopup(confirmed);
-            window.location.hash = `#customer?tab=booking-details&id=${bookingId}`;
-          } catch (err) {
-            alert("Could not accept counter offer: " + err.message);
-            actionBtn.disabled = false;
-            actionBtn.innerText = "Accept";
-          }
-        });
-      });
-
-      container.querySelectorAll(".btn-decline-counter").forEach((btn) => {
-        btn.addEventListener("click", async (e) => {
-          const bidId = e.currentTarget.getAttribute("data-bid-id");
-          if (!bidId) return;
-          if (!confirm("Decline this driver counter offer?")) return;
-          try {
-            await BidService.declineCounterOffer(bidId);
-            alert("Counter offer declined.");
-            await this.loadActiveBids();
-          } catch (err) {
-            alert("Could not decline counter offer: " + err.message);
-          }
-        });
-      });
-
-      container.querySelectorAll(".btn-accept-offer").forEach((button) => {
-        button.addEventListener("click", async (event) => {
-          const bidId = event.currentTarget.getAttribute("data-bid-id");
-          if (!bidId) return;
-          if (!confirm("Accept this driver quotation? (This locks the driver for this request and closes other quotes)")) return;
-
-          const acceptButton = event.currentTarget;
-          const originalLabel = acceptButton.innerText;
-          acceptButton.disabled = true;
-          acceptButton.innerText = "Accepting...";
-
-          try {
-            const result = await BidService.acceptBid(bidId);
-            const bookingId = result.bookingId || result.booking?.id || result.booking?.$id;
-            if (!bookingId) throw new Error("The booking was created but no booking ID was returned.");
-            const confirmed = (await BookingService.getPassengerBookings().catch(() => [])).find((booking) => (booking.id || booking.$id) === bookingId);
-            if (confirmed) this.showDriverConfirmedPopup(confirmed);
-            window.location.hash = `#customer?tab=booking-details&id=${bookingId}`;
-          } catch (err) {
-            if (err.subscriptionRequired) {
-              alert("That provider is currently unavailable. Please choose another quotation.");
-            } else {
-              alert("Could not accept quotation: " + err.message);
-            }
-            acceptButton.disabled = false;
-            acceptButton.innerText = originalLabel;
-          }
-        });
-      });
+      container.innerHTML = this.renderActiveRequestsHtml(openRequests, bidsByRequest);
+      this.attachBidActionHandlers(container);
     } catch (err) {
       container.innerHTML = renderEmptyState({
         title: "Quotations unavailable",
@@ -2879,9 +2907,11 @@ export const CustomerView = {
           </div>
         </div>
 
-        <div id="matching-quotes-banner" style="text-align: center; padding: 0.75rem; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; margin-bottom: 1.25rem; color: #1e40af; font-size: 0.88rem; font-weight: 600;">
-          ⏳ Waiting for driver quotations…
+        <div id="matching-quotes-banner" style="text-align: center; padding: 0.75rem; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; margin-bottom: 1rem; color: #1e40af; font-size: 0.88rem; font-weight: 600;">
+          ⏳ Waiting for driver's quotations...
         </div>
+
+        <div id="matching-quotations-list" style="margin-bottom: 1rem; max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.75rem;"></div>
 
         <div style="display: flex; flex-direction: column; gap: 0.65rem;">
           <button type="button" id="btn-matching-view-quotes" class="btn btn-primary btn-full" style="display: none;">
@@ -2957,7 +2987,7 @@ export const CustomerView = {
           return;
         }
 
-        const bids = bidResult?.bids || [];
+        const bids = Array.isArray(bidResult) ? bidResult : (bidResult?.bids || []);
         const pendingBids = bids.filter((bid) => bid.status === "pending");
         const acceptedBid = bids.find((bid) => bid.status === "accepted");
         const count = pendingBids.length;
@@ -2969,29 +2999,35 @@ export const CustomerView = {
           if (bidId && !this.knownBidStates.has(bidId)) this.showQuotationPopup(bid);
         });
 
+        const banner = document.getElementById("matching-quotes-banner");
+        const quotesList = document.getElementById("matching-quotations-list");
+        const viewBtn = document.getElementById("btn-matching-view-quotes");
+        const countSpan = document.getElementById("matching-quote-count");
+        const step3 = document.getElementById("step-3");
+        const step2 = document.getElementById("step-2");
+
         if (acceptedBid) {
-          const banner = document.getElementById("matching-quotes-banner");
           if (banner) {
             banner.style.background = "#ecfdf5";
             banner.style.borderColor = "#a7f3d0";
             banner.style.color = "#065f46";
             banner.textContent = "Quotation accepted. Preparing your active booking…";
           }
+          if (quotesList) quotesList.innerHTML = "";
           return;
         }
 
         if (count > 0) {
-          const banner = document.getElementById("matching-quotes-banner");
-          const viewBtn = document.getElementById("btn-matching-view-quotes");
-          const countSpan = document.getElementById("matching-quote-count");
-          const step3 = document.getElementById("step-3");
-          const step2 = document.getElementById("step-2");
-
           if (banner) {
             banner.style.background = "#ecfdf5";
             banner.style.borderColor = "#a7f3d0";
             banner.style.color = "#065f46";
-            banner.innerHTML = `🎉 <strong>${count} Quotation${count === 1 ? "" : "s"} Received!</strong> Drivers are ready for your review.`;
+            banner.innerHTML = `🎉 <strong>Quotation received (${count})</strong>`;
+          }
+
+          if (quotesList) {
+            quotesList.innerHTML = pendingBids.map((b) => this.renderQuotationCardHtml(b, currentRequest || request)).join("");
+            this.attachBidActionHandlers(quotesList);
           }
 
           if (viewBtn && countSpan) {
@@ -3008,6 +3044,16 @@ export const CustomerView = {
 
           if (step3) {
             step3.classList.add("active");
+          }
+        } else {
+          if (banner) {
+            banner.style.background = "#eff6ff";
+            banner.style.borderColor = "#bfdbfe";
+            banner.style.color = "#1e40af";
+            banner.textContent = "⏳ Waiting for driver's quotations...";
+          }
+          if (quotesList) {
+            quotesList.innerHTML = "";
           }
         }
       } catch (err) {

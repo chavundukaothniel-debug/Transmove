@@ -1537,7 +1537,7 @@ export const DriverView = {
             <div style="font-size: 1.2rem; font-weight: 800; color: #0f172a;">
               ${job.suggested_price || job.budget ? `$${parseFloat(job.suggested_price || job.budget).toFixed(0)}` : `<span style="font-size: 0.8rem; font-weight: 700; color: #94a3b8;">No budget</span>`}
             </div>
-            <button class="btn btn-primary btn-view-bid" data-job-id="${job.id}" style="background: #2563eb; color: #ffffff; border: none; font-weight: 700; font-size: 0.85rem; padding: 0.45rem 1rem; border-radius: 6px; cursor: pointer;">
+            <button class="btn btn-primary btn-view-bid" data-job-id="${job.$id || job.id}" style="background: #2563eb; color: #ffffff; border: none; font-weight: 700; font-size: 0.85rem; padding: 0.45rem 1rem; border-radius: 6px; cursor: pointer;">
               View &amp; Bid
             </button>
           </div>
@@ -1782,7 +1782,7 @@ export const DriverView = {
         <div class="smart-popup-detail-grid"><span>Service</span><strong>${detail}</strong><span>Budget</span><strong>${budget ? `$${budget.toFixed(2)}` : "Open quote"}</strong></div>`,
       actions: [
         { label: "DECLINE", danger: true, onClick: () => { this.dismissRequest(id); this.clearRequestPopupState(); } },
-        { label: "ACCEPT REQUEST", primary: true, onClick: () => this.openBidModal(id) }
+        { label: "ACCEPT REQUEST", primary: true, onClick: () => this.openBidModal(id, job) }
       ]
     });
   },
@@ -1915,18 +1915,18 @@ export const DriverView = {
     if (!(window.location.hash || "").startsWith("#driver")) SmartPopup.clear();
   },
 
-  openBidModal(jobId) {
+  openBidModal(jobId, directJob = null) {
     if (!this.isProfileComplete) {
       const modal = document.getElementById("profile-incomplete-modal");
       if (modal) modal.style.display = "flex";
       return;
     }
 
-    const job = this.availableJobs.find(j => (j.id || j.$id) === jobId);
+    const job = directJob || this.availableJobs.find(j => (j.$id || j.id) === jobId);
     if (!job) return;
 
     this.selectedJobForBid = job;
-    this.selectedRequestId = job.id || job.$id;
+    this.selectedRequestId = job.$id || job.id;
     this.selectedRequest = job;
     this.requestPopupState = "quick_quote";
     this.showQuickQuotePopup();
@@ -1934,7 +1934,7 @@ export const DriverView = {
 
   showQuickQuotePopup() {
     const job = this.selectedRequest;
-    const requestId = this.selectedRequestId;
+    const requestId = this.selectedRequestId || job?.$id || job?.id;
     if (!job || !requestId || this.requestPopupState !== "quick_quote") return false;
 
     const pickup = job.pickup_address || job.pickup_location || "Pickup";
@@ -1963,13 +1963,16 @@ export const DriverView = {
 
           this.requestPopupState = "quote_sending";
           try {
-            await BidService.submitBid({
+            const bidRes = await BidService.submitBid({
               requestId,
               vehicleId: this.primaryVehicle?.id || this.primaryVehicle?.$id || null,
               proposedPrice: price,
               estimatedArrivalMins: Number.isFinite(eta) && eta > 0 ? eta : undefined,
               message
             });
+            if (!bidRes || (!bidRes.$id && !bidRes.id)) {
+              throw new Error("Quotation could not be saved to server.");
+            }
           } catch (error) {
             this.requestPopupState = "quick_quote";
             throw error;
@@ -2035,13 +2038,16 @@ export const DriverView = {
     }
 
     try {
-      await BidService.submitBid({
-        requestId: this.selectedJobForBid.id || this.selectedJobForBid.$id,
+      const bidRes = await BidService.submitBid({
+        requestId: this.selectedJobForBid.$id || this.selectedJobForBid.id,
         vehicleId: this.primaryVehicle?.id || this.primaryVehicle?.$id || null,
         proposedPrice: price,
         estimatedArrivalMins: Number.isNaN(eta) ? undefined : eta,
         message
       });
+      if (!bidRes || (!bidRes.$id && !bidRes.id)) {
+        throw new Error("Quotation could not be saved to server.");
+      }
 
       this.closeBidModal();
       NotificationService.showToast("Quotation sent ✓", "Waiting for passenger response.", "success");

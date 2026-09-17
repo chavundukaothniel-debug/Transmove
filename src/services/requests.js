@@ -152,6 +152,29 @@ export const RequestService = {
       const user = await account.get().catch(() => null);
       if (!user) return [];
 
+      // 1. Try trusted API first (server-side authenticated with user's JWT)
+      try {
+        const jwtRes = await account.createJWT();
+        const endpoint = getTrustedApiEndpoint();
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${jwtRes.jwt}`,
+            "X-Appwrite-JWT": jwtRes.jwt
+          },
+          body: JSON.stringify({ action: "list_passenger_requests" })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const reqs = data.requests || data.documents || [];
+          if (Array.isArray(reqs)) {
+            return reqs.map(doc => this._formatRequest(doc));
+          }
+        }
+      } catch (_) {}
+
+      // 2. Direct Appwrite SDK query as fallback
       const databases = getAppwriteDatabases();
       const res = await databases.listDocuments("transmove", "service_requests", [
         Query.equal("passenger_id", user.$id),

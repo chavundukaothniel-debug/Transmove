@@ -64,18 +64,27 @@ export const BidService = {
    * Returns the created/updated bid document.
    * Throws an error with .subscriptionRequired = true if limit exceeded.
    */
-  async submitBid({ requestId, vehicleId, proposedPrice, currency = "USD", estimatedArrivalMins, message }) {
+  async submitBid({ requestId, vehicleId, proposedPrice, amount, currency = "USD", estimatedArrivalMinutes, estimatedArrivalMins, message }) {
+    const finalPrice = proposedPrice !== undefined && proposedPrice !== null ? proposedPrice : amount;
+    const finalEta = estimatedArrivalMins || estimatedArrivalMinutes || 15;
     if (!requestId) throw new Error("requestId is required to submit a bid.");
-    if (proposedPrice === undefined || proposedPrice === null) throw new Error("proposedPrice is required.");
+    if (finalPrice === undefined || finalPrice === null) throw new Error("proposedPrice is required.");
 
-    return callTrustedApi("create_bid", {
+    const res = await callTrustedApi("create_bid", {
       request_id: requestId,
       vehicle_id: vehicleId || undefined,
-      proposed_price: proposedPrice,
+      proposed_price: finalPrice,
       currency,
-      estimated_arrival_mins: estimatedArrivalMins || 15,
+      estimated_arrival_mins: finalEta,
       message: message || null
     });
+
+    const doc = res?.bid || res;
+    return {
+      ...doc,
+      id: doc?.$id || doc?.id,
+      $id: doc?.$id || doc?.id
+    };
   },
 
   /**
@@ -106,11 +115,22 @@ export const BidService = {
   /**
    * PASSENGER: List all bids received on a specific request.
    * Only the request owner can call this.
-   * Returns { bids, total, request } — each bid enriched with driver profile and vehicle.
+   * Returns the actual array of enriched bids with .total and .request metadata attached.
    */
   async getBidsForRequest(requestId) {
-    if (!requestId) throw new Error("requestId is required.");
-    return callTrustedApi("list_bids_for_request", { request_id: requestId });
+    if (!requestId) throw new Error("requestId is required to fetch bids.");
+    const res = await callTrustedApi("list_bids_for_request", { request_id: requestId });
+    const rawList = Array.isArray(res) ? res : (res?.bids || res?.documents || res?.data || []);
+    const normalizedBids = rawList.map((bid) => ({
+      ...bid,
+      id: bid?.$id || bid?.id,
+      $id: bid?.$id || bid?.id
+    }));
+    // Attach backward-compatible properties so all callers (array or object style) work cleanly
+    normalizedBids.bids = normalizedBids;
+    normalizedBids.total = res?.total ?? normalizedBids.length;
+    normalizedBids.request = res?.request ?? null;
+    return normalizedBids;
   },
 
   /**
