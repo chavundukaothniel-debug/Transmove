@@ -1752,7 +1752,7 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
     );
     const bookingsData = await bookingsRes.json();
     const totalAwardedJobs = (bookingsData.documents || []).filter((b) =>
-      ["confirmed", "driver_arriving", "in_progress", "completed"].includes(b.status)
+      ["confirmed", "driver_arriving", "arrived", "in_progress", "completed"].includes(b.status)
     ).length;
 
     if (totalAwardedJobs >= 5) {
@@ -1808,6 +1808,7 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       driver_id: driverId,
       vehicle_id: bidVehicleId || null,
       amount: parseFloat(data.proposed_price || data.amount || 0),
+      estimated_arrival_minutes: Math.max(1, parseInt(data.estimated_arrival_mins || data.estimated_arrival_minutes || 15, 10)),
       message: data.message ? String(data.message).trim() : null,
       status: "pending",
       updated_at: new Date().toISOString()
@@ -1832,15 +1833,17 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       }
       const updatedBid = await updateRes.json();
 
-      // Ensure request status reflects bids received
-      await fetch(
-        `${creds.endpoint}/databases/transmove/collections/service_requests/documents/${targetReqId}`,
-        {
-          method: "PATCH",
-          headers: serverHeaders,
-          body: JSON.stringify({ data: { status: "bids_received", updated_at: new Date().toISOString() } })
-        }
-      ).catch(() => {});
+      if (reqDoc.status === "bids_received") {
+        const normalizeRes = await fetch(
+          `${creds.endpoint}/databases/transmove/collections/service_requests/documents/${targetReqId}`,
+          {
+            method: "PATCH",
+            headers: serverHeaders,
+            body: JSON.stringify({ data: { status: "open_for_bids", updated_at: new Date().toISOString() } })
+          }
+        );
+        if (!normalizeRes.ok) console.warn("Could not normalize legacy bids_received request state.");
+      }
 
       return { ...updatedBid, id: updatedBid.$id, updated: true };
     }
@@ -1870,22 +1873,27 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
 
     const newBid = await createRes.json();
 
-    // 12. Update service request status to bids_received
-    await fetch(
-      `${creds.endpoint}/databases/transmove/collections/service_requests/documents/${targetReqId}`,
-      {
-        method: "PATCH",
-        headers: serverHeaders,
-        body: JSON.stringify({ data: { status: "bids_received", updated_at: new Date().toISOString() } })
-      }
-    ).catch(() => {});
+    // 12. Keep the request open_for_bids while quotations are pending. Bid
+    // presence is derived from the bids collection rather than duplicated in
+    // the request status.
+    if (reqDoc.status === "bids_received") {
+      const normalizeRes = await fetch(
+        `${creds.endpoint}/databases/transmove/collections/service_requests/documents/${targetReqId}`,
+        {
+          method: "PATCH",
+          headers: serverHeaders,
+          body: JSON.stringify({ data: { status: "open_for_bids", updated_at: new Date().toISOString() } })
+        }
+      );
+      if (!normalizeRes.ok) console.warn("Could not normalize legacy bids_received request state.");
+    }
 
     // 13. Notify the passenger about the new bid
     await createNotification(creds, serverHeaders, {
       userId: reqDoc.passenger_id,
       type: "bid_received",
-      title: "New Offer Received",
-      message: `A driver has submitted an offer of $${parseFloat(bidPayload.amount).toFixed(2)} on your request.`,
+      title: "New quotation received",
+      message: `A driver has submitted a quotation of $${parseFloat(bidPayload.amount).toFixed(2)} on your request.`,
       relatedId: targetReqId
     });
 
@@ -2078,7 +2086,7 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
     );
     const drBookData = await drBookRes.json();
     const driverAwardedJobs = (drBookData.documents || []).filter((b) =>
-      ["confirmed", "driver_arriving", "in_progress", "completed"].includes(b.status)
+      ["confirmed", "driver_arriving", "arrived", "in_progress", "completed"].includes(b.status)
     ).length;
 
     if (driverAwardedJobs >= 5) {
@@ -2098,21 +2106,7 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       }
     }
 
-    // 4. Accept this bid
-    const acceptBidRes = await fetch(
-      `${creds.endpoint}/databases/transmove/collections/bids/documents/${bidId}`,
-      {
-        method: "PATCH",
-        headers: serverHeaders,
-        body: JSON.stringify({ data: { status: "accepted", updated_at: new Date().toISOString() } })
-      }
-    );
-    if (!acceptBidRes.ok) {
-      const err = await acceptBidRes.json();
-      throw new Error(err.message || "Failed to accept bid.");
-    }
-
-    // 5. Reject all competing bids for this request
+    // 4. Load competing bids before starting the short-lived transaction.
     const allBidQ = buildEqualQuery("request_id", bidDoc.request_id);
     const allBidsRes = await fetch(
       `${creds.endpoint}/databases/transmove/collections/bids/documents?queries[]=${allBidQ}`,
@@ -2123,36 +2117,13 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       (b) => b.$id !== bidId && b.status === "pending"
     );
 
-    for (const cb of competingBids) {
-      await fetch(
-        `${creds.endpoint}/databases/transmove/collections/bids/documents/${cb.$id}`,
-        {
-          method: "PATCH",
-          headers: serverHeaders,
-          body: JSON.stringify({ data: { status: "rejected", updated_at: new Date().toISOString() } })
-        }
-      ).catch(() => {}); // Non-fatal: best-effort rejection of competing bids
-    }
-
-    // 6. Update service request to "accepted"
-    await fetch(
-      `${creds.endpoint}/databases/transmove/collections/service_requests/documents/${bidDoc.request_id}`,
-      {
-        method: "PATCH",
-        headers: serverHeaders,
-        body: JSON.stringify({
-          data: {
-            status: "accepted",
-            accepted_bid_id: bidId,
-            updated_at: new Date().toISOString()
-          }
-        })
-      }
-    ).catch(() => {});
-
-    // 7. Create booking record (bookings table uses 'amount', 'accepted_bid_id', 'vehicle_id' required)
+    // 5. Stage the accepted bid, rejected competitors, accepted request and
+    // booking in one real Appwrite database transaction. The unique booking
+    // request_id index is the final concurrency guard against double accepts.
     const finalPrice = bidDoc.amount || 0;
     const tripPin = String(Math.floor(1000 + Math.random() * 9000));
+    const bookingId = `booking_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    const nowIso = new Date().toISOString();
     const bookingPayload = {
       request_id: bidDoc.request_id,
       accepted_bid_id: bidId,
@@ -2162,31 +2133,91 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       amount: finalPrice,
       trip_pin: tripPin,
       status: "confirmed",
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      created_at: nowIso,
+      updated_at: nowIso
     };
 
-    const bookingRes = await fetch(
-      `${creds.endpoint}/databases/transmove/collections/bookings/documents`,
-      {
-        method: "POST",
-        headers: serverHeaders,
-        body: JSON.stringify({
-          documentId: "unique()",
+    const txRes = await fetch(`${creds.endpoint}/databases/transactions`, {
+      method: "POST",
+      headers: serverHeaders,
+      body: JSON.stringify({})
+    });
+    if (!txRes.ok) {
+      const err = await txRes.json().catch(() => ({}));
+      throw new Error(err.message || "Failed to start bid acceptance transaction.");
+    }
+    const transaction = await txRes.json();
+    const transactionId = transaction.$id;
+
+    try {
+      const stageDocument = async (url, method, payload) => {
+        const response = await fetch(url, {
+          method,
+          headers: serverHeaders,
+          body: JSON.stringify({ ...payload, transactionId })
+        });
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          throw new Error(error.message || "Failed to stage bid acceptance operation.");
+        }
+      };
+
+      await stageDocument(
+        `${creds.endpoint}/databases/transmove/collections/bids/documents/${bidId}`,
+        "PATCH",
+        { data: { status: "accepted", updated_at: nowIso } }
+      );
+
+      for (const competingBid of competingBids) {
+        await stageDocument(
+          `${creds.endpoint}/databases/transmove/collections/bids/documents/${competingBid.$id}`,
+          "PATCH",
+          { data: { status: "rejected", updated_at: nowIso } }
+        );
+      }
+
+      await stageDocument(
+        `${creds.endpoint}/databases/transmove/collections/service_requests/documents/${bidDoc.request_id}`,
+        "PATCH",
+        { data: { status: "accepted", updated_at: nowIso } }
+      );
+
+      await stageDocument(
+        `${creds.endpoint}/databases/transmove/collections/bookings/documents`,
+        "POST",
+        {
+          documentId: bookingId,
           data: bookingPayload,
           permissions: [
             `read("user:${passengerId}")`,
             `read("user:${driverId}")`
           ]
-        })
-      }
-    );
+        }
+      );
 
-    if (!bookingRes.ok) {
-      const err = await bookingRes.json();
-      throw new Error(err.message || "Failed to create booking record.");
+      const commitRes = await fetch(`${creds.endpoint}/databases/transactions/${transactionId}`, {
+        method: "PATCH",
+        headers: serverHeaders,
+        body: JSON.stringify({ commit: true })
+      });
+      const commitData = await commitRes.json().catch(() => ({}));
+      if (!commitRes.ok || commitData.status !== "committed") {
+        throw new Error(commitData.message || "Bid acceptance transaction could not be committed.");
+      }
+    } catch (error) {
+      await fetch(`${creds.endpoint}/databases/transactions/${transactionId}`, {
+        method: "PATCH",
+        headers: serverHeaders,
+        body: JSON.stringify({ rollback: true })
+      }).catch(() => {});
+      throw error;
     }
 
+    const bookingRes = await fetch(
+      `${creds.endpoint}/databases/transmove/collections/bookings/documents/${bookingId}`,
+      { headers: serverHeaders }
+    );
+    if (!bookingRes.ok) throw new Error("Booking was committed but could not be reloaded.");
     const booking = await bookingRes.json();
 
     // 8. Notifications for bid acceptance and competing rejections
@@ -2220,7 +2251,7 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       success: true,
       booking: { ...booking, id: booking.$id },
       bookingId: booking.$id,
-      bid: bidDoc,
+      bid: { ...bidDoc, status: "accepted", updated_at: nowIso },
       competing_bids_rejected: competingBids.length
     };
   }
@@ -2409,7 +2440,7 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
 
   // -------------------------------------------------------------
   // ACTION: update_booking_status (DRIVER/PASSENGER STATUS UPDATE)
-  // Allowed driver transitions: confirmed→driver_arriving→in_progress→completed
+  // Allowed driver transitions: confirmed→driver_arriving→arrived→in_progress→completed
   // Allowed passenger transitions: confirmed→cancelled (with reason)
   // -------------------------------------------------------------
   if (action === "update_booking_status") {
@@ -2418,7 +2449,7 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
     if (!bookingId) throw new Error("Missing required parameter: booking_id");
 
     const newStatus = data.status;
-    const validStatuses = ["driver_arriving", "in_progress", "completed", "cancelled"];
+    const validStatuses = ["driver_arriving", "arrived", "in_progress", "completed", "cancelled"];
     if (!validStatuses.includes(newStatus)) {
       throw new Error(`Invalid status '${newStatus}'. Allowed: ${validStatuses.join(", ")}`);
     }
@@ -2438,9 +2469,12 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       throw new Error("Forbidden: You are not a party to this booking.");
     }
 
-    // Business rules: passengers can only cancel confirmed bookings
+    // Business rules: passengers can only cancel before the journey begins.
     if (isPassenger && newStatus !== "cancelled") {
       throw new Error("Passengers may only cancel a booking.");
+    }
+    if (isPassenger && !["confirmed", "driver_arriving"].includes(bkDoc.status)) {
+      throw new Error(`Passengers cannot cancel a booking with status '${bkDoc.status}'.`);
     }
 
     // Drivers cannot cancel via this action (use a separate cancellation flow)
@@ -2450,6 +2484,18 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
 
     if (bkDoc.status === "completed" || bkDoc.status === "cancelled") {
       throw new Error(`Cannot update a booking that is already '${bkDoc.status}'.`);
+    }
+
+    if (isDriver) {
+      const allowedDriverTransitions = {
+        confirmed: ["driver_arriving"],
+        driver_arriving: ["arrived", "in_progress"], // direct PIN start retained for legacy clients
+        arrived: ["in_progress"],
+        in_progress: ["completed"]
+      };
+      if (!(allowedDriverTransitions[bkDoc.status] || []).includes(newStatus)) {
+        throw new Error(`Invalid booking transition '${bkDoc.status}' → '${newStatus}'.`);
+      }
     }
 
     const updateData = {
@@ -2531,14 +2577,17 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
     let notifMsg = `Booking status changed to '${newStatus}'.`;
 
     if (newStatus === "driver_arriving") {
-      notifTitle = "Driver Arriving";
-      notifMsg = "Your driver is arriving at the pickup location.";
+      notifTitle = "Your driver is on the way";
+      notifMsg = "Your driver is on the way to the pickup location.";
+    } else if (newStatus === "arrived") {
+      notifTitle = "Your driver has arrived";
+      notifMsg = "Your driver has arrived at the pickup location. Share the Trip PIN when you are ready to begin.";
     } else if (newStatus === "in_progress") {
-      notifTitle = "Trip Started";
-      notifMsg = "Your trip is now in progress.";
+      notifTitle = "Your journey has started";
+      notifMsg = "Your journey is now in progress.";
     } else if (newStatus === "completed") {
-      notifTitle = "Trip Completed";
-      notifMsg = "Your trip has ended. Thank you for travelling with TransMove!";
+      notifTitle = "Journey completed";
+      notifMsg = "Your journey has been completed. Thank you for travelling with TransMove!";
     } else if (newStatus === "cancelled") {
       notifTitle = "Booking Cancelled";
       notifMsg = `The booking was cancelled by the ${isDriver ? "driver" : "passenger"}.`;
@@ -2546,7 +2595,15 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
 
     await createNotification(creds, serverHeaders, {
       userId: targetUserId,
-      type: "booking_status_changed",
+      type: newStatus === "driver_arriving"
+        ? "driver_en_route"
+        : newStatus === "arrived"
+          ? "driver_arrived"
+          : newStatus === "in_progress"
+            ? "journey_started"
+            : newStatus === "completed"
+              ? "journey_completed"
+              : "booking_status_changed",
       title: notifTitle,
       message: notifMsg,
       relatedId: bookingId
@@ -2607,7 +2664,7 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
     );
     const bookData = await bookRes.json();
     const awardedJobs = (bookData.documents || []).filter((b) =>
-      ["confirmed", "driver_arriving", "in_progress", "completed"].includes(b.status)
+      ["confirmed", "driver_arriving", "arrived", "in_progress", "completed"].includes(b.status)
     ).length;
 
     const freeJobsRemaining = Math.max(0, 5 - awardedJobs);
@@ -3385,7 +3442,7 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
     );
     const bookData = bookRes.ok ? await bookRes.json() : { documents: [] };
     const totalAwardedJobs = (bookData.documents || []).filter((b) =>
-      ["confirmed", "driver_arriving", "in_progress", "completed"].includes(b.status)
+      ["confirmed", "driver_arriving", "arrived", "in_progress", "completed"].includes(b.status)
     ).length;
     const freeJobsUsed = Math.min(5, totalAwardedJobs);
     const freeJobsRemaining = Math.max(0, 5 - totalAwardedJobs);

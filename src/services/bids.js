@@ -4,9 +4,10 @@
 // All privileged mutations are server-side only. Client cannot spoof driver_id,
 // status, or entitlement counts.
 //
-// Supabase offers.js / booking.js remain intact as backup until fully deprecated.
+// Legacy Supabase offer/booking modules remain on disk for unrelated fallback
+// audit only; this live passenger/driver workflow never imports or calls them.
 // ==============================================================================
-import { getAppwriteAccount, getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getAppwriteAccount, getAppwriteClient, getTrustedApiEndpoint } from "../config/appwrite.js";
 
 // ---------------------------------------------------------------------------
 // INTERNAL: Call the trusted API with a JWT for authentication
@@ -128,6 +129,39 @@ export const BidService = {
       bid_id: bidId,
       notes: notes || undefined
     });
+  },
+
+  /**
+   * Subscribe to the protected journey collections. Appwrite only delivers
+   * rows the authenticated user can read; callers still reconcile through the
+   * trusted read endpoints so realtime is an accelerator, never the authority.
+   */
+  subscribeToJourneyUpdates(callback) {
+    if (typeof callback !== "function") return { unsubscribe: () => {} };
+
+    let stopped = false;
+    let unsubscribe = null;
+    try {
+      const client = getAppwriteClient();
+      unsubscribe = client.subscribe([
+        "databases.transmove.collections.service_requests.documents",
+        "databases.transmove.collections.bids.documents",
+        "databases.transmove.collections.bookings.documents"
+      ], (event) => {
+        if (!stopped) callback(event);
+      });
+    } catch (error) {
+      console.warn("Journey realtime unavailable; polling remains active:", error.message);
+    }
+
+    return {
+      unsubscribe: () => {
+        stopped = true;
+        if (typeof unsubscribe === "function") {
+          try { unsubscribe(); } catch (_) {}
+        }
+      }
+    };
   }
 };
 
@@ -155,12 +189,12 @@ export const BookingService = {
 
   /**
    * Update booking status.
-   * DRIVER transitions: confirmed → driver_arriving → in_progress → completed
+   * DRIVER transitions: confirmed → driver_arriving → arrived → in_progress → completed
    * PASSENGER transitions: confirmed → cancelled (only)
    */
   async updateBookingStatus(bookingId, status, options = {}) {
     if (!bookingId) throw new Error("bookingId is required.");
-    const validStatuses = ["driver_arriving", "in_progress", "completed", "cancelled"];
+    const validStatuses = ["driver_arriving", "arrived", "in_progress", "completed", "cancelled"];
     if (!validStatuses.includes(status)) {
       throw new Error(`Invalid status '${status}'. Allowed: ${validStatuses.join(", ")}`);
     }

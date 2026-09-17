@@ -48,6 +48,10 @@ export const DriverView = {
   selectedJobForBid: null,
   selectedVehicleForPhotos: null,
   realtimeChannel: null,
+  realtimeSubscription: null,
+  syncRefreshTimer: null,
+  syncBusy: false,
+  journeyStateSignature: "",
   currentTab: "dashboard", // 'dashboard' | 'available' | 'offers' | 'vehicles' | 'earnings'
 
   async render() {
@@ -717,7 +721,7 @@ export const DriverView = {
       this.monthEarnings = Number(earnings.month || 0);
       this.driverBookings = bookings || [];
       this.driverBids = bids || [];
-      this.activeBooking = (this.driverBookings || []).find(b => ["confirmed", "driver_arriving", "in_progress"].includes(b.status)) || null;
+      this.activeBooking = (this.driverBookings || []).find(b => ["confirmed", "driver_arriving", "arrived", "in_progress"].includes(b.status)) || null;
 
       await this.updateSummaryCardsUI();
       this.renderActiveTripCard();
@@ -737,8 +741,9 @@ export const DriverView = {
 
     const booking = this.activeBooking;
     const statusLabels = {
-      confirmed: "ACCEPTED · EN ROUTE TO PICKUP",
-      driver_arriving: "ARRIVING AT PICKUP",
+      confirmed: "BOOKING ACCEPTED",
+      driver_arriving: "DRIVER EN ROUTE TO PICKUP",
+      arrived: "ARRIVED · WAITING FOR TRIP PIN",
       in_progress: "TRIP IN PROGRESS"
     };
     const displayStatus = statusLabels[booking.status] || booking.status.toUpperCase();
@@ -755,6 +760,12 @@ export const DriverView = {
         </button>
       `;
     } else if (booking.status === "driver_arriving") {
+      nextActionBtn = `
+        <button type="button" class="btn btn-primary btn-sm btn-advance-status" data-booking-id="${booking.id}" data-next-status="arrived" style="background: #2563eb; color: #ffffff; padding: 0.5rem 1rem; border-radius: 6px; font-weight: 700; border: none;">
+          I have arrived 📍
+        </button>
+      `;
+    } else if (booking.status === "arrived") {
       nextActionBtn = `
         <button type="button" class="btn btn-primary btn-sm btn-advance-status" data-booking-id="${booking.id}" data-next-status="in_progress" style="background: #2563eb; color: #ffffff; padding: 0.5rem 1rem; border-radius: 6px; font-weight: 700; border: none;">
           Start Trip 🏁
@@ -1036,7 +1047,7 @@ export const DriverView = {
         BookingService.getDriverBookings().catch(() => [])
       ]);
 
-      const activeList = (bookings || []).filter(b => ["confirmed", "driver_arriving", "in_progress"].includes(b.status));
+      const activeList = (bookings || []).filter(b => ["confirmed", "driver_arriving", "arrived", "in_progress"].includes(b.status));
       const completedList = (bookings || []).filter(b => b.status === "completed");
       const pendingBids = (bids || []).filter(b => b.status === "pending");
       const otherBids = (bids || []).filter(b => b.status !== "pending");
@@ -1238,8 +1249,18 @@ export const DriverView = {
     if (!container) return;
 
     try {
-      const data = await RequestService.getAvailableRequestsForDrivers();
-      this.availableJobs = data || [];
+      const [data, bids] = await Promise.all([
+        RequestService.getAvailableRequestsForDrivers(),
+        BidService.getDriverBids().catch(() => [])
+      ]);
+      const alreadyQuotedRequestIds = new Set(
+        (bids || [])
+          .filter((bid) => ["pending", "accepted"].includes(bid.status))
+          .map((bid) => bid.request_id)
+      );
+      this.availableJobs = (data || []).filter((job) =>
+        !alreadyQuotedRequestIds.has(job.id || job.$id)
+      );
 
       if (this.availableJobs.length === 0) {
         container.innerHTML = `
@@ -1383,10 +1404,49 @@ export const DriverView = {
 
   subscribeToRealtimeJobs() {
     this.stopRealtimeJobs();
+    this.realtimeSubscription = BidService.subscribeToJourneyUpdates(() => {
+      if (this.syncRefreshTimer) clearTimeout(this.syncRefreshTimer);
+      this.syncRefreshTimer = setTimeout(() => {
+        this.syncRefreshTimer = null;
+        this.syncDriverJourneyState().catch(() => {});
+      }, 120);
+    });
     this.realtimeChannel = setInterval(() => {
-      if (!document.getElementById("available-jobs-container")) return;
-      this.loadAvailableJobs().catch(() => {});
-    }, 30000);
+      this.syncDriverJourneyState().catch(() => {});
+    }, 6000);
+  },
+
+  async syncDriverJourneyState() {
+    if (this.syncBusy || !document.querySelector(".driver-dashboard-container")) return;
+    this.syncBusy = true;
+    try {
+      const [availableJobs, bids, bookings] = await Promise.all([
+        RequestService.getAvailableRequestsForDrivers(),
+        BidService.getDriverBids(),
+        BookingService.getDriverBookings()
+      ]);
+      const signature = JSON.stringify({
+        jobs: (availableJobs || []).map((job) => [job.id || job.$id, job.status, job.updated_at]),
+        bids: (bids || []).map((bid) => [bid.id || bid.$id, bid.status, bid.updated_at]),
+        bookings: (bookings || []).map((booking) => [booking.id || booking.$id, booking.status, booking.updated_at])
+      });
+      if (signature === this.journeyStateSignature) return;
+      this.journeyStateSignature = signature;
+
+      this.availableJobs = availableJobs || [];
+      this.driverBids = bids || [];
+      this.driverBookings = bookings || [];
+      this.activeBooking = this.driverBookings.find((booking) =>
+        ["confirmed", "driver_arriving", "arrived", "in_progress"].includes(booking.status)
+      ) || null;
+
+      await this.loadDriverData();
+      await this.loadAvailableJobs();
+      await this.loadRecentActivity();
+      if (this.currentTab === "offers") await this.renderOffersTab();
+    } finally {
+      this.syncBusy = false;
+    }
   },
 
   stopRealtimeJobs() {
@@ -1394,6 +1454,16 @@ export const DriverView = {
       clearInterval(this.realtimeChannel);
       this.realtimeChannel = null;
     }
+    if (this.syncRefreshTimer) clearTimeout(this.syncRefreshTimer);
+    this.syncRefreshTimer = null;
+    this.realtimeSubscription?.unsubscribe?.();
+    this.realtimeSubscription = null;
+    this.syncBusy = false;
+  },
+
+  destroy() {
+    this.stopRealtimeJobs();
+    PresenceService.stopHeartbeat();
   },
 
   openBidModal(jobId) {

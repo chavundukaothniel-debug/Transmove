@@ -1,10 +1,12 @@
 // ==============================================================================
 // TRANSMOVE RIDE & TRANSPORT REQUEST SERVICE
 // Powered by Appwrite Databases (service_requests, request_images) & Trusted API
-// Supabase remains intact as backup during incremental migration
+// Passenger/driver request flow is Appwrite-only. Legacy Supabase modules are
+// intentionally not consulted by this service.
 // ==============================================================================
 import {
   getAppwriteAccount,
+  getAppwriteClient,
   getAppwriteDatabases,
   getAppwriteStorage,
   APPWRITE_CONFIG,
@@ -14,7 +16,6 @@ import {
   Permission,
   Role
 } from "../config/appwrite.js";
-import { getSupabase } from "../config/supabase.js";
 
 export const RequestService = {
   /**
@@ -49,7 +50,6 @@ export const RequestService = {
       status: doc.status || "open_for_bids",
       images: images,
       image_urls: images.map(i => i.view_url || i.url).filter(Boolean),
-      offers: doc.offers || [],
       created_at: doc.created_at,
       updated_at: doc.updated_at
     };
@@ -368,7 +368,27 @@ export const RequestService = {
    * Realtime subscriptions: Passenger can subscribe to changes on their own requests.
    */
   subscribeToRequests(callback) {
-    return { unsubscribe: () => {} };
+    if (typeof callback !== "function") return { unsubscribe: () => {} };
+    let stopped = false;
+    let unsubscribe = null;
+    try {
+      unsubscribe = getAppwriteClient().subscribe(
+        "databases.transmove.collections.service_requests.documents",
+        (event) => {
+          if (!stopped && event?.payload) callback(this._formatRequest(event.payload), event);
+        }
+      );
+    } catch (error) {
+      console.warn("Request realtime unavailable; polling remains active:", error.message);
+    }
+    return {
+      unsubscribe: () => {
+        stopped = true;
+        if (typeof unsubscribe === "function") {
+          try { unsubscribe(); } catch (_) {}
+        }
+      }
+    };
   },
 
   /**

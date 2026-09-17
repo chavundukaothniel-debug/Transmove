@@ -37,6 +37,7 @@ class App {
     this.sidebarCollapsed = localStorage.getItem("transmove_sidebar_collapsed") === "true";
     this.verificationUnsubscribe = null;
     this.verificationRefreshTimer = null;
+    this.activeViewModule = null;
   }
 
   async init() {
@@ -314,6 +315,15 @@ class App {
   }
 
   async render() {
+    if (this.activeViewModule?.destroy) {
+      try {
+        await this.activeViewModule.destroy();
+      } catch (error) {
+        console.warn("View cleanup notice:", error.message);
+      }
+    }
+    this.activeViewModule = null;
+
     const sidebarMount = document.getElementById("sidebar-mount");
     const headerMount = document.getElementById("header-mount");
     const mobileNavMount = document.getElementById("mobile-nav-mount");
@@ -494,6 +504,7 @@ class App {
 
     if (contentContainer) {
       contentContainer.innerHTML = viewHtml;
+      this.activeViewModule = activeViewModule;
 
       if (activeViewModule && activeViewModule.init) {
         await activeViewModule.init(this.currentRoute, this.currentProfile);

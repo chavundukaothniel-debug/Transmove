@@ -431,7 +431,7 @@ async function main() {
 
     console.log(`    BidA status: ${liveBidA?.status}  BidB status: ${liveBidB?.status}  Req status: ${liveReq?.status}  Bookings: ${liveBks.length}`);
 
-    if (liveBidA?.status === "accepted") { pass("atomicAcceptance"); } else { fail("atomicAcceptance", `bidA.status=${liveBidA?.status}`); }
+    if (liveBidA?.status === "accepted" && liveReq?.status === "accepted") { pass("atomicAcceptance"); } else { fail("atomicAcceptance", `bidA.status=${liveBidA?.status} request.status=${liveReq?.status}`); }
     if (!liveBidB || liveBidB?.status === "rejected") { pass("competingBidRejection"); } else { fail("competingBidRejection", `bidB.status=${liveBidB?.status}`); }
     if (liveBks.length === 1) { pass("exactlyOneBooking"); } else { fail("exactlyOneBooking", `${liveBks.length} bookings`); }
     if (liveBks[0]?.passenger_id === pPId && liveBks[0]?.driver_id === dAId) { pass("bookingPassengerAccess"); }
@@ -716,7 +716,8 @@ async function main() {
 
     const transitions = [
       ["confirmed → driver_arriving", "driver_arriving"],
-      ["driver_arriving → in_progress", "in_progress"],
+      ["driver_arriving → arrived", "arrived"],
+      ["arrived → in_progress", "in_progress"],
       ["in_progress → completed", "completed"]
     ];
     let allOk = true;

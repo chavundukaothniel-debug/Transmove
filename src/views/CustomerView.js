@@ -38,7 +38,7 @@ const passengerIcon = (name, size = 20) => {
 };
 
 const OPEN_REQUEST_STATUSES = ["open_for_bids", "bids_received"];
-const ACTIVE_BOOKING_STATUSES = ["confirmed", "driver_arriving", "in_progress"];
+const ACTIVE_BOOKING_STATUSES = ["confirmed", "driver_arriving", "arrived", "in_progress"];
 
 const fileViewUrl = (fileId) => {
   if (!fileId) return "";
@@ -74,8 +74,17 @@ export const CustomerView = {
   destMarker: null,
   routePolyline: null,
   matchingPollInterval: null,
+  matchingRequestId: null,
+  journeyPollInterval: null,
+  journeyRealtimeSubscription: null,
+  notificationRealtimeSubscription: null,
+  journeyRefreshTimer: null,
+  journeySyncBusy: false,
+  journeyStateSignature: "",
+  currentProfile: null,
 
   async render(currentProfile = null) {
+    this.currentProfile = currentProfile;
     const firstName = currentProfile?.full_name?.trim()?.split(/\s+/)[0] || "there";
     const hashParams = new URLSearchParams((window.location.hash.split("?")[1] || ""));
     this.activeTab = {
@@ -721,6 +730,7 @@ export const CustomerView = {
 
         this.pendingRequestMeta = null;
         await this.openRequestMatchingExperience(newReq);
+        this.scheduleJourneySync(0);
       } catch (err) {
         alert("Error publishing request: " + err.message);
       } finally {
@@ -790,6 +800,7 @@ export const CustomerView = {
           }
         } catch (_) {}
       })();
+      await this.startJourneySync();
       return;
     }
 
@@ -798,6 +809,8 @@ export const CustomerView = {
     } else {
       await this.loadOverviewData();
     }
+
+    await this.startJourneySync();
   },
 
   switchTab(tab) {
@@ -834,6 +847,171 @@ export const CustomerView = {
       this.loadFavourites();
     } else if (tab === "notifications") {
       this.loadNotificationsPage();
+    }
+  },
+
+  scheduleJourneySync(delay = 120) {
+    if (this.journeyRefreshTimer) clearTimeout(this.journeyRefreshTimer);
+    this.journeyRefreshTimer = setTimeout(() => {
+      this.journeyRefreshTimer = null;
+      this.syncPassengerJourneyState().catch((error) => {
+        console.warn("Passenger journey refresh notice:", error.message);
+      });
+    }, delay);
+  },
+
+  async startJourneySync() {
+    this.stopJourneySync();
+    const userId = this.currentProfile?.user_id || this.currentProfile?.id;
+
+    this.journeyRealtimeSubscription = BidService.subscribeToJourneyUpdates(() => {
+      this.scheduleJourneySync();
+    });
+
+    if (userId) {
+      this.notificationRealtimeSubscription = NotificationService.subscribeToNotifications(userId, (notification) => {
+        NotificationService.showToast(
+          notification.title || "TransMove update",
+          notification.body || notification.message || "Your journey has been updated.",
+          "info"
+        );
+        this.scheduleJourneySync();
+      });
+    }
+
+    await this.syncPassengerJourneyState({ force: true });
+  },
+
+  stopJourneySync() {
+    if (this.journeyPollInterval) clearInterval(this.journeyPollInterval);
+    if (this.journeyRefreshTimer) clearTimeout(this.journeyRefreshTimer);
+    this.journeyPollInterval = null;
+    this.journeyRefreshTimer = null;
+    this.journeySyncBusy = false;
+
+    this.journeyRealtimeSubscription?.unsubscribe?.();
+    this.notificationRealtimeSubscription?.unsubscribe?.();
+    this.journeyRealtimeSubscription = null;
+    this.notificationRealtimeSubscription = null;
+  },
+
+  destroy() {
+    this.stopJourneySync();
+    if (this.matchingPollInterval) clearInterval(this.matchingPollInterval);
+    this.matchingPollInterval = null;
+    this.matchingRequestId = null;
+    document.getElementById("matching-experience-modal")?.remove();
+  },
+
+  async syncPassengerJourneyState({ force = false } = {}) {
+    if (this.journeySyncBusy || !document.querySelector(".customer-dashboard")) return null;
+    this.journeySyncBusy = true;
+
+    try {
+      const userId = this.currentProfile?.user_id || this.currentProfile?.id;
+      const [requests, bookings, notifications] = await Promise.all([
+        RequestService.getCustomerRequests(),
+        BookingService.getPassengerBookings(),
+        userId ? NotificationService.getNotifications(userId) : []
+      ]);
+
+      const relevantRequests = (requests || []).filter((request) =>
+        ["open_for_bids", "bids_received", "accepted"].includes(request.status)
+      );
+      const bidsByRequest = new Map();
+      await Promise.all(relevantRequests.map(async (request) => {
+        try {
+          const result = await BidService.getBidsForRequest(request.id || request.$id);
+          bidsByRequest.set(request.id || request.$id, result.bids || []);
+        } catch (_) {
+          bidsByRequest.set(request.id || request.$id, []);
+        }
+      }));
+
+      const activeBookings = (bookings || [])
+        .filter((booking) => ACTIVE_BOOKING_STATUSES.includes(booking.status))
+        .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at));
+      const activeBooking = activeBookings[0] || null;
+      const signature = JSON.stringify({
+        requests: relevantRequests.map((request) => [request.id || request.$id, request.status, request.updated_at]),
+        bids: relevantRequests.map((request) => {
+          const requestBids = bidsByRequest.get(request.id || request.$id) || [];
+          return [request.id || request.$id, ...requestBids.map((bid) => [bid.id || bid.$id, bid.status, bid.updated_at])];
+        }),
+        bookings: (bookings || []).map((booking) => [booking.id || booking.$id, booking.request_id, booking.status, booking.updated_at]),
+        notifications: (notifications || []).slice(0, 10).map((notification) => [notification.id || notification.$id, notification.is_read ?? notification.read])
+      });
+      const changed = force || signature !== this.journeyStateSignature;
+      this.journeyStateSignature = signature;
+
+      const shouldPoll = relevantRequests.some((request) => ["open_for_bids", "bids_received", "accepted"].includes(request.status))
+        || Boolean(activeBooking);
+      if (shouldPoll && !this.journeyPollInterval) {
+        this.journeyPollInterval = setInterval(() => {
+          this.syncPassengerJourneyState().catch(() => {});
+        }, 6000);
+      } else if (!shouldPoll && this.journeyPollInterval) {
+        clearInterval(this.journeyPollInterval);
+        this.journeyPollInterval = null;
+      }
+
+      if (!changed) return { requests, bookings, bidsByRequest, notifications, activeBooking };
+
+      const matchingModal = document.getElementById("matching-experience-modal");
+      if (activeBooking && matchingModal?.style.display !== "none") {
+        matchingModal.style.display = "none";
+        if (this.matchingPollInterval) clearInterval(this.matchingPollInterval);
+        this.matchingPollInterval = null;
+        window.location.hash = `#customer?tab=booking-details&id=${activeBooking.id || activeBooking.$id}`;
+        return { requests, bookings, bidsByRequest, notifications, activeBooking };
+      }
+
+      if (matchingModal?.style.display !== "none" && this.matchingRequestId) {
+        const matchingBids = bidsByRequest.get(this.matchingRequestId) || [];
+        const pendingBids = matchingBids.filter((bid) => bid.status === "pending");
+        const acceptedBid = matchingBids.find((bid) => bid.status === "accepted");
+        const banner = document.getElementById("matching-quotes-banner");
+        const viewButton = document.getElementById("btn-matching-view-quotes");
+        const countSpan = document.getElementById("matching-quote-count");
+        if (acceptedBid && banner) {
+          banner.style.background = "#ecfdf5";
+          banner.style.borderColor = "#a7f3d0";
+          banner.style.color = "#065f46";
+          banner.textContent = "Quotation accepted. Preparing your active booking…";
+        } else if (pendingBids.length > 0) {
+          if (banner) {
+            banner.style.background = "#ecfdf5";
+            banner.style.borderColor = "#a7f3d0";
+            banner.style.color = "#065f46";
+            banner.innerHTML = `🎉 <strong>${pendingBids.length} Quotation${pendingBids.length === 1 ? "" : "s"} Received!</strong> Drivers are ready for your review.`;
+          }
+          if (viewButton && countSpan) {
+            countSpan.textContent = String(pendingBids.length);
+            viewButton.style.display = "block";
+          }
+        }
+      }
+
+      if (this.activeTab === "active-bids") {
+        if (activeBooking) {
+          window.location.hash = `#customer?tab=booking-details&id=${activeBooking.id || activeBooking.$id}`;
+        } else {
+          await this.loadActiveBids();
+        }
+      } else if (this.activeTab === "booking-details") {
+        const params = new URLSearchParams((window.location.hash.split("?")[1] || ""));
+        await this.loadBookingDetails(params.get("id") || activeBooking?.id || activeBooking?.$id);
+      } else if (this.activeTab === "bookings") {
+        await this.loadBookings();
+      } else if (this.activeTab === "notifications") {
+        await this.loadNotificationsPage();
+      } else if (this.activeTab === "overview") {
+        await this.loadOverviewData();
+      }
+
+      return { requests, bookings, bidsByRequest, notifications, activeBooking };
+    } finally {
+      this.journeySyncBusy = false;
     }
   },
 
@@ -897,7 +1075,9 @@ export const CustomerView = {
     if (s === "open_for_bids") return "QUOTING";
     if (s === "bids_received" || s === "offers_received" || s === "negotiating") return "QUOTED";
     if (s === "accepted" || s === "confirmed") return "ACCEPTED";
-    if (s === "driver_arriving" || s === "in_progress") return "IN_PROGRESS";
+    if (s === "driver_arriving") return "DRIVER ON THE WAY";
+    if (s === "arrived") return "DRIVER ARRIVED";
+    if (s === "in_progress") return "IN_PROGRESS";
     if (s === "completed") return "COMPLETED";
     if (s === "cancelled") return "CANCELLED";
     return status.toUpperCase();
@@ -978,8 +1158,24 @@ export const CustomerView = {
     if (!container) return;
 
     try {
-      const requests = await RequestService.getCustomerRequests();
-      const openRequests = (requests || []).filter((r) => OPEN_REQUEST_STATUSES.includes(r.status));
+      const [requests, bookings] = await Promise.all([
+        RequestService.getCustomerRequests(),
+        BookingService.getPassengerBookings()
+      ]);
+      const bookingsByRequest = new Map((bookings || []).map((booking) => [booking.request_id, booking]));
+      const activeBooking = (bookings || []).find((booking) => ACTIVE_BOOKING_STATUSES.includes(booking.status));
+      if (activeBooking) {
+        window.location.hash = `#customer?tab=booking-details&id=${activeBooking.id || activeBooking.$id}`;
+        return;
+      }
+
+      // A booking always wins over an older request row. Accepted requests are
+      // shown only during the brief reconciliation window before their booking
+      // becomes readable; they can never fall back to the waiting state.
+      const openRequests = (requests || []).filter((request) =>
+        !bookingsByRequest.has(request.id || request.$id)
+        && (OPEN_REQUEST_STATUSES.includes(request.status) || request.status === "accepted")
+      );
 
       if (openRequests.length === 0) {
         container.innerHTML = renderEmptyState({
@@ -1037,9 +1233,13 @@ export const CustomerView = {
             <div style="background: var(--bg-subtle); padding: 1.25rem; border-radius: var(--radius-md); text-align: center; color: var(--text-muted); font-size: 0.9rem;">
               ⚠️ Quotations could not be loaded for this request. Please try again.
             </div>
-          ` : bidList.length === 0 ? `
+          ` : bidList.length === 0 && OPEN_REQUEST_STATUSES.includes(req.status) ? `
             <div style="background: var(--bg-subtle); padding: 1.25rem; border-radius: var(--radius-md); text-align: center; color: var(--text-muted); font-size: 0.9rem;">
               ⏳ Waiting for nearby verified drivers to submit quotations...
+            </div>
+          ` : bidList.length === 0 ? `
+            <div style="background: var(--bg-subtle); padding: 1.25rem; border-radius: var(--radius-md); text-align: center; color: var(--text-muted); font-size: 0.9rem;">
+              Quotation accepted. Preparing your active booking…
             </div>
           ` : `
             <div class="offers-list">
@@ -1123,9 +1323,11 @@ export const CustomerView = {
           acceptButton.innerText = "Accepting...";
 
           try {
-            await BidService.acceptBid(bidId);
+            const result = await BidService.acceptBid(bidId);
             alert("Quotation accepted! Booking created & assigned to provider.");
-            this.switchTab("bookings");
+            const bookingId = result.bookingId || result.booking?.id || result.booking?.$id;
+            if (!bookingId) throw new Error("The booking was created but no booking ID was returned.");
+            window.location.hash = `#customer?tab=booking-details&id=${bookingId}`;
           } catch (err) {
             if (err.subscriptionRequired) {
               alert("That provider is currently unavailable. Please choose another quotation.");
@@ -1154,7 +1356,7 @@ export const CustomerView = {
       const bookings = await BookingService.getUserBookings();
       const filteredBookings = (bookings || []).filter((booking) => {
         if (filter === "all") return true;
-        if (filter === "upcoming") return ["confirmed", "driver_arriving"].includes(booking.status);
+        if (filter === "upcoming") return ["confirmed", "driver_arriving", "arrived"].includes(booking.status);
         if (filter === "in_progress") return booking.status === "in_progress";
         return booking.status === filter;
       });
@@ -1231,7 +1433,14 @@ export const CustomerView = {
 
       const status = this.getDisplayStatus(booking.status);
       const statusClass = status === "COMPLETED" ? "badge-success" : status === "CANCELLED" ? "badge-neutral" : status === "IN_PROGRESS" ? "badge-info" : "badge-warning";
-      const steps = ["confirmed", "driver_arriving", "in_progress", "completed"];
+      const steps = ["confirmed", "driver_arriving", "arrived", "in_progress", "completed"];
+      const stepLabels = {
+        confirmed: "Booking confirmed",
+        driver_arriving: "Driver is on the way",
+        arrived: "Driver has arrived",
+        in_progress: "Journey in progress",
+        completed: "Journey completed"
+      };
       const currentStep = Math.max(0, steps.indexOf(booking.status));
       const vehicleLabel = booking.vehicle
         ? escapeHtml(`${booking.vehicle.make || ""} ${booking.vehicle.model || ""} · ${booking.vehicle.registration_number || "Registration pending"}`.trim())
@@ -1307,7 +1516,7 @@ export const CustomerView = {
               ${steps.map((step, index) => `
                 <div class="timeline-step ${index <= currentStep ? "complete" : ""} ${index === currentStep ? "current" : ""}">
                   <span class="timeline-dot"></span>
-                  <div><strong>${step.replace("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase())}</strong><small>${index <= currentStep ? "Status recorded" : "Pending"}</small></div>
+                  <div><strong>${stepLabels[step]}</strong><small>${index <= currentStep ? "Status recorded" : "Pending"}</small></div>
                 </div>`).join("")}
             </div>
           </section>
@@ -1566,7 +1775,7 @@ export const CustomerView = {
 
     const categoryTypes = {
       request: ["bid_received", "bid_accepted", "bid_rejected"],
-      booking: ["booking_confirmed", "booking_status_changed", "booking", "trip"],
+      booking: ["booking_confirmed", "booking_status_changed", "driver_en_route", "driver_arrived", "journey_started", "journey_completed", "booking", "trip"],
       message: ["new_message", "message"],
       payment: ["payment", "wallet", "subscription"]
     };
@@ -1579,7 +1788,7 @@ export const CustomerView = {
     const iconFor = (type) => {
       if (type === "new_message" || type === "message") return "chat";
       if (type === "payment" || type === "wallet" || type === "subscription") return "wallet";
-      if (type === "booking_confirmed" || type === "booking_status_changed") return "calendar";
+      if (["booking_confirmed", "booking_status_changed", "driver_en_route", "driver_arrived", "journey_started", "journey_completed"].includes(type)) return "calendar";
       return "bus";
     };
 
@@ -2103,6 +2312,7 @@ export const CustomerView = {
 
   async openRequestMatchingExperience(request) {
     if (!request) return;
+    this.matchingRequestId = request.id || request.$id;
 
     if (this.matchingPollInterval) {
       clearInterval(this.matchingPollInterval);
@@ -2222,6 +2432,7 @@ export const CustomerView = {
         clearInterval(this.matchingPollInterval);
         this.matchingPollInterval = null;
       }
+      this.matchingRequestId = null;
       modal.style.display = "none";
     };
 
@@ -2249,8 +2460,41 @@ export const CustomerView = {
 
     const checkBids = async () => {
       try {
-        const bids = await BidService.getBidsForRequest(request.id || request.$id);
-        const count = bids?.length || 0;
+        const requestId = request.id || request.$id;
+        const [bidResult, bookings, currentRequests] = await Promise.all([
+          BidService.getBidsForRequest(requestId),
+          BookingService.getPassengerBookings(),
+          RequestService.getCustomerRequests()
+        ]);
+        const booking = (bookings || []).find((item) => item.request_id === requestId);
+        if (booking) {
+          closeModal();
+          window.location.hash = `#customer?tab=booking-details&id=${booking.id || booking.$id}`;
+          return;
+        }
+
+        const currentRequest = (currentRequests || []).find((item) => (item.id || item.$id) === requestId);
+        if (currentRequest?.status === "cancelled") {
+          closeModal();
+          this.switchTab("overview");
+          return;
+        }
+
+        const bids = bidResult?.bids || [];
+        const pendingBids = bids.filter((bid) => bid.status === "pending");
+        const acceptedBid = bids.find((bid) => bid.status === "accepted");
+        const count = pendingBids.length;
+
+        if (acceptedBid) {
+          const banner = document.getElementById("matching-quotes-banner");
+          if (banner) {
+            banner.style.background = "#ecfdf5";
+            banner.style.borderColor = "#a7f3d0";
+            banner.style.color = "#065f46";
+            banner.textContent = "Quotation accepted. Preparing your active booking…";
+          }
+          return;
+        }
 
         if (count > 0) {
           const banner = document.getElementById("matching-quotes-banner");
@@ -2288,6 +2532,6 @@ export const CustomerView = {
     };
 
     await checkBids();
-    this.matchingPollInterval = setInterval(checkBids, 4000);
+    this.scheduleJourneySync(0);
   }
 };

@@ -78,7 +78,7 @@ const tables = [
   {
     id: 'bids', name: 'Bids',
     columns: [
-      V('request_id', 64, true), V('driver_id', 64, true), V('vehicle_id', 64, true), F('amount', true), T('message'),
+      V('request_id', 64, true), V('driver_id', 64, true), V('vehicle_id', 64, true), F('amount', true), I('estimated_arrival_minutes'), T('message'),
       V('status', 32, false, 'pending'), D('created_at', true), D('updated_at', true),
     ],
     indexes: [K('idx_request_id', ['request_id']), K('idx_driver_id', ['driver_id']), K('idx_status', ['status']), K('uniq_request_driver', ['request_id', 'driver_id'], true)],
@@ -90,7 +90,7 @@ const tables = [
       V('accepted_bid_id', 64), F('amount', true), V('status', 32, false, 'confirmed'), D('started_at'), D('completed_at'),
       D('created_at', true), D('updated_at', true),
     ],
-    indexes: [K('idx_request_id', ['request_id']), K('idx_passenger_id', ['passenger_id']), K('idx_driver_id', ['driver_id']), K('idx_status', ['status'])],
+    indexes: [K('idx_request_id', ['request_id']), K('uniq_request_id', ['request_id'], true), K('idx_passenger_id', ['passenger_id']), K('idx_driver_id', ['driver_id']), K('idx_status', ['status'])],
   },
   {
     id: 'favourites', name: 'Favourites',
