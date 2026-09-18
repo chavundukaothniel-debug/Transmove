@@ -10,6 +10,7 @@ import {
   getAppwriteStorage,
   APPWRITE_CONFIG,
   getTrustedApiEndpoint,
+  clearAppwriteJWTCache,
   ID,
   Query,
   Permission,
@@ -239,6 +240,7 @@ export const AuthService = {
    * Signs out currently authenticated user from Appwrite.
    */
   async logout() {
+    clearAppwriteJWTCache();
     const account = getAppwriteAccount();
     try {
       await account.deleteSession("current");

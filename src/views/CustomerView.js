@@ -639,7 +639,7 @@ export const CustomerView = {
         await this.setPickup(coords.lat, coords.lng);
         if (btn) btn.innerText = "✓ Found";
       } catch (err) {
-        alert(err.message);
+        NotificationService.showToast("GPS Notice", err.message, "info");
         if (btn) btn.innerText = "📍 GPS";
       } finally {
         if (btn) btn.disabled = false;
@@ -678,65 +678,85 @@ export const CustomerView = {
     document.getElementById("create-request-form")?.addEventListener("submit", async (e) => {
       e.preventDefault();
 
-      const pickupVal = document.getElementById("req-pickup")?.value?.trim();
-      const destVal = document.getElementById("req-dest")?.value?.trim();
-
-      if (!pickupVal) {
-        alert("Please enter a pickup location.");
-        return;
-      }
-
-      if (!destVal) {
-        alert("Please enter a destination.");
+      // Single-submit guard: completely ignore double-clicks and repeated submissions
+      if (this.isPublishingRequest) {
         return;
       }
 
       const submitBtn = document.getElementById("btn-submit-request");
-      submitBtn.disabled = true;
-      submitBtn.innerText = "Publishing...";
+      const pickupVal = document.getElementById("req-pickup")?.value?.trim();
+      const destVal = document.getElementById("req-dest")?.value?.trim();
+
+      if (!pickupVal) {
+        NotificationService.showToast("Pickup Location Required", "Please enter a pickup location.", "error");
+        return;
+      }
+
+      if (!destVal) {
+        NotificationService.showToast("Destination Required", "Please enter a destination.", "error");
+        return;
+      }
+
+      const priceVal = parseFloat(document.getElementById("req-suggested-price")?.value);
+      if (!priceVal || priceVal <= 0) {
+        NotificationService.showToast("Suggested Price Required", "Please enter your suggested price.", "error");
+        return;
+      }
+
+      // Immediately disable button and indicate publishing state
+      this.isPublishingRequest = true;
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerText = "Publishing...";
+      }
 
       try {
+        // Section 2: Request creation must NOT depend on optional map calls.
+        // Use coordinates already resolved in form state without calling geocoding again.
         if (!this.pickupCoords || !this.pickupCoords.lat || !this.pickupCoords.lng) {
-          try {
-            const pResults = await LocationService.searchAddress(pickupVal);
-            if (pResults && pResults.length > 0) {
-              this.pickupCoords = { lat: pResults[0].lat, lng: pResults[0].lng };
-            } else {
+          const cached = LocationService.searchAddressFromCache?.(pickupVal);
+          if (cached && cached.length > 0) {
+            this.pickupCoords = { lat: cached[0].lat, lng: cached[0].lng };
+          } else {
+            try {
+              const pResults = await LocationService.searchAddress(pickupVal);
+              if (pResults && pResults.length > 0) {
+                this.pickupCoords = { lat: pResults[0].lat, lng: pResults[0].lng };
+              } else {
+                this.pickupCoords = { lat: LocationService.DEFAULT_CENTER.lat, lng: LocationService.DEFAULT_CENTER.lng };
+              }
+            } catch (_) {
               this.pickupCoords = { lat: LocationService.DEFAULT_CENTER.lat, lng: LocationService.DEFAULT_CENTER.lng };
             }
-          } catch (_) {
-            this.pickupCoords = { lat: LocationService.DEFAULT_CENTER.lat, lng: LocationService.DEFAULT_CENTER.lng };
           }
         }
 
         if (!this.destCoords || !this.destCoords.lat || !this.destCoords.lng) {
-          try {
-            const dResults = await LocationService.searchAddress(destVal);
-            if (dResults && dResults.length > 0) {
-              this.destCoords = { lat: dResults[0].lat, lng: dResults[0].lng };
-            } else {
+          const cached = LocationService.searchAddressFromCache?.(destVal);
+          if (cached && cached.length > 0) {
+            this.destCoords = { lat: cached[0].lat, lng: cached[0].lng };
+          } else {
+            try {
+              const dResults = await LocationService.searchAddress(destVal);
+              if (dResults && dResults.length > 0) {
+                this.destCoords = { lat: dResults[0].lat, lng: dResults[0].lng };
+              } else {
+                this.destCoords = { lat: this.pickupCoords.lat + 0.05, lng: this.pickupCoords.lng + 0.05 };
+              }
+            } catch (_) {
               this.destCoords = { lat: this.pickupCoords.lat + 0.05, lng: this.pickupCoords.lng + 0.05 };
             }
-          } catch (_) {
-            this.destCoords = { lat: this.pickupCoords.lat + 0.05, lng: this.pickupCoords.lng + 0.05 };
           }
         }
 
+        // Use resolved distance if available; otherwise calculate Haversine distance without external network calls
         if (!this.distanceKm) {
           const dist = LocationService.calculateDistance(this.pickupCoords.lat, this.pickupCoords.lng, this.destCoords.lat, this.destCoords.lng);
           this.distanceKm = (dist && !isNaN(dist)) ? dist : 5.0;
           this.durationMins = LocationService.estimateDuration(this.distanceKm);
         }
 
-        const priceVal = parseFloat(document.getElementById("req-suggested-price").value);
-        if (!priceVal || priceVal <= 0) {
-          alert("Please enter your suggested price.");
-          submitBtn.disabled = false;
-          submitBtn.innerText = "Post Request";
-          return;
-        }
-
-        const serviceType = document.getElementById("req-service-type").value;
+        const serviceType = document.getElementById("req-service-type")?.value || "ride";
         const detailParts = [
           document.getElementById("req-load-desc")?.value?.trim(),
           document.getElementById("req-load-weight")?.value?.trim()
@@ -748,7 +768,11 @@ export const CustomerView = {
           document.getElementById("req-notes")?.value?.trim()
         ].filter(Boolean);
 
+        // Explicit idempotency submission key preserved across any retries
+        const submissionId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
         const newReq = await RequestService.createRequest({
+          submission_id: submissionId,
           service_type: serviceType,
           pickup_location: pickupVal,
           pickup_latitude: this.pickupCoords?.lat || null,
@@ -764,13 +788,38 @@ export const CustomerView = {
         });
 
         this.pendingRequestMeta = null;
+
+        // Button remains disabled while navigation / matching experience loads
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.innerText = "Publishing...";
+        }
+
         await this.openRequestMatchingExperience(newReq);
         this.scheduleJourneySync(0);
+        this.isPublishingRequest = false;
       } catch (err) {
-        alert("Error publishing request: " + err.message);
-      } finally {
-        submitBtn.disabled = false;
-        submitBtn.innerText = "Post Request";
+        console.error("Error publishing request:", err);
+        this.isPublishingRequest = false;
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerText = "Post Request";
+        }
+
+        // Section 8: Improved user error message using in-app toast instead of browser alert()
+        NotificationService.showToast(
+          "Unable to publish request",
+          "We're having trouble reaching one of our services. Your request has not been duplicated.",
+          "error",
+          {
+            actionLabel: "Try Again",
+            duration: 8000,
+            onAction: () => {
+              const btn = document.getElementById("btn-submit-request");
+              if (btn && !btn.disabled) btn.click();
+            }
+          }
+        );
       }
     });
 
@@ -2735,6 +2784,7 @@ export const CustomerView = {
       this.mapInstance.removeLayer(this.routePolyline);
       this.routePolyline = null;
     }
+    this._lastCalculatedRouteKey = null;
     this.distanceKm = null;
     this.durationMins = null;
     
@@ -2809,62 +2859,45 @@ export const CustomerView = {
       return;
     }
 
+    const routeKey = `${Number(this.pickupCoords.lat).toFixed(4)},${Number(this.pickupCoords.lng).toFixed(4)}->${Number(this.destCoords.lat).toFixed(4)},${Number(this.destCoords.lng).toFixed(4)}`;
+    if (this._lastCalculatedRouteKey === routeKey && this.routePolyline && this.distanceKm) {
+      return; // Already drawn with identical coordinates
+    }
+
     if (this.routePolyline) {
       this.mapInstance.removeLayer(this.routePolyline);
       this.routePolyline = null;
     }
 
-    try {
-      const url = `https://router.project-osrm.org/route/v1/driving/${this.pickupCoords.lng},${this.pickupCoords.lat};${this.destCoords.lng},${this.destCoords.lat}?overview=full&geometries=geojson`;
-      const response = await fetch(url);
+    const routeData = await LocationService.calculateRoute(
+      this.pickupCoords.lat,
+      this.pickupCoords.lng,
+      this.destCoords.lat,
+      this.destCoords.lng
+    );
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data.routes && data.routes.length > 0) {
-          const route = data.routes[0];
-          const distKm = parseFloat((route.distance / 1000).toFixed(2));
-          const durMins = Math.ceil(route.duration / 60);
+    if (routeData && routeData.distanceKm) {
+      this.distanceKm = routeData.distanceKm;
+      this.durationMins = routeData.durationMins;
+      this._lastCalculatedRouteKey = routeKey;
 
-          const coords = route.geometry.coordinates.map((c) => [c[1], c[0]]);
-          this.routePolyline = window.L.polyline(coords, {
-            color: "#0284c7",
-            weight: 5,
-            opacity: 0.85,
-            lineJoin: "round"
-          }).addTo(this.mapInstance);
+      const polylineCoords = routeData.source === "osrm"
+        ? routeData.coordinates
+        : [
+            [this.pickupCoords.lat, this.pickupCoords.lng],
+            [this.destCoords.lat, this.destCoords.lng]
+          ];
 
-          this.mapInstance.fitBounds(this.routePolyline.getBounds(), { padding: [50, 50] });
-
-          this.distanceKm = distKm;
-          this.durationMins = durMins;
-          this.updateDistanceUI(`${distKm} km (~${durMins} mins)`);
-          this.validateForm();
-          return;
-        }
-      }
-    } catch (err) {
-      console.warn("OSRM routing service fetch notice:", err.message);
-    }
-
-    const dist = LocationService.calculateDistance(this.pickupCoords.lat, this.pickupCoords.lng, this.destCoords.lat, this.destCoords.lng);
-    const dur = LocationService.estimateDuration(dist);
-
-    if (dist && !isNaN(dist)) {
-      this.distanceKm = dist;
-      this.durationMins = dur;
-
-      this.routePolyline = window.L.polyline([
-        [this.pickupCoords.lat, this.pickupCoords.lng],
-        [this.destCoords.lat, this.destCoords.lng]
-      ], {
-        color: "#059669",
-        weight: 4,
-        dashArray: "8, 8",
-        opacity: 0.8
+      this.routePolyline = window.L.polyline(polylineCoords, {
+        color: routeData.source === "osrm" ? "#0284c7" : "#059669",
+        weight: routeData.source === "osrm" ? 5 : 4,
+        dashArray: routeData.source === "osrm" ? null : "8, 8",
+        opacity: 0.85,
+        lineJoin: "round"
       }).addTo(this.mapInstance);
 
       this.mapInstance.fitBounds(this.routePolyline.getBounds(), { padding: [50, 50] });
-      this.updateDistanceUI(`${dist} km (~${dur} mins)`);
+      this.updateDistanceUI(`${routeData.distanceKm} km (~${routeData.durationMins} mins)`);
       this.validateForm();
     } else {
       this.updateDistanceUI("Unable to calculate this route. Please try selecting the locations again.");
@@ -2918,6 +2951,32 @@ export const CustomerView = {
 
     let timeout = null;
 
+    const renderSuggestions = (results) => {
+      if (!results || results.length === 0) {
+        dropdown.style.display = "none";
+        dropdown.innerHTML = "";
+        return;
+      }
+
+      dropdown.innerHTML = results.map((item) => `
+        <div class="address-suggestion-item" data-lat="${item.lat}" data-lng="${item.lng}" data-address="${item.address.replace(/"/g, '&quot;')}">
+          📍 <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.85rem;">${item.address}</span>
+        </div>
+      `).join("");
+      dropdown.style.display = "block";
+
+      dropdown.querySelectorAll(".address-suggestion-item").forEach((el) => {
+        el.addEventListener("click", () => {
+          const lat = parseFloat(el.getAttribute("data-lat"));
+          const lng = parseFloat(el.getAttribute("data-lng"));
+          const address = el.getAttribute("data-address");
+          onSelectCallback({ lat, lng, address });
+          dropdown.style.display = "none";
+          dropdown.innerHTML = "";
+        });
+      });
+    };
+
     input.addEventListener("input", (e) => {
       clearTimeout(timeout);
       const query = e.target.value.trim();
@@ -2928,32 +2987,18 @@ export const CustomerView = {
         return;
       }
 
+      // Check instant in-memory cache first
+      const cached = LocationService.searchAddressFromCache(query);
+      if (cached && cached.length > 0) {
+        renderSuggestions(cached);
+        return;
+      }
+
+      // 400ms debounce for network searches
       timeout = setTimeout(async () => {
         const results = await LocationService.searchAddress(query);
-        if (results.length === 0) {
-          dropdown.style.display = "none";
-          dropdown.innerHTML = "";
-          return;
-        }
-
-        dropdown.innerHTML = results.map((item) => `
-          <div class="address-suggestion-item" data-lat="${item.lat}" data-lng="${item.lng}" data-address="${item.address.replace(/"/g, '&quot;')}">
-            📍 <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.85rem;">${item.address}</span>
-          </div>
-        `).join("");
-        dropdown.style.display = "block";
-
-        dropdown.querySelectorAll(".address-suggestion-item").forEach((el) => {
-          el.addEventListener("click", () => {
-            const lat = parseFloat(el.getAttribute("data-lat"));
-            const lng = parseFloat(el.getAttribute("data-lng"));
-            const address = el.getAttribute("data-address");
-            onSelectCallback({ lat, lng, address });
-            dropdown.style.display = "none";
-            dropdown.innerHTML = "";
-          });
-        });
-      }, 350);
+        renderSuggestions(results);
+      }, 400);
     });
 
     document.addEventListener("click", (evt) => {
@@ -2985,7 +3030,7 @@ export const CustomerView = {
 
     this.switchTab("new-request");
     this.validateForm();
-    alert("Trip details prefilled. You can review route and submit your new request.");
+    NotificationService.showToast("Trip Details Prefilled", "You can review route and submit your new request.", "info");
   },
 
   async loadSavedAddressChips() {

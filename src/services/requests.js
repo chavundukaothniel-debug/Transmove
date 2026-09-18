@@ -11,6 +11,7 @@ import {
   getAppwriteStorage,
   APPWRITE_CONFIG,
   getTrustedApiEndpoint,
+  clearAppwriteJWTCache,
   ID,
   Query,
   Permission,
@@ -90,7 +91,7 @@ export const RequestService = {
 
   /**
    * Creates a new ride, logistics, or vehicle hire request securely via the trusted API.
-   * Includes idempotency token protection against duplicate submissions.
+   * Includes idempotency token protection against duplicate submissions and controlled 429 retry.
    */
   async createRequest(requestData) {
     const account = getAppwriteAccount();
@@ -100,47 +101,94 @@ export const RequestService = {
     const submissionId =
       requestData.submission_id ||
       requestData.idempotency_key ||
-      `req_${ID.unique()}`;
-
-    const jwtRes = await account.createJWT();
-    const jwt = jwtRes.jwt;
+      `req_${Date.now()}_${ID.unique()}`;
 
     const endpoint = getTrustedApiEndpoint();
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${jwt}`,
-        "X-Appwrite-JWT": jwt
-      },
-      body: JSON.stringify({
-        action: "create_service_request",
-        data: {
-          submission_id: submissionId,
-          service_type: requestData.service_type || requestData.request_type || "ride",
-          pickup_location: requestData.pickup_location || requestData.pickup_address,
-          pickup_latitude: requestData.pickup_latitude ?? requestData.pickup_lat ?? null,
-          pickup_longitude: requestData.pickup_longitude ?? requestData.pickup_lng ?? null,
-          destination: requestData.destination || requestData.destination_address,
-          destination_latitude: requestData.destination_latitude ?? requestData.destination_lat ?? null,
-          destination_longitude: requestData.destination_longitude ?? requestData.destination_lng ?? null,
-          request_date: requestData.request_date || null,
-          preferred_time: requestData.preferred_time || "",
-          passenger_count: requestData.passenger_count || null,
-          goods_type: requestData.goods_type || requestData.cargo_type || "",
-          details: requestData.details || requestData.load_description || requestData.notes || "",
-          budget: requestData.budget !== undefined ? requestData.budget : requestData.suggested_price
-        }
-      })
-    });
+    const delays = [1000, 2000, 4000];
+    const maxAttempts = 3;
+    let lastError = null;
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(err.error || "Failed to create service request via trusted server.");
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const jwtRes = await account.createJWT();
+        const jwt = jwtRes.jwt;
+
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${jwt}`,
+            "X-Appwrite-JWT": jwt
+          },
+          body: JSON.stringify({
+            action: "create_service_request",
+            data: {
+              submission_id: submissionId,
+              service_type: requestData.service_type || requestData.request_type || "ride",
+              pickup_location: requestData.pickup_location || requestData.pickup_address,
+              pickup_latitude: requestData.pickup_latitude ?? requestData.pickup_lat ?? null,
+              pickup_longitude: requestData.pickup_longitude ?? requestData.pickup_lng ?? null,
+              destination: requestData.destination || requestData.destination_address,
+              destination_latitude: requestData.destination_latitude ?? requestData.destination_lat ?? null,
+              destination_longitude: requestData.destination_longitude ?? requestData.destination_lng ?? null,
+              request_date: requestData.request_date || null,
+              preferred_time: requestData.preferred_time || "",
+              passenger_count: requestData.passenger_count || null,
+              goods_type: requestData.goods_type || requestData.cargo_type || "",
+              details: requestData.details || requestData.load_description || requestData.notes || "",
+              budget: requestData.budget !== undefined ? requestData.budget : requestData.suggested_price
+            }
+          })
+        });
+
+        if (res.status === 429) {
+          const retryAfterHeader = res.headers.get("Retry-After");
+          let waitMs = delays[attempt - 1] || 4000;
+          if (retryAfterHeader) {
+            const parsed = parseInt(retryAfterHeader, 10);
+            if (!isNaN(parsed) && parsed > 0) {
+              waitMs = Math.min(parsed * 1000, 10000);
+            }
+          }
+          if (attempt < maxAttempts) {
+            console.warn(`[createRequest] Rate limited (429). Retrying with idempotency key ${submissionId} in ${waitMs}ms (attempt ${attempt}/${maxAttempts})...`);
+            await new Promise((resolve) => setTimeout(resolve, waitMs));
+            continue;
+          }
+          const errData = await res.json().catch(() => ({ error: "Rate limit for the current endpoint has been exceeded." }));
+          throw new Error(errData.error || "Rate limit for the current endpoint has been exceeded.");
+        }
+
+        if (res.status === 401 && attempt < maxAttempts) {
+          clearAppwriteJWTCache();
+          await account.createJWT(true).catch(() => {});
+          continue;
+        }
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }));
+          throw new Error(err.error || "Failed to create service request via trusted server.");
+        }
+
+        const doc = await res.json();
+        return this._formatRequest(doc);
+      } catch (err) {
+        lastError = err;
+        const isRateLimit = err?.code === 429 ||
+          err?.message?.toLowerCase().includes("rate limit") ||
+          err?.type === "general_rate_limit_exceeded";
+
+        if (isRateLimit && attempt < maxAttempts) {
+          const waitMs = delays[attempt - 1] || 4000;
+          console.warn(`[createRequest] 429 rate limit encountered (${err.message}). Retrying with idempotency in ${waitMs}ms (attempt ${attempt}/${maxAttempts})...`);
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+          continue;
+        }
+        throw err;
+      }
     }
 
-    const doc = await res.json();
-    return this._formatRequest(doc);
+    throw lastError || new Error("Failed to create service request after multiple attempts.");
   },
 
   /**

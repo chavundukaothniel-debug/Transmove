@@ -84,44 +84,94 @@ export const LocationService = {
     });
   },
 
+  // In-memory caches for the current browser session
+  _searchCache: new Map(),
+  _reverseCache: new Map(),
+  _routeCache: new Map(),
+
+  /**
+   * Synchronous check for cached geocoding results.
+   */
+  searchAddressFromCache(query) {
+    if (!query) return null;
+    const normalized = query.trim().toLowerCase();
+    const res = this._searchCache.get(normalized);
+    return (res && res.length > 0) ? res : null;
+  },
+
   /**
    * Reverse geocodes coordinates to a human-readable street address using OpenStreetMap Nominatim.
+   * Cached in-memory to prevent repeated network requests.
+   * Tolerates 429 and network errors gracefully.
    */
   async reverseGeocode(lat, lng) {
+    if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return "";
+    const key = `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
+    if (this._reverseCache.has(key)) {
+      return this._reverseCache.get(key);
+    }
+
     try {
       const response = await fetch(
         `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
-        { headers: { "Accept-Language": "en" } }
+        { headers: { "Accept-Language": "en", "User-Agent": "TransMove/1.0 (Ride Logistics Platform)" } }
       );
-      if (!response.ok) throw new Error("Geocoding service unavailable");
+      if (!response.ok) {
+        const fallback = `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
+        this._reverseCache.set(key, fallback);
+        return fallback;
+      }
       const data = await response.json();
-      return data.display_name || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      const address = data.display_name || `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
+      this._reverseCache.set(key, address);
+      return address;
     } catch (err) {
-      console.warn("Reverse geocoding error:", err);
-      return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      console.warn("Reverse geocoding notice:", err.message);
+      const fallback = `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
+      return fallback;
     }
   },
 
   /**
    * Searches for addresses matching a query string, prioritizing Zimbabwe.
+   * Cached in-memory to prevent duplicate calls and respect Nominatim rate limits.
+   * Gracefully returns cached or empty results on 429 without throwing.
    */
   async searchAddress(query) {
     if (!query || query.trim().length < 2) return [];
+    const normalized = query.trim().toLowerCase();
+    if (this._searchCache.has(normalized)) {
+      return this._searchCache.get(normalized);
+    }
+
     try {
-      const zimQuery = query.toLowerCase().includes("zimbabwe") ? query : `${query}, Zimbabwe`;
+      const zimQuery = normalized.includes("zimbabwe") ? query : `${query}, Zimbabwe`;
       const response = await fetch(
         `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(zimQuery)}&limit=6&addressdetails=1`,
-        { headers: { "Accept-Language": "en" } }
+        { headers: { "Accept-Language": "en", "User-Agent": "TransMove/1.0 (Ride Logistics Platform)" } }
       );
-      if (!response.ok) return [];
+      if (!response.ok) {
+        return [];
+      }
       const data = await response.json();
-      return data.map((item) => ({
+      const results = (data || []).map((item) => ({
         address: item.display_name,
         lat: parseFloat(item.lat),
         lng: parseFloat(item.lon)
       }));
+
+      if (results.length > 0) {
+        this._searchCache.set(normalized, results);
+        // Pre-seed reverse cache for resolved coordinates
+        results.forEach((r) => {
+          if (!isNaN(r.lat) && !isNaN(r.lng)) {
+            this._reverseCache.set(`${Number(r.lat).toFixed(5)},${Number(r.lng).toFixed(5)}`, r.address);
+          }
+        });
+      }
+      return results;
     } catch (err) {
-      console.warn("Address search error:", err);
+      console.warn("Address search notice:", err.message);
       return [];
     }
   },
@@ -155,6 +205,59 @@ export const LocationService = {
     const hours = distanceKm / speedKmH;
     const minutes = Math.ceil(hours * 60) + 5;
     return minutes;
+  },
+
+  /**
+   * Resolves driving route between two points with in-memory caching.
+   * Reuses cached route if coordinates match.
+   * Gracefully falls back to Haversine straight-line distance if OSRM is slow or 429.
+   */
+  async calculateRoute(lat1, lon1, lat2, lon2) {
+    if (lat1 == null || lon1 == null || lat2 == null || lon2 == null ||
+        isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2)) {
+      return null;
+    }
+
+    const key = `${Number(lat1).toFixed(4)},${Number(lon1).toFixed(4)}->${Number(lat2).toFixed(4)},${Number(lon2).toFixed(4)}`;
+    if (this._routeCache.has(key)) {
+      return this._routeCache.get(key);
+    }
+
+    try {
+      const url = `https://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson`;
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.routes && data.routes.length > 0) {
+          const route = data.routes[0];
+          const distKm = parseFloat((route.distance / 1000).toFixed(2));
+          const durMins = Math.ceil(route.duration / 60);
+          const coords = route.geometry.coordinates.map((c) => [c[1], c[0]]);
+          const result = {
+            distanceKm: distKm,
+            durationMins: durMins,
+            coordinates: coords,
+            source: "osrm"
+          };
+          this._routeCache.set(key, result);
+          return result;
+        }
+      }
+    } catch (err) {
+      console.warn("OSRM routing notice:", err.message);
+    }
+
+    // Resilient fallback: Haversine distance
+    const dist = this.calculateDistance(lat1, lon1, lat2, lon2);
+    const dur = this.estimateDuration(dist);
+    const result = {
+      distanceKm: dist,
+      durationMins: dur,
+      coordinates: [[lat1, lon1], [lat2, lon2]],
+      source: "haversine"
+    };
+    this._routeCache.set(key, result);
+    return result;
   },
 
   // Saved Locations CRUD
