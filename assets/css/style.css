@@ -1109,6 +1109,270 @@ img {
 .smart-popup-error { margin: 0.75rem 0; padding: 0.65rem 0.75rem; border-radius: 7px; background: rgba(239, 68, 68, 0.1); color: var(--danger); font-size: 0.82rem; }
 .smart-popup-card--sponsored .smart-popup-accent { background: linear-gradient(90deg, #f59e0b, #0b5cff); }
 
+/* ==========================================================================
+   TRANSMOVE SMART SHEET — MODERN NEGOTIATION UI
+   ========================================================================== */
+.smart-sheet-route-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 1rem 0;
+  padding: 1rem 1.15rem;
+  border-radius: 14px;
+  background: var(--bg-subtle, #f8fafc);
+  border: 1px solid var(--border-light, #e2e8f0);
+}
+.smart-sheet-stop {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.smart-sheet-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #0284c7;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.18);
+}
+.smart-sheet-dot--dest {
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18);
+}
+.smart-sheet-arrow-connector {
+  display: flex;
+  align-items: center;
+  margin: -0.1rem 0 -0.1rem 0.28rem;
+  color: #94a3b8;
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.smart-sheet-location-name {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--text-main, #0f172a);
+  word-break: break-word;
+}
+.smart-sheet-budget-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.15rem;
+  margin-bottom: 1.1rem;
+  border-radius: 12px;
+  background: #f0fdf4;
+  border: 1.5px solid #bbf7d0;
+}
+.smart-sheet-budget-card span {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #166534;
+}
+.smart-sheet-budget-card strong {
+  font-size: 1.35rem;
+  font-weight: 900;
+  color: #15803d;
+}
+.smart-sheet-price-editor-wrap {
+  text-align: center;
+  margin: 1rem 0 0.85rem;
+}
+.smart-sheet-price-display-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0.5rem auto 1rem;
+}
+.smart-sheet-currency-symbol {
+  font-size: 2rem;
+  font-weight: 900;
+  color: #059669;
+  margin-right: 0.2rem;
+}
+.smart-sheet-price-number-input {
+  font-size: 2.5rem;
+  font-weight: 900;
+  color: #059669;
+  text-align: center;
+  width: 150px;
+  background: transparent;
+  border: none;
+  border-bottom: 2.5px dashed #059669;
+  outline: none;
+  font-family: inherit;
+  padding: 0 0.25rem;
+}
+.smart-sheet-price-steppers-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+  margin: 0.85rem 0 1.25rem;
+}
+.smart-stepper-pill {
+  padding: 0.7rem 0.85rem;
+  border-radius: 10px;
+  border: 1.5px solid var(--border-light, #cbd5e1);
+  background: var(--bg-surface, #ffffff);
+  color: var(--text-main, #0f172a);
+  font-size: 0.98rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+}
+.smart-stepper-pill:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+  background: #eff6ff;
+  transform: translateY(-1px);
+}
+.smart-stepper-pill:active {
+  transform: translateY(1px);
+}
+.smart-sheet-compact-field {
+  margin-bottom: 0.85rem;
+  text-align: left;
+}
+.smart-sheet-field-label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-muted, #64748b);
+  margin-bottom: 0.35rem;
+}
+.smart-sheet-status-box {
+  text-align: center;
+  padding: 1.25rem 0.5rem;
+}
+.smart-sheet-success-badge {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: #dcfce7;
+  color: #15803d;
+  font-size: 1.9rem;
+  font-weight: 900;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 0.85rem;
+  animation: smartCheckIn 0.3s ease both;
+}
+.smart-sheet-status-heading {
+  font-size: 1.4rem;
+  font-weight: 900;
+  color: var(--text-main, #0f172a);
+  margin: 0 0 0.4rem;
+}
+.smart-sheet-status-price-card {
+  background: var(--bg-subtle, #f8fafc);
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 12px;
+  padding: 0.9rem;
+  margin: 1rem 0;
+}
+.smart-sheet-waiting-text {
+  font-size: 0.9rem;
+  color: var(--text-muted, #64748b);
+  font-weight: 600;
+  margin: 0;
+}
+.smart-sheet-driver-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.75rem;
+  padding: 1.15rem;
+  border-radius: 14px;
+  background: var(--bg-subtle, #f8fafc);
+  border: 1px solid var(--border-light, #e2e8f0);
+  margin: 0.85rem 0;
+}
+.smart-sheet-driver-avatar {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #e0e7ff;
+  display: grid;
+  place-items: center;
+  font-size: 1.3rem;
+  font-weight: 900;
+  color: #4338ca;
+  flex-shrink: 0;
+}
+.smart-sheet-driver-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.smart-sheet-driver-info {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+.smart-sheet-driver-name {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: var(--text-main, #0f172a);
+}
+.smart-sheet-driver-sub {
+  font-size: 0.84rem;
+  color: var(--text-muted, #64748b);
+  margin-top: 0.15rem;
+}
+.smart-sheet-offer-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  text-align: left;
+}
+.smart-sheet-offer-grid-item span {
+  display: block;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #065f46;
+  text-transform: uppercase;
+}
+.smart-sheet-offer-grid-item strong {
+  display: block;
+  font-size: 1.35rem;
+  font-weight: 900;
+  color: #047857;
+  margin-top: 0.1rem;
+}
+[data-theme="dark"] .smart-sheet-route-flow,
+[data-theme="dark"] .smart-sheet-driver-card,
+[data-theme="dark"] .smart-sheet-status-price-card {
+  background: #1e293b;
+  border-color: #334155;
+}
+[data-theme="dark"] .smart-stepper-pill {
+  background: #1e293b;
+  border-color: #334155;
+  color: #f1f5f9;
+}
+[data-theme="dark"] .smart-sheet-budget-card {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(52, 211, 153, 0.35);
+}
+[data-theme="dark"] .smart-sheet-budget-card span { color: #a7f3d0; }
+[data-theme="dark"] .smart-sheet-budget-card strong { color: #34d399; }
+[data-theme="dark"] .smart-sheet-offer-grid {
+  background: rgba(5, 150, 105, 0.15);
+  border-color: rgba(52, 211, 153, 0.3);
+}
+[data-theme="dark"] .smart-sheet-offer-grid-item span { color: #a7f3d0; }
+[data-theme="dark"] .smart-sheet-offer-grid-item strong { color: #34d399; }
+
 @media (max-width: 600px) {
   .smart-popup-backdrop { align-items: flex-end; padding: 0; }
   .smart-popup-card { width: 100%; max-height: min(86vh, calc(100dvh - 72px)); border-radius: 20px 20px 0 0; padding: 1.2rem; padding-bottom: max(1.2rem, env(safe-area-inset-bottom)); overscroll-behavior: contain; }

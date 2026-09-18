@@ -4,7 +4,7 @@
 // payments, and verification documents strictly BYPASSED from cache.
 // ==============================================================================
 
-const CACHE_NAME = "transmove-v1";
+const CACHE_NAME = "transmove-v2";
 const STATIC_ASSETS = [
   "/",
   "/index.html",

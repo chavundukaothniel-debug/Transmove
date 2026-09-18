@@ -316,47 +316,6 @@ export const DriverView = {
           </div>
         </div>
 
-        <!-- MODAL 1: VIEW & BID MODAL -->
-        <div id="view-bid-modal" class="modal-backdrop" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); z-index: 9999; justify-content: center; align-items: center; padding: 1rem;">
-          <div style="background: #ffffff; border-radius: 12px; max-width: 540px; width: 100%; padding: 1.75rem; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); position: relative; max-height: 90vh; overflow-y: auto;">
-            <button type="button" id="btn-close-bid-modal" style="position: absolute; top: 1.25rem; right: 1.25rem; border: none; background: transparent; font-size: 1.25rem; color: #64748b; cursor: pointer;">✕</button>
-
-            <h3 style="font-size: 1.25rem; font-weight: 800; color: #0f172a; margin: 0 0 0.5rem 0;" id="bid-modal-job-title">Job Details</h3>
-            <div style="font-size: 0.875rem; color: #64748b; margin-bottom: 1.25rem;" id="bid-modal-route">Pickup → Destination</div>
-
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem; margin-bottom: 1.25rem;">
-              <div style="font-size: 0.85rem; color: #64748b; margin-bottom: 0.35rem;">Customer Budget</div>
-              <div style="font-size: 1.5rem; font-weight: 800; color: #059669; margin-bottom: 0.75rem;" id="bid-modal-budget">$0.00</div>
-              
-              <div style="font-size: 0.875rem; color: #334155;" id="bid-modal-desc">Job description details...</div>
-              <div style="font-size: 0.8rem; color: #64748b; margin-top: 0.5rem;" id="bid-modal-customer-info">Posted by Customer</div>
-            </div>
-
-            <!-- Bid Form -->
-            <form id="bid-modal-form">
-              <div style="margin-bottom: 1rem;">
-                <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #0f172a; margin-bottom: 0.35rem;">Your Bid Price ($ USD)</label>
-                <input type="number" id="input-bid-price" class="form-input" style="width: 100%; padding: 0.65rem; border: 1px solid #cbd5e1; border-radius: 6px; font-weight: 700; font-size: 1rem;" required step="0.5" />
-              </div>
-
-              <div style="margin-bottom: 1rem;">
-                <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #0f172a; margin-bottom: 0.35rem;">Estimated Arrival Time (Minutes)</label>
-                <input type="number" id="input-bid-eta" class="form-input" style="width: 100%; padding: 0.65rem; border: 1px solid #cbd5e1; border-radius: 6px;" value="15" min="2" max="120" required />
-              </div>
-
-              <div style="margin-bottom: 1.25rem;">
-                <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #0f172a; margin-bottom: 0.35rem;">Optional Note to Customer</label>
-                <input type="text" id="input-bid-message" class="form-input" style="width: 100%; padding: 0.65rem; border: 1px solid #cbd5e1; border-radius: 6px;" placeholder="e.g. Ready immediately with Toyota Aqua" />
-              </div>
-
-              <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
-                <button type="button" id="btn-cancel-bid" class="btn btn-outline" style="border: 1px solid #cbd5e1; color: #475569; padding: 0.65rem 1.25rem; border-radius: 6px; font-weight: 600;">Cancel</button>
-                <button type="submit" id="btn-submit-bid-action" class="btn btn-primary" style="background: #2563eb; color: #ffffff; border: none; padding: 0.65rem 1.5rem; border-radius: 6px; font-weight: 700;">Submit Bid ⚡</button>
-              </div>
-            </form>
-          </div>
-        </div>
-
         <!-- MODAL 2: SUBSCRIPTION REQUIRED MODAL -->
         <div id="sub-required-modal" class="modal-backdrop" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.7); z-index: 9999; justify-content: center; align-items: center; padding: 1rem;">
           <div style="background: #ffffff; border-radius: 12px; max-width: 480px; width: 100%; padding: 2rem; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);">
@@ -672,8 +631,6 @@ export const DriverView = {
       });
 
       // Modal Close Listeners
-      document.getElementById("btn-close-bid-modal")?.addEventListener("click", () => this.closeBidModal());
-      document.getElementById("btn-cancel-bid")?.addEventListener("click", () => this.closeBidModal());
       document.getElementById("btn-close-sub-modal")?.addEventListener("click", () => this.closeSubModal());
       document.getElementById("btn-close-incomplete-modal")?.addEventListener("click", () => {
         document.getElementById("profile-incomplete-modal").style.display = "none";
@@ -692,12 +649,6 @@ export const DriverView = {
       });
       document.getElementById("btn-cancel-doc-upload")?.addEventListener("click", () => {
         document.getElementById("upload-doc-modal").style.display = "none";
-      });
-
-      // Bid Submit
-      document.getElementById("bid-modal-form")?.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        await this.handleBidSubmit();
       });
     } catch (err) {
       console.warn("DriverView init notice:", err.message);
@@ -1946,31 +1897,58 @@ export const DriverView = {
     const id = job.id || job.$id;
     const pickup = escapeHtml(job.pickup_address || job.pickup_location || "Pickup");
     const destination = escapeHtml(job.destination_address || job.destination || "Destination");
-    const detail = escapeHtml(job.load_description || job.details || job.service_type || "Transport request");
+    const rawType = (job.service_type || job.request_type || "ride").toLowerCase();
+    const serviceLabel = rawType === "logistics" ? "Goods" : rawType === "hire" ? "Vehicle Hire" : "Ride";
     const budget = Number(job.suggested_price || job.budget || 0);
     if (this.requestPopupState === "idle") this.requestPopupState = "incoming_request";
-    const created = job.created_at || job.$createdAt;
-    const requestTime = created ? new Intl.DateTimeFormat(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(created)) : "";
+
     const options = {
       userId: this.getPopupUserId(),
       eventKey: force ? undefined : `new-request:${id}:${job.created_at || "live"}`,
       flowKey: `driver-request:${id}`,
-      state: "incoming_request",
-      eyebrow: "New request",
-      title: "NEW REQUEST",
+      state: "incoming",
+      eyebrow: serviceLabel,
+      title: "New trip request",
       minimizable: true,
       pillText: `New request • ${pickup} → ${destination}`,
       pulse: !transition,
-      html: `${this.requestMapHtml(job)}<div class="smart-popup-route"><strong>${pickup}</strong><span>→</span><strong>${destination}</strong></div>
-        <div class="smart-popup-detail-grid"><span>Service</span><strong>${detail}</strong>${budget ? `<span>Passenger budget</span><strong>$${budget.toFixed(2)}</strong>` : ""}${requestTime ? `<span>Posted</span><strong>${escapeHtml(requestTime)}</strong>` : ""}</div>${job.expires_at ? `<p id="smart-request-countdown" class="smart-request-countdown"></p>` : ""}`,
-      onRender: () => { this.initRequestMap(job); this.startRequestCountdown(job); },
+      html: `
+        <div class="smart-sheet-route-flow">
+          <div class="smart-sheet-stop">
+            <span class="smart-sheet-dot"></span>
+            <strong class="smart-sheet-location-name">${pickup}</strong>
+          </div>
+          <div class="smart-sheet-arrow-connector">↓</div>
+          <div class="smart-sheet-stop">
+            <span class="smart-sheet-dot smart-sheet-dot--dest"></span>
+            <strong class="smart-sheet-location-name">${destination}</strong>
+          </div>
+        </div>
+        ${budget > 0 ? `
+          <div class="smart-sheet-budget-card">
+            <span>Passenger budget</span>
+            <strong>$${budget.toFixed(2)}</strong>
+          </div>
+        ` : ""}
+      `,
       actions: [
-        { label: "Not interested", onClick: () => {
-          this.dismissRequest(id);
-          this.clearRequestPopupState();
-          NotificationService.showToast("Request dismissed", "You can restore it for 5 seconds.", "info", { actionLabel: "Undo", duration: 5000, onAction: () => this.undoDismissRequest(id, job) });
-        } },
-        { label: "Make an offer", primary: true, close: false, onClick: () => { this.openBidModal(id, job); return false; } }
+        {
+          label: "Not interested",
+          onClick: () => {
+            this.dismissRequest(id);
+            this.clearRequestPopupState();
+            NotificationService.showToast("Request dismissed", "You can restore it for 5 seconds.", "info", { actionLabel: "Undo", duration: 5000, onAction: () => this.undoDismissRequest(id, job) });
+          }
+        },
+        {
+          label: "Make an offer",
+          primary: true,
+          close: false,
+          onClick: () => {
+            this.openBidModal(id, job);
+            return false;
+          }
+        }
       ]
     };
     return transition ? SmartPopup.update(options) : SmartPopup.open(options);
@@ -1980,119 +1958,242 @@ export const DriverView = {
     const id = bid.id || bid.$id;
     const request = bid.request || {};
     const counterAmount = Number(bid.counter_amount || 0);
+    const originalAmount = Number(bid.amount || 0);
+    this.requestPopupState = "counter_received";
+
     const options = {
       userId: this.getPopupUserId(),
       eventKey: repeat ? undefined : `passenger-counter:${id}:${bid.updated_at || counterAmount}`,
       flowKey: `driver-request:${bid.request_id || request.id || request.$id || id}`,
-      state: "passenger_countered",
+      state: "counter_received",
       eyebrow: "Fare negotiation",
-      title: "PASSENGER COUNTERED",
+      title: "Passenger countered",
       minimizable: true,
       pillText: `Passenger countered • $${counterAmount.toFixed(2)}`,
-      html: `<div class="smart-popup-route"><strong>${escapeHtml(request.pickup_location || "Pickup")}</strong><span>→</span><strong>${escapeHtml(request.destination || "Destination")}</strong></div>
-        <div class="smart-popup-detail-grid"><span>Your quotation</span><strong>$${Number(bid.amount || 0).toFixed(2)}</strong><span>Passenger offer</span><strong>$${counterAmount.toFixed(2)}</strong></div>
-        ${bid.counter_message ? `<p>${escapeHtml(bid.counter_message)}</p>` : ""}
-        <div class="smart-negotiation-history"><span>You offered $${Number(bid.amount || 0).toFixed(2)}</span><span>Passenger countered $${counterAmount.toFixed(2)}</span></div>`,
+      html: `
+        <div class="smart-sheet-status-price-card" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; text-align: center;">
+          <div>
+            <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 700;">Your offer</div>
+            <div style="font-size: 1.45rem; font-weight: 800; color: var(--text-muted); text-decoration: line-through; margin-top: 0.2rem;">$${originalAmount.toFixed(2)}</div>
+          </div>
+          <div style="border-left: 1.5px solid var(--border-light); padding-left: 0.75rem;">
+            <div style="font-size: 0.8rem; color: #166534; font-weight: 800;">Passenger offer</div>
+            <div style="font-size: 1.75rem; font-weight: 900; color: #15803d; margin-top: 0.2rem;">$${counterAmount.toFixed(2)}</div>
+          </div>
+        </div>
+        ${bid.counter_message ? `<p style="font-size: 0.85rem; font-style: italic; color: var(--text-muted); margin: 0.6rem 0 0; text-align: center;">“${escapeHtml(bid.counter_message)}”</p>` : ""}
+      `,
       actions: [
-        { label: "Not interested", danger: true, busyLabel: "Updating…", onClick: async () => { await BidService.declineCounterOffer(id); await this.syncDriverJourneyState(); } },
-        { label: "Counter", close: false, onClick: () => { this.showDriverCounterComposer(bid); return false; } },
-        { label: `Accept $${counterAmount.toFixed(2)}`, primary: true, close: false, busyLabel: "Accepting…", onClick: async () => {
-          await BidService.acceptCounterOffer(id);
-          this.showDriverOfferSentState(bid, counterAmount);
-          NotificationService.showToast("Counter accepted ✓", "Waiting for passenger confirmation.", "success");
-          await this.syncDriverJourneyState();
-          return false;
-        } }
+        {
+          label: "Not interested",
+          danger: true,
+          busyLabel: "Updating…",
+          onClick: async () => {
+            await BidService.declineCounterOffer(id);
+            await this.syncDriverJourneyState();
+          }
+        },
+        {
+          label: "Counter",
+          close: false,
+          onClick: () => {
+            this.showDriverCounterComposer(bid);
+            return false;
+          }
+        },
+        {
+          label: `Accept $${counterAmount.toFixed(2)}`,
+          primary: true,
+          close: false,
+          busyLabel: "Accepting…",
+          onClick: async () => {
+            await BidService.acceptCounterOffer(id);
+            SmartPopup.update({
+              state: "counter_accepted",
+              eyebrow: "Fare accepted",
+              title: `$${counterAmount.toFixed(2)} accepted`,
+              pillText: `$${counterAmount.toFixed(2)} accepted • Waiting`,
+              html: `
+                <div class="smart-sheet-status-box">
+                  <div class="smart-sheet-success-badge">✓</div>
+                  <h3 class="smart-sheet-status-heading">✓ $${counterAmount.toFixed(2)} accepted</h3>
+                  <p class="smart-sheet-waiting-text" style="margin-top: 0.85rem; font-size: 0.95rem;">Waiting for passenger to confirm driver</p>
+                </div>
+              `,
+              actions: []
+            });
+            NotificationService.showToast("Counter accepted ✓", "Waiting for passenger confirmation.", "success");
+            await this.syncDriverJourneyState();
+            return false;
+          }
+        }
       ]
     };
-    return SmartPopup.current?.flowKey === options.flowKey ? SmartPopup.update(options) : SmartPopup.open(options);
+    return SmartPopup.current ? SmartPopup.update(options) : SmartPopup.open(options);
   },
 
   showDriverCounterComposer(bid) {
     const id = bid.id || bid.$id;
-    const suggested = Number(bid.counter_amount || bid.amount || 0);
-    this.requestPopupState = "composing_counter";
+    const passengerOffer = Number(bid.counter_amount || 10);
+    const initialCounter = Math.max(1, passengerOffer + 1);
+    this.requestPopupState = "counter_edit";
+
     SmartPopup.update({
       userId: this.getPopupUserId(),
-      state: "composing_counter",
+      state: "counter_edit",
       eyebrow: "Fare negotiation",
-      title: "MAKE A COUNTER OFFER",
-      html: `<div class="smart-popup-detail-grid"><span>Passenger counter</span><strong>$${Number(bid.counter_amount || 0).toFixed(2)}</strong></div>
-        <label class="smart-popup-field">Your counter${this.renderPriceEditor("driver-counter-amount", suggested)}</label>
-        <label class="smart-popup-field">Message (optional)<textarea id="driver-counter-message" rows="3" placeholder="Add a short note"></textarea></label>`,
+      title: "Counter offer",
+      dismissible: false,
+      minimizable: true,
+      pillText: `Countering • $${initialCounter}`,
+      html: `
+        <div class="smart-sheet-budget-card" style="margin-bottom: 0.5rem; background: var(--bg-subtle); border-color: var(--border-light);">
+          <span style="color: var(--text-muted);">Passenger offered</span>
+          <strong style="color: var(--text-main); font-size: 1.15rem;">$${passengerOffer.toFixed(2)}</strong>
+        </div>
+
+        <div class="smart-sheet-price-editor-wrap">
+          <div class="smart-sheet-price-display-box">
+            <span class="smart-sheet-currency-symbol">$</span>
+            <input type="number" id="smart-driver-counter-price" class="smart-sheet-price-number-input" value="${initialCounter}" step="0.5" min="1" />
+          </div>
+
+          <div class="smart-sheet-price-steppers-grid">
+            <button type="button" class="smart-stepper-pill btn-counter-stepper" data-delta="-1">- $1</button>
+            <button type="button" class="smart-stepper-pill btn-counter-stepper" data-delta="+1">+ $1</button>
+            <button type="button" class="smart-stepper-pill btn-counter-stepper" data-delta="-2">- $2</button>
+            <button type="button" class="smart-stepper-pill btn-counter-stepper" data-delta="+2">+ $2</button>
+          </div>
+        </div>
+
+        <div class="smart-sheet-compact-field">
+          <label class="smart-sheet-field-label" for="smart-driver-counter-msg">Optional message</label>
+          <input type="text" id="smart-driver-counter-msg" class="form-input" style="width: 100%; padding: 0.55rem 0.75rem; border: 1px solid var(--border-light); border-radius: 8px; font-size: 0.88rem;" placeholder="e.g. Best I can do" />
+        </div>
+      `,
       onRender: ({ backdrop }) => {
-        const requestId = bid.request_id || bid.request?.id || bid.request?.$id || id;
-        const draft = this.readDriverDraft();
-        if (draft?.requestId === requestId && draft.state === "composing_counter") {
-          const input = backdrop.querySelector("#driver-counter-amount");
-          const message = backdrop.querySelector("#driver-counter-message");
-          if (input && draft.price) input.value = draft.price;
-          if (message) message.value = draft.message || "";
-        }
-        this.bindPriceEditor(backdrop, "driver-counter-amount", () => this.saveDriverDraft(requestId, "composing_counter", backdrop));
-        backdrop.querySelector("#driver-counter-message")?.addEventListener("input", () => this.saveDriverDraft(requestId, "composing_counter", backdrop));
-        this.saveDriverDraft(requestId, "composing_counter", backdrop);
+        const input = backdrop.querySelector("#smart-driver-counter-price");
+        const sendBtn = backdrop.querySelector(".smart-popup-action.btn-primary");
+        const updateSend = (val) => {
+          const num = Number(val || 0);
+          if (sendBtn) sendBtn.textContent = `Send $${Number.isInteger(num) ? num : num.toFixed(2)} counter`;
+        };
+        input?.addEventListener("input", (e) => updateSend(e.target.value));
+        backdrop.querySelectorAll(".btn-counter-stepper").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const delta = Number(btn.getAttribute("data-delta") || 0);
+            const current = Number(input.value || passengerOffer);
+            const next = Math.max(1, current + delta);
+            input.value = next;
+            updateSend(next);
+          });
+        });
+        updateSend(input?.value || initialCounter);
       },
       actions: [
-        { label: "Back", close: false, onClick: () => { this.showCounterOfferPopup(bid, { repeat: true }); return false; } },
-        { label: "Send counter", primary: true, close: false, busyLabel: "Sending…", onClick: async ({ backdrop }) => {
-          const counterAmount = Number(backdrop.querySelector("#driver-counter-amount")?.value || 0);
-          const message = backdrop.querySelector("#driver-counter-message")?.value?.trim() || "";
-          if (counterAmount <= 0) throw new Error("Enter a valid counter amount.");
-          await BidService.counterBid({ bidId: id, counterAmount, message });
-          this.clearDriverDraft();
-          this.showDriverOfferSentState(bid, counterAmount);
-          NotificationService.showToast("Counter sent ✓", "Waiting for passenger response.", "success");
-          await this.syncDriverJourneyState();
-          return false;
-        } }
+        {
+          label: "Back",
+          close: false,
+          onClick: () => {
+            this.showCounterOfferPopup(bid, { repeat: true });
+            return false;
+          }
+        },
+        {
+          label: `Send $${initialCounter} counter`,
+          primary: true,
+          close: false,
+          busyLabel: "Sending…",
+          onClick: async ({ backdrop }) => {
+            const counterAmount = Number(backdrop.querySelector("#smart-driver-counter-price")?.value || 0);
+            const message = backdrop.querySelector("#smart-driver-counter-msg")?.value?.trim() || "";
+            if (counterAmount <= 0) throw new Error("Enter a valid counter amount.");
+            await BidService.counterBid({ bidId: id, counterAmount, message });
+            this.showDriverOfferSentState(bid, counterAmount);
+            NotificationService.showToast("Counter sent ✓", "Waiting for passenger response.", "success");
+            await this.syncDriverJourneyState();
+            return false;
+          }
+        }
       ]
     });
   },
 
   showDriverOfferSentState(source, amount) {
     const requestId = source.request_id || source.id || source.$id || this.selectedRequestId;
-    const budget = Number(source.request?.budget || source.request?.suggested_price || this.selectedRequest?.budget || this.selectedRequest?.suggested_price || 0);
     this.requestPopupState = "offer_sent";
     this.clearDriverDraft();
+    const formattedAmount = Number.isInteger(Number(amount)) ? String(amount) : Number(amount).toFixed(2);
+
     SmartPopup.update({
       flowKey: `driver-request:${requestId}`,
       state: "offer_sent",
-      eyebrow: "Offer sent",
-      title: "OFFER SENT ✓",
+      eyebrow: "Live quotation",
+      title: "Offer sent",
       minimizable: true,
-      pillText: `Offer $${Number(amount).toFixed(2)} • Waiting`,
-      html: `<div class="smart-popup-success"><span class="smart-popup-success-mark">✓</span><strong>Your offer: $${Number(amount).toFixed(2)}</strong><span>Waiting for passenger…</span></div>${budget ? `<div class="smart-popup-detail-grid"><span>Passenger budget</span><strong>$${budget.toFixed(2)}</strong></div>` : ""}`,
-      actions: [{ label: "View request", primary: true, onClick: () => { window.location.hash = "#driver?tab=offers"; } }]
+      pillText: `$${formattedAmount} offer • Waiting`,
+      autoMinimizeAfter: 2000,
+      html: `
+        <div class="smart-sheet-status-box">
+          <div class="smart-sheet-success-badge">✓</div>
+          <h3 class="smart-sheet-status-heading">✓ Offer sent</h3>
+          <div class="smart-sheet-status-price-card">
+            <div style="font-size: 0.85rem; color: var(--text-muted); font-weight: 700;">Your offer</div>
+            <div style="font-size: 2.2rem; font-weight: 900; color: #059669; margin-top: 0.2rem;">$${formattedAmount}</div>
+          </div>
+          <p class="smart-sheet-waiting-text">Waiting for passenger...</p>
+        </div>
+      `,
+      actions: []
     });
-    setTimeout(() => {
-      if (SmartPopup.current?.flowKey === `driver-request:${requestId}` && SmartPopup.current?.state === "offer_sent") SmartPopup.minimize();
-    }, 2600);
   },
 
   showJobConfirmedPopup(booking, { force = false } = {}) {
     const id = booking.id || booking.$id;
     const requestId = booking.request_id || booking.request?.id || booking.request?.$id || id;
+    const pickup = escapeHtml(booking.request?.pickup_location || "Pickup location");
+    const amount = Number(booking.amount || 0);
+    this.requestPopupState = "job_confirmed";
+
     const options = {
       userId: this.getPopupUserId(),
       eventKey: force ? undefined : `job-confirmed:${id}`,
       flowKey: `driver-request:${requestId}`,
-      state: "accepted",
-      eyebrow: "Booking assigned",
-      title: "YOU GOT THE JOB 🎉",
+      state: "job_confirmed",
+      eyebrow: "🎉 Booking confirmed",
+      title: "You got the job",
       minimizable: true,
-      pillText: `Active job • $${Number(booking.amount || 0).toFixed(2)}`,
-      html: `<div class="smart-popup-route"><strong>${escapeHtml(booking.request?.pickup_location || "Pickup")}</strong><span>→</span><strong>${escapeHtml(booking.request?.destination || "Destination")}</strong></div>
-        <div class="smart-popup-detail-grid"><span>Passenger</span><strong>${escapeHtml(booking.passenger?.full_name || "Passenger")}</strong><span>Fare</span><strong>$${Number(booking.amount || 0).toFixed(2)}</strong><span>Reference</span><strong>${escapeHtml(booking.booking_reference || id)}</strong></div>`,
-      actions: [{ label: "START HEADING TO PICKUP", primary: true, close: false, busyLabel: "Updating…", onClick: async () => {
-        await BookingService.updateBookingStatus(id, "driver_arriving");
-        this.showActiveJobSheet({ ...booking, status: "driver_arriving" });
-        NotificationService.showToast("On the way", "The passenger can now see your status.", "success");
-        await this.syncDriverJourneyState();
-        return false;
-      } }]
+      pillText: `Job confirmed • $${amount.toFixed(2)}`,
+      html: `
+        <div class="smart-sheet-status-box">
+          <div style="font-size: 2.8rem; margin-bottom: 0.5rem;">🎉</div>
+          <h3 class="smart-sheet-status-heading">🎉 You got the job</h3>
+          <div class="smart-sheet-status-price-card">
+            <div style="font-size: 0.82rem; color: var(--text-muted); font-weight: 700;">Agreed fare</div>
+            <div style="font-size: 2.2rem; font-weight: 900; color: #059669; margin-top: 0.2rem;">$${amount.toFixed(2)}</div>
+          </div>
+          <div class="smart-sheet-route-flow" style="margin: 0.75rem 0;">
+            <div class="smart-sheet-stop">
+              <span class="smart-sheet-dot"></span>
+              <div>
+                <span style="font-size: 0.75rem; color: var(--text-muted); display: block;">Pickup</span>
+                <strong class="smart-sheet-location-name">${pickup}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      `,
+      actions: [
+        {
+          label: "Start heading to pickup",
+          primary: true,
+          onClick: () => {
+            window.location.hash = `#driver`;
+          }
+        }
+      ]
     };
-    return SmartPopup.current?.flowKey === options.flowKey ? SmartPopup.update(options) : SmartPopup.open(options);
+    return SmartPopup.update(options);
   },
 
   showActiveJobSheet(booking) {
@@ -2217,8 +2318,8 @@ export const DriverView = {
 
     const pickup = job.pickup_address || job.pickup_location || "Pickup";
     const destination = job.destination_address || job.destination || "Destination";
-    const details = job.notes || job.details || job.load_description || job.service_type || "Transport request";
-    const suggested = Number(job.suggested_price || job.budget || 1);
+    const suggested = Number(job.suggested_price || job.budget || 0);
+    const initialPrice = suggested > 0 ? (suggested === 10 ? 12 : Math.max(1, Math.round(suggested * 1.15) || suggested)) : 12;
     try { this.requestSheetMap?.remove?.(); } catch (_) {}
     this.requestSheetMap = null;
 
@@ -2226,39 +2327,72 @@ export const DriverView = {
       userId: this.getPopupUserId(),
       flowKey: `driver-request:${requestId}`,
       state: "composing_offer",
-      eyebrow: "New request",
-      title: "MAKE YOUR OFFER",
+      eyebrow: "Trip offer",
+      title: "Make your offer",
       dismissible: false,
       minimizable: true,
-      pillText: `Making offer • ${escapeHtml(pickup)} → ${escapeHtml(destination)}`,
-      html: `<div class="smart-popup-route"><strong>${escapeHtml(pickup)}</strong><span>→</span><strong>${escapeHtml(destination)}</strong></div>
-        <div class="smart-popup-detail-grid"><span>Request details</span><strong>${escapeHtml(details)}</strong>${suggested ? `<span>Passenger budget</span><strong>$${suggested.toFixed(2)}</strong>` : ""}</div>
-        <label class="smart-popup-field">Your price${this.renderPriceEditor("quick-quote-price", suggested)}</label>
-        <label class="smart-popup-field">Arrival time (optional)<input id="quick-quote-eta" type="number" min="1" step="1" inputmode="numeric" value="15" placeholder="Minutes"></label>
-        <label class="smart-popup-field">Message (optional)<textarea id="quick-quote-message" rows="2" placeholder="I'll be there shortly"></textarea></label>`,
+      pillText: `Making offer • $${initialPrice}`,
+      html: `
+        ${suggested > 0 ? `
+          <div class="smart-sheet-budget-card">
+            <span>Passenger budget</span>
+            <strong>$${suggested.toFixed(2)}</strong>
+          </div>
+        ` : ""}
+
+        <div class="smart-sheet-price-editor-wrap">
+          <div class="smart-sheet-price-display-box">
+            <span class="smart-sheet-currency-symbol">$</span>
+            <input type="number" id="quick-quote-price" class="smart-sheet-price-number-input" value="${initialPrice}" step="0.5" min="1" />
+          </div>
+
+          <div class="smart-sheet-price-steppers-grid">
+            <button type="button" class="smart-stepper-pill btn-quote-stepper" data-delta="-1">- $1</button>
+            <button type="button" class="smart-stepper-pill btn-quote-stepper" data-delta="+1">+ $1</button>
+            <button type="button" class="smart-stepper-pill btn-quote-stepper" data-delta="-2">- $2</button>
+            <button type="button" class="smart-stepper-pill btn-quote-stepper" data-delta="+2">+ $2</button>
+          </div>
+        </div>
+
+        <div class="smart-sheet-compact-field" style="margin-top: 0.75rem;">
+          <label class="smart-sheet-field-label" for="quick-quote-eta">ETA</label>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <input type="number" id="quick-quote-eta" class="form-input" style="width: 80px; padding: 0.45rem 0.6rem; border: 1px solid var(--border-light); border-radius: 8px; font-weight: 700; text-align: center;" value="8" min="1" max="120" />
+            <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600;">min</span>
+          </div>
+        </div>
+
+        <div class="smart-sheet-compact-field">
+          <label class="smart-sheet-field-label" for="quick-quote-message">Optional message</label>
+          <input type="text" id="quick-quote-message" class="form-input" style="width: 100%; padding: 0.55rem 0.75rem; border: 1px solid var(--border-light); border-radius: 8px; font-size: 0.88rem;" placeholder="e.g. On my way, Toyota Aqua" />
+        </div>
+      `,
       onRender: ({ backdrop }) => {
-        const draft = this.readDriverDraft();
-        if (draft?.requestId === requestId && draft.state === "composing_offer") {
-          const price = backdrop.querySelector("#quick-quote-price");
-          const eta = backdrop.querySelector("#quick-quote-eta");
-          const message = backdrop.querySelector("#quick-quote-message");
-          if (price && draft.price) price.value = draft.price;
-          if (eta && draft.eta) eta.value = draft.eta;
-          if (message) message.value = draft.message || "";
-        }
-        const updateDraft = () => this.saveDriverDraft(requestId, "composing_offer", backdrop);
-        this.bindPriceEditor(backdrop, "quick-quote-price", (amount) => {
-          const sendButton = backdrop.querySelector(".smart-popup-action.btn-primary");
-          if (sendButton) sendButton.textContent = `Send $${amount.toFixed(2)} offer`;
-          updateDraft();
+        const priceInput = backdrop.querySelector("#quick-quote-price");
+        const sendButton = backdrop.querySelector(".smart-popup-action.btn-primary");
+        const updateSend = (val) => {
+          const num = Number(val || 0);
+          const label = Number.isInteger(num) ? String(num) : num.toFixed(2);
+          if (sendButton) sendButton.textContent = `Send $${label} offer`;
+          this.saveDriverDraft(requestId, "composing_offer", backdrop);
+        };
+        priceInput?.addEventListener("input", (e) => updateSend(e.target.value));
+        backdrop.querySelectorAll(".btn-quote-stepper").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const delta = Number(btn.getAttribute("data-delta") || 0);
+            const current = Number(priceInput.value || initialPrice);
+            const next = Math.max(1, current + delta);
+            priceInput.value = next;
+            updateSend(next);
+          });
         });
-        backdrop.querySelector("#quick-quote-eta")?.addEventListener("input", updateDraft);
-        backdrop.querySelector("#quick-quote-message")?.addEventListener("input", updateDraft);
-        updateDraft();
+        backdrop.querySelector("#quick-quote-eta")?.addEventListener("input", () => this.saveDriverDraft(requestId, "composing_offer", backdrop));
+        backdrop.querySelector("#quick-quote-message")?.addEventListener("input", () => this.saveDriverDraft(requestId, "composing_offer", backdrop));
+        updateSend(priceInput?.value || initialPrice);
       },
       actions: [
         { label: "Back", close: false, onClick: () => { this.requestPopupState = "incoming_request"; this.showNewRequestPopup(job, { transition: true }); return false; } },
-        { label: `Send $${suggested.toFixed(2)} offer`, primary: true, close: false, busyLabel: "Sending…", onClick: async ({ backdrop }) => {
+        { label: `Send $${initialPrice} offer`, primary: true, close: false, busyLabel: "Sending…", onClick: async ({ backdrop }) => {
           const price = Number(backdrop.querySelector("#quick-quote-price")?.value || 0);
           const etaValue = backdrop.querySelector("#quick-quote-eta")?.value;
           const eta = etaValue ? Number.parseInt(etaValue, 10) : undefined;

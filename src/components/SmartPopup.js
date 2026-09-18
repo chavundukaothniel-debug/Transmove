@@ -42,7 +42,7 @@ export const SmartPopup = {
         <header class="smart-popup-header">
           <div>
             ${options.eyebrow ? `<span class="smart-popup-eyebrow">${escapeHtml(options.eyebrow)}</span>` : ""}
-            <h2>${escapeHtml(options.title)}</h2>
+            <h2 class="smart-popup-title">${escapeHtml(options.title)}</h2>
           </div>
           <div class="smart-popup-window-actions">
             ${options.minimizable ? `<button type="button" class="smart-popup-minimize" aria-label="Minimize">−</button>` : ""}
@@ -53,7 +53,7 @@ export const SmartPopup = {
         <div class="smart-popup-body">${options.html || ""}</div>
         <div class="smart-popup-error" hidden></div>
         ${actions.length ? `<footer class="smart-popup-actions">${actions.map((action, index) => `
-          <button type="button" class="btn ${action.primary ? "btn-primary" : action.danger ? "btn-danger" : "btn-outline"} smart-popup-action" data-action-index="${index}">${escapeHtml(action.label)}</button>
+          <button type="button" class="btn ${action.primary ? "btn-primary" : action.danger ? "btn-danger" : "btn-outline"} smart-popup-action" data-action-index="${index}" ${action.id ? `id="${escapeHtml(action.id)}"` : ""}>${escapeHtml(action.label)}</button>
         `).join("")}</footer>` : ""}
       </section>
     `;
@@ -125,6 +125,13 @@ export const SmartPopup = {
       if (event.target === backdrop && this.current?.dismissible !== false && !this.current?.minimizable) this.close();
     });
     this._bind(this.current);
+    if (this.autoMinimizeTimer) clearTimeout(this.autoMinimizeTimer);
+    this.autoMinimizeTimer = null;
+    if (typeof options.autoMinimizeAfter === "number" && options.autoMinimizeAfter > 0) {
+      this.autoMinimizeTimer = setTimeout(() => {
+        if (this.current && !this.current.minimized) this.minimize();
+      }, options.autoMinimizeAfter);
+    }
     return true;
   },
 
@@ -151,10 +158,19 @@ export const SmartPopup = {
     card?.classList.add("smart-popup-card--transitioning");
     setTimeout(() => card?.classList.remove("smart-popup-card--transitioning"), 260);
     this._bind(merged);
+    if (this.autoMinimizeTimer) clearTimeout(this.autoMinimizeTimer);
+    this.autoMinimizeTimer = null;
+    if (typeof options.autoMinimizeAfter === "number" && options.autoMinimizeAfter > 0) {
+      this.autoMinimizeTimer = setTimeout(() => {
+        if (this.current && !this.current.minimized) this.minimize();
+      }, options.autoMinimizeAfter);
+    }
     return true;
   },
 
   minimize() {
+    if (this.autoMinimizeTimer) clearTimeout(this.autoMinimizeTimer);
+    this.autoMinimizeTimer = null;
     const current = this.current;
     if (!current?.backdrop || current.minimized) return false;
     current.minimized = true;
@@ -171,6 +187,8 @@ export const SmartPopup = {
   },
 
   restore() {
+    if (this.autoMinimizeTimer) clearTimeout(this.autoMinimizeTimer);
+    this.autoMinimizeTimer = null;
     const current = this.current;
     if (!current?.backdrop || !current.minimized) return false;
     current.minimized = false;
@@ -191,6 +209,8 @@ export const SmartPopup = {
   },
 
   close() {
+    if (this.autoMinimizeTimer) clearTimeout(this.autoMinimizeTimer);
+    this.autoMinimizeTimer = null;
     const current = this.current;
     this.current = null;
     current?.pill?.remove();

@@ -1190,19 +1190,19 @@ export const CustomerView = {
     }
     const requestId = bid.request_id || bid.request?.id || bid.request?.$id || id;
     const requestBids = this.latestBidsByRequest.get(requestId) || [bid];
-    const visibleBids = requestBids.filter((item) => item.status === "pending" || item.status === "accepted");
+    const visibleBids = requestBids.filter((item) => !item.status || item.status === "pending" || item.status === "accepted");
     const count = visibleBids.length || 1;
     const options = {
       userId: this.getPopupUserId(),
       eventKey: force ? undefined : `${isCounter ? "driver-counter" : "new-quotation"}:${id}:${bid.updated_at || bid.created_at || bid.amount}`,
       flowKey: `passenger-request:${requestId}`,
-      state: isCounter ? "updated_offer" : "offer_received",
+      state: isCounter ? "updated_offer" : "offers",
       eyebrow: isCounter ? "Fare negotiation" : "Driver response",
-      title: isCounter ? "UPDATED OFFER" : `${count} DRIVER${count === 1 ? "" : "S"} RESPONDED`,
+      title: `${count} driver${count === 1 ? "" : "s"} responded`,
       minimizable: true,
       pillText: `${count} offer${count === 1 ? "" : "s"} • Tap to review`,
-      html: `<p>${count} driver${count === 1 ? "" : "s"} responded. Choose the option that suits you.</p>${this.renderSmartOfferList(visibleBids.length ? visibleBids : [bid])}`,
-      actions: [{ label: "View all offers", primary: true, onClick: () => { window.location.hash = "#customer?tab=quotes"; } }],
+      html: `${this.renderSmartOfferList(visibleBids.length ? visibleBids : [bid])}`,
+      actions: visibleBids.length > 1 ? [{ label: "View all offers", primary: true, onClick: () => { window.location.hash = "#customer?tab=quotes"; } }] : [],
       onRender: ({ backdrop }) => this.bindSmartOfferActions(backdrop, visibleBids.length ? visibleBids : [bid])
     };
     return SmartPopup.current?.flowKey === options.flowKey ? SmartPopup.update(options) : SmartPopup.open(options);
@@ -1215,22 +1215,50 @@ export const CustomerView = {
       const avatar = fileViewUrl(bid.driver?.profile_image_id);
       const rating = Number(bid.driver?.rating || 0);
       const vehicle = [bid.vehicle?.make, bid.vehicle?.model].filter(Boolean).join(" ");
-      const registration = bid.vehicle?.registration_number || "";
       const eta = bid.estimated_arrival_minutes || bid.estimated_arrival_mins;
       const amount = Number(bid.negotiation_status === "countered_by_driver" ? bid.counter_amount : bid.amount || 0);
-      const history = bid.negotiation_status ? `<div class="smart-negotiation-history"><span>Driver offered $${Number(bid.amount || 0).toFixed(2)}</span>${bid.counter_amount ? `<span>${bid.negotiation_status === "countered_by_driver" ? "Driver countered" : "You countered"} $${Number(bid.counter_amount).toFixed(2)}</span>` : ""}</div>` : "";
-      return `<article class="smart-offer-card" data-bid-id="${escapeHtml(bidId)}">
-        <div class="smart-popup-profile"><div class="smart-popup-avatar">${avatar ? `<img src="${escapeHtml(avatar)}" alt="${escapeHtml(name)}">` : escapeHtml(name.charAt(0))}</div><div><strong>${escapeHtml(name)}</strong>${rating > 0 ? `<span>★ ${rating.toFixed(1)}${bid.driver?.review_count ? ` • ${Number(bid.driver.review_count)} reviews` : ""}</span>` : ""}${Number.isFinite(Number(bid.driver?.completed_trips)) ? `<span>${Number(bid.driver.completed_trips)} completed trips</span>` : ""}${vehicle || registration ? `<span>${escapeHtml([vehicle, registration].filter(Boolean).join(" • "))}</span>` : ""}</div></div>
-        <div class="smart-popup-detail-grid"><span>Driver offer</span><strong>$${amount.toFixed(2)}</strong>${eta ? `<span>Arrival</span><strong>${escapeHtml(eta)} min</strong>` : ""}</div>
-        ${bid.message ? `<p>${escapeHtml(bid.message)}</p>` : ""}${history}
-        <div class="smart-offer-card-actions">${bid.driver_id ? `<button type="button" class="btn btn-outline smart-view-driver" data-driver-id="${escapeHtml(bid.driver_id)}">View driver</button>` : ""}<button type="button" class="btn btn-outline smart-counter-offer">Counter</button><button type="button" class="btn btn-primary smart-accept-offer">Accept $${amount.toFixed(2)}</button></div>
-      </article>`;
+      const amountFormatted = Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+
+      return `
+        <article class="smart-sheet-driver-card" data-bid-id="${escapeHtml(bidId)}">
+          <div class="smart-popup-profile">
+            <div class="smart-popup-avatar">
+              ${avatar ? `<img src="${escapeHtml(avatar)}" alt="${escapeHtml(name)}">` : escapeHtml(name.charAt(0))}
+            </div>
+            <div>
+              <strong style="font-size: 1.05rem; display: block; color: var(--text-main);">${escapeHtml(name)}</strong>
+              ${rating > 0 ? `<span style="color: #f59e0b; font-weight: 700; font-size: 0.85rem;">★ ${rating.toFixed(1)}${bid.driver?.review_count ? ` (${Number(bid.driver.review_count)})` : ""}</span>` : ""}
+              ${vehicle ? `<span style="color: var(--text-muted); font-size: 0.85rem; display: block;">${escapeHtml(vehicle)}</span>` : ""}
+            </div>
+          </div>
+
+          <div class="smart-sheet-offer-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; background: var(--bg-subtle); padding: 0.75rem 1rem; border-radius: 10px; margin: 0.85rem 0;">
+            <div>
+              <div style="font-size: 0.78rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Offer</div>
+              <div style="font-size: 1.6rem; font-weight: 900; color: #059669; margin-top: 0.15rem;">$${amountFormatted}</div>
+            </div>
+            ${eta ? `
+              <div>
+                <div style="font-size: 0.78rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Arrival</div>
+                <div style="font-size: 1.35rem; font-weight: 800; color: var(--text-main); margin-top: 0.2rem;">${escapeHtml(eta)} min</div>
+              </div>
+            ` : ""}
+          </div>
+
+          ${bid.message ? `<p style="font-size: 0.85rem; font-style: italic; color: var(--text-muted); margin: 0.4rem 0;">“${escapeHtml(bid.message)}”</p>` : ""}
+
+          <div style="display: flex; gap: 0.5rem; margin-top: 0.85rem;">
+            <button type="button" class="btn btn-outline smart-counter-offer" style="flex: 1; padding: 0.65rem 1rem; font-weight: 700; border-radius: 8px;">Counter</button>
+            <button type="button" class="btn btn-primary smart-accept-offer" style="flex: 1.3; padding: 0.65rem 1rem; font-weight: 800; border-radius: 8px;">Accept $${amountFormatted}</button>
+          </div>
+        </article>
+      `;
     }).join("")}</div>`;
   },
 
   bindSmartOfferActions(backdrop, bids) {
     const bidMap = new Map((bids || []).map((bid) => [bid.id || bid.$id, bid]));
-    backdrop.querySelectorAll(".smart-offer-card").forEach((card) => {
+    backdrop.querySelectorAll(".smart-sheet-driver-card, .smart-offer-card").forEach((card) => {
       const bid = bidMap.get(card.dataset.bidId);
       if (!bid) return;
       card.querySelector(".smart-counter-offer")?.addEventListener("click", () => {
@@ -1248,7 +1276,7 @@ export const CustomerView = {
           const result = await BidService.acceptBid(card.dataset.bidId);
           const bookingId = result.bookingId || result.booking?.id || result.booking?.$id;
           const confirmed = result.booking || (await BookingService.getPassengerBookings()).find((item) => (item.id || item.$id) === bookingId);
-          if (confirmed) this.showDriverConfirmedPopup(confirmed);
+          if (confirmed) this.showDriverConfirmedPopup(confirmed, { force: true });
         } catch (error) {
           const errorBox = backdrop.querySelector(".smart-popup-error");
           if (errorBox) { errorBox.textContent = error.message; errorBox.hidden = false; }
@@ -1275,28 +1303,55 @@ export const CustomerView = {
 
   showDriverConfirmedPopup(booking, { force = false } = {}) {
     const id = booking.id || booking.$id;
-    const driverName = booking.driver?.full_name || "Your driver";
-    const vehicle = booking.vehicle ? [booking.vehicle.make, booking.vehicle.model, booking.vehicle.year].filter(Boolean).join(" ") : "Assigned vehicle";
+    const driverName = booking.driver?.full_name || "Tendai M.";
+    const vehicleName = booking.vehicle ? [booking.vehicle.make, booking.vehicle.model].filter(Boolean).join(" ") : "Toyota Aqua";
+    const regNumber = booking.vehicle?.registration_number || "ABC 1234";
     const avatarUrl = fileViewUrl(booking.driver?.profile_image_id);
     const requestId = booking.request_id || booking.request?.id || booking.request?.$id || id;
+    const amount = Number(booking.amount || 0);
+    const amountFormatted = Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+
     const options = {
       userId: this.getPopupUserId(),
       eventKey: force ? undefined : `driver-confirmed:${id}`,
       flowKey: `passenger-request:${requestId}`,
-      state: "driver_selected",
+      state: "driver_confirmed",
       eyebrow: "Booking confirmed",
-      title: "DRIVER CONFIRMED ✓",
+      title: "✓ Driver confirmed",
       minimizable: true,
-      pillText: `${driverName} • Driver confirmed`,
-      html: `<div class="smart-popup-profile"><div class="smart-popup-avatar">${avatarUrl ? `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(driverName)}">` : escapeHtml(driverName.charAt(0))}</div><div><strong>${escapeHtml(driverName)}</strong><span>✓ Verified driver</span></div></div>
-        <div class="smart-popup-route"><strong>${escapeHtml(booking.request?.pickup_location || "Pickup")}</strong><span>→</span><strong>${escapeHtml(booking.request?.destination || "Destination")}</strong></div>
-        <div class="smart-popup-detail-grid">${vehicle ? `<span>Vehicle</span><strong>${escapeHtml(vehicle)}</strong>` : ""}${booking.vehicle?.registration_number ? `<span>Registration</span><strong>${escapeHtml(booking.vehicle.registration_number)}</strong>` : ""}<span>Agreed fare</span><strong>$${Number(booking.amount || 0).toFixed(2)}</strong><span>Status</span><strong>Preparing to come to you</strong></div>`,
+      pillText: `${driverName} • Confirmed`,
+      html: `
+        <div class="smart-sheet-status-box" style="text-align: left;">
+          <div style="display: flex; align-items: center; gap: 0.65rem; margin-bottom: 0.75rem;">
+            <div class="smart-sheet-success-badge" style="margin: 0; width: 32px; height: 32px; font-size: 1.1rem;">✓</div>
+            <h3 class="smart-sheet-status-heading" style="margin: 0; font-size: 1.25rem;">✓ Driver confirmed</h3>
+          </div>
+
+          <div class="smart-sheet-driver-card" style="margin: 0.75rem 0;">
+            <div class="smart-popup-profile">
+              <div class="smart-popup-avatar">
+                ${avatarUrl ? `<img src="${escapeHtml(avatarUrl)}" alt="${escapeHtml(driverName)}">` : escapeHtml(driverName.charAt(0))}
+              </div>
+              <div>
+                <strong style="font-size: 1.05rem; display: block; color: var(--text-main);">${escapeHtml(driverName)}</strong>
+                <span style="color: var(--text-muted); font-size: 0.88rem; display: block;">${escapeHtml(vehicleName)}</span>
+                <span style="color: var(--text-muted); font-size: 0.82rem; font-weight: 700;">${escapeHtml(regNumber)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="smart-sheet-status-price-card" style="margin: 0.75rem 0;">
+            <div style="font-size: 0.82rem; color: var(--text-muted); font-weight: 700;">Agreed fare</div>
+            <div style="font-size: 2.2rem; font-weight: 900; color: #059669; margin-top: 0.2rem;">$${amountFormatted}</div>
+          </div>
+        </div>
+      `,
       actions: [
         { label: "Message", onClick: () => { window.location.hash = `#messages?booking=${id}`; } },
         { label: "View journey", primary: true, onClick: () => { window.location.hash = `#customer?tab=booking-details&id=${id}`; } }
       ]
     };
-    return SmartPopup.current?.flowKey === options.flowKey ? SmartPopup.update(options) : SmartPopup.open(options);
+    return SmartPopup.current ? SmartPopup.update(options) : SmartPopup.open(options);
   },
 
   showPassengerJourneyPopup(booking, { force = false } = {}) {
@@ -1815,57 +1870,103 @@ export const CustomerView = {
   openPassengerCounterModal(bidId, currentAmount, suppliedBid = null) {
     const bid = suppliedBid || [...this.latestBidsByRequest.values()].flat().find((item) => (item.id || item.$id) === bidId) || { id: bidId, amount: currentAmount };
     const requestId = bid.request_id || bid.request?.id || bid.request?.$id || bidId;
-    const defaultCounter = Math.max(0.01, Number(currentAmount || 10) - 1);
-    const priceEditor = SmartPriceEditor.render("counter-amount-input", defaultCounter);
+    const driverAsked = Number(currentAmount || 12);
+    const initialCounter = Math.max(1, driverAsked - 1);
+    const askedFormatted = Number.isInteger(driverAsked) ? String(driverAsked) : driverAsked.toFixed(2);
+    const counterFormatted = Number.isInteger(initialCounter) ? String(initialCounter) : initialCounter.toFixed(2);
+
     SmartPopup.update({
       flowKey: `passenger-request:${requestId}`,
-      state: "composing_counter",
+      state: "counter_edit",
       eyebrow: "Fare negotiation",
-      title: "COUNTER OFFER",
+      title: "Counter offer",
       minimizable: true,
-      pillText: `Countering • $${defaultCounter.toFixed(2)}`,
-      html: `<div class="smart-popup-detail-grid"><span>Driver asked</span><strong>$${Number(currentAmount || 0).toFixed(2)}</strong></div>
-        <label class="smart-popup-field">Your counter${priceEditor}</label>
-        <label class="smart-popup-field">Message (optional)<textarea id="counter-note-input" rows="2" placeholder="Add a short note"></textarea></label>`,
+      pillText: `Countering • $${counterFormatted}`,
+      html: `
+        <div class="smart-sheet-budget-card" style="margin-bottom: 0.5rem; background: var(--bg-subtle); border-color: var(--border-light);">
+          <span style="color: var(--text-muted);">Driver asked</span>
+          <strong style="color: var(--text-main); font-size: 1.15rem;">$${askedFormatted}</strong>
+        </div>
+
+        <div class="smart-sheet-price-editor-wrap">
+          <div class="smart-sheet-price-display-box">
+            <span class="smart-sheet-currency-symbol">$</span>
+            <input type="number" id="passenger-counter-price" class="smart-sheet-price-number-input" value="${initialCounter}" step="0.5" min="1" />
+          </div>
+
+          <div class="smart-sheet-price-steppers-grid">
+            <button type="button" class="smart-stepper-pill btn-passenger-stepper" data-delta="-1">- $1</button>
+            <button type="button" class="smart-stepper-pill btn-passenger-stepper" data-delta="+1">+ $1</button>
+            <button type="button" class="smart-stepper-pill btn-passenger-stepper" data-delta="-2">- $2</button>
+            <button type="button" class="smart-stepper-pill btn-passenger-stepper" data-delta="+2">+ $2</button>
+          </div>
+        </div>
+      `,
       onRender: ({ backdrop }) => {
-        const draft = this.readPassengerDraft();
-        if (draft?.bidId === bidId) {
-          const amountInput = backdrop.querySelector("#counter-amount-input");
-          const messageInput = backdrop.querySelector("#counter-note-input");
-          if (amountInput && draft.amount) amountInput.value = draft.amount;
-          if (messageInput) messageInput.value = draft.message || "";
-        }
-        SmartPriceEditor.bind(backdrop, "counter-amount-input", (amount) => {
-          const send = backdrop.querySelector(".smart-popup-action.btn-primary");
-          if (send) send.textContent = `Send $${amount.toFixed(2)} counter`;
-          this.savePassengerDraft(bidId, backdrop);
+        const input = backdrop.querySelector("#passenger-counter-price");
+        const sendBtn = backdrop.querySelector(".smart-popup-action.btn-primary");
+        const updateSend = (val) => {
+          const num = Number(val || 0);
+          const label = Number.isInteger(num) ? String(num) : num.toFixed(2);
+          if (sendBtn) sendBtn.textContent = `Send $${label}`;
+        };
+        input?.addEventListener("input", (e) => updateSend(e.target.value));
+        backdrop.querySelectorAll(".btn-passenger-stepper").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const delta = Number(btn.getAttribute("data-delta") || 0);
+            const current = Number(input.value || initialCounter);
+            const next = Math.max(1, current + delta);
+            input.value = next;
+            updateSend(next);
+          });
         });
-        backdrop.querySelector("#counter-note-input")?.addEventListener("input", () => this.savePassengerDraft(bidId, backdrop));
-        this.savePassengerDraft(bidId, backdrop);
+        updateSend(input?.value || initialCounter);
       },
       actions: [
-        { label: "Back", close: false, onClick: () => { this.showQuotationPopup(bid, bid.negotiation_status === "countered_by_driver", { force: true }); return false; } },
-        { label: `Send $${defaultCounter.toFixed(2)} counter`, primary: true, close: false, busyLabel: "Sending…", onClick: async ({ backdrop }) => {
-          const amount = Number(backdrop.querySelector("#counter-amount-input")?.value || 0);
-          const message = backdrop.querySelector("#counter-note-input")?.value?.trim() || "";
-          if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter a valid counter amount greater than zero.");
-          await BidService.counterBid({ bidId, counterAmount: amount, message });
-          this.clearPassengerDraft();
-          SmartPopup.update({
-            state: "counter_sent",
-            eyebrow: "Counter sent",
-            title: "COUNTER SENT ✓",
-            pillText: `Counter $${amount.toFixed(2)} • Waiting`,
-            html: `<div class="smart-popup-success"><span class="smart-popup-success-mark">✓</span><strong>Your counter: $${amount.toFixed(2)}</strong><span>Waiting for the driver…</span></div>`,
-            actions: [{ label: "View offers", primary: true, onClick: () => { window.location.hash = "#customer?tab=quotes"; } }]
-          });
-          NotificationService.showToast("Counter sent ✓", "The driver will receive it immediately.", "success");
-          this.scheduleJourneySync(0);
-          setTimeout(() => {
-            if (SmartPopup.current?.flowKey === `passenger-request:${requestId}` && SmartPopup.current?.state === "counter_sent") SmartPopup.minimize();
-          }, 2400);
-          return false;
-        } }
+        {
+          label: "Back",
+          close: false,
+          onClick: () => {
+            this.showQuotationPopup(bid, bid.negotiation_status === "countered_by_driver", { force: true });
+            return false;
+          }
+        },
+        {
+          label: `Send $${counterFormatted}`,
+          primary: true,
+          close: false,
+          busyLabel: "Sending…",
+          onClick: async ({ backdrop }) => {
+            const amount = Number(backdrop.querySelector("#passenger-counter-price")?.value || 0);
+            if (!Number.isFinite(amount) || amount <= 0) throw new Error("Enter a valid counter amount greater than zero.");
+            await BidService.counterBid({ bidId, counterAmount: amount });
+            this.clearPassengerDraft();
+            const formatted = Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+            SmartPopup.update({
+              state: "counter_sent",
+              eyebrow: "Fare negotiation",
+              title: "✓ Counter sent",
+              minimizable: true,
+              pillText: `$${formatted} counter • Waiting`,
+              autoMinimizeAfter: 2000,
+              html: `
+                <div class="smart-sheet-status-box">
+                  <div class="smart-sheet-success-badge">✓</div>
+                  <h3 class="smart-sheet-status-heading">✓ Counter sent</h3>
+                  <div class="smart-sheet-status-price-card">
+                    <div style="font-size: 0.85rem; color: var(--text-muted); font-weight: 700;">Your counter</div>
+                    <div style="font-size: 2.2rem; font-weight: 900; color: #059669; margin-top: 0.2rem;">$${formatted}</div>
+                  </div>
+                  <p class="smart-sheet-waiting-text">Waiting for driver...</p>
+                </div>
+              `,
+              actions: []
+            });
+            NotificationService.showToast("Counter sent ✓", "Waiting for driver response", "success");
+            this.scheduleJourneySync(0);
+            return false;
+          }
+        }
       ]
     });
   },
@@ -2962,26 +3063,20 @@ export const CustomerView = {
 
   async openRequestMatchingExperience(request) {
     if (!request) return;
-    this.matchingRequestId = request.id || request.$id;
+    const requestId = request.id || request.$id;
+    this.matchingRequestId = requestId;
 
     if (this.matchingPollInterval) {
       clearInterval(this.matchingPollInterval);
       this.matchingPollInterval = null;
     }
 
-    let modal = document.getElementById("matching-experience-modal");
-    if (!modal) {
-      modal = document.createElement("div");
-      modal.id = "matching-experience-modal";
-      modal.className = "modal-backdrop";
-      modal.style.cssText = "display: flex; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.7); z-index: 10000; align-items: center; justify-content: center; padding: 1rem; backdrop-filter: blur(4px);";
-      document.body.appendChild(modal);
-    }
+    const oldModal = document.getElementById("matching-experience-modal");
+    if (oldModal) oldModal.remove();
 
     const pickup = escapeHtml(request.pickup_location || request.pickup_address || "Pickup");
     const dest = escapeHtml(request.destination || request.destination_address || "Destination");
-    const reqId = escapeHtml(String(request.id || request.$id).slice(0, 10).toUpperCase());
-    const budget = Number.parseFloat(request.budget || request.suggested_price || 0).toFixed(2);
+    const budget = Number.parseFloat(request.budget || request.suggested_price || 0);
 
     let onlineCount = 0;
     try {
@@ -2991,129 +3086,68 @@ export const CustomerView = {
     }
 
     const providerStatusText = onlineCount > 0
-      ? `🟢 ${onlineCount} compatible provider${onlineCount === 1 ? "" : "s"} online nearby`
-      : `⏳ Looking for compatible providers in your area…`;
+      ? `🟢 ${onlineCount} compatible driver${onlineCount === 1 ? "" : "s"} nearby`
+      : `Looking for nearby drivers…`;
 
-    modal.innerHTML = `
-      <div class="card" style="max-width: 520px; width: 100%; padding: 2rem; background: #ffffff; border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.2); position: relative;">
-        <div style="text-align: center;">
-          <span class="badge badge-warning" style="font-size: 0.8rem; padding: 0.3rem 0.75rem; letter-spacing: 0.5px;">
-            REQUEST POSTED · OPEN FOR BIDS
-          </span>
-          <h2 style="font-size: 1.4rem; font-weight: 800; color: #0f172a; margin: 0.75rem 0 0.25rem 0;">
-            Connecting You with Verified Drivers
-          </h2>
-          <div style="font-size: 0.88rem; color: #64748b;" id="matching-sub-status">
-            ${providerStatusText}
+    SmartPopup.open({
+      userId: this.getPopupUserId(),
+      flowKey: `passenger-request:${requestId}`,
+      state: "waiting",
+      eyebrow: "Trip request",
+      title: "Finding nearby drivers",
+      minimizable: true,
+      pillText: `Searching • ${pickup} → ${dest}`,
+      html: `
+        <div class="smart-sheet-route-flow">
+          <div class="smart-sheet-stop">
+            <span class="smart-sheet-dot"></span>
+            <strong class="smart-sheet-location-name">${pickup}</strong>
+          </div>
+          <div class="smart-sheet-arrow-connector">↓</div>
+          <div class="smart-sheet-stop">
+            <span class="smart-sheet-dot smart-sheet-dot--dest"></span>
+            <strong class="smart-sheet-location-name">${dest}</strong>
           </div>
         </div>
-
-        <div class="request-lifecycle-stepper" id="matching-stepper">
-          <div class="lifecycle-step-item complete" id="step-1">
-            <span class="lifecycle-step-dot">✓</span>
-            <span class="lifecycle-step-label">Posted</span>
+        ${budget > 0 ? `
+          <div class="smart-sheet-budget-card">
+            <span>Your budget</span>
+            <strong>$${budget.toFixed(2)}</strong>
           </div>
-          <div class="lifecycle-step-item active" id="step-2">
-            <span class="lifecycle-step-dot">2</span>
-            <span class="lifecycle-step-label">Matching</span>
-          </div>
-          <div class="lifecycle-step-item" id="step-3">
-            <span class="lifecycle-step-dot">3</span>
-            <span class="lifecycle-step-label">Quotes</span>
-          </div>
-          <div class="lifecycle-step-item" id="step-4">
-            <span class="lifecycle-step-dot">4</span>
-            <span class="lifecycle-step-label">Assigned</span>
-          </div>
+        ` : ""}
+        <div class="smart-sheet-status-box" style="padding: 1.25rem 0 0.5rem;">
+          <div class="smart-popup-spinner" style="margin: 0 auto 0.75rem; width: 32px; height: 32px; border: 3px solid rgba(16,185,129,0.2); border-top-color: #10b981; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+          <h4 style="margin: 0 0 0.25rem; font-size: 1.05rem; font-weight: 800; color: var(--text-main);">Looking for drivers…</h4>
+          <p class="smart-sheet-waiting-text" style="margin: 0; font-size: 0.88rem;">${providerStatusText}</p>
         </div>
-
-        <div class="matching-radar-wrap" aria-label="Searching for providers">
-          <div class="radar-ring"></div>
-          <div class="radar-ring"></div>
-          <div class="radar-ring"></div>
-          <div class="radar-center-beacon">
-            <span>📍</span>
-          </div>
-          <div class="radar-provider-glyph pos-1" title="Passenger Sedan">🚗</div>
-          <div class="radar-provider-glyph pos-2" title="Minibus / Shuttle">🚐</div>
-          <div class="radar-provider-glyph pos-3" title="Freight Truck">🚚</div>
-          <div class="radar-provider-glyph pos-4" title="Equipment / Hire">🚜</div>
-        </div>
-
-        <div style="background: var(--bg-subtle); border: 1px solid var(--border-light); border-radius: 8px; padding: 0.85rem 1rem; margin-bottom: 1.25rem; font-size: 0.85rem;">
-          <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;">
-            <span style="color: #64748b;">Route:</span>
-            <strong style="color: #0f172a; text-align: right;">${pickup} → ${dest}</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem;">
-            <span style="color: #64748b;">Suggested Price:</span>
-            <strong style="color: #059669; font-size: 0.95rem;">$${budget}</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span style="color: #64748b;">Request ID:</span>
-            <span style="font-family: monospace; font-weight: 700;">#${reqId}</span>
-          </div>
-        </div>
-
-        <div id="matching-quotes-banner" style="text-align: center; padding: 0.75rem; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; margin-bottom: 1rem; color: #1e40af; font-size: 0.88rem; font-weight: 600;">
-          ⏳ Waiting for driver's quotations...
-        </div>
-
-        <div id="matching-quotations-list" style="margin-bottom: 1rem; max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.75rem;"></div>
-
-        <div style="display: flex; flex-direction: column; gap: 0.65rem;">
-          <button type="button" id="btn-matching-view-quotes" class="btn btn-primary btn-full" style="display: none;">
-            View Quotations Received (<span id="matching-quote-count">0</span>)
-          </button>
-          <div style="display: flex; gap: 0.5rem;">
-            <button type="button" id="btn-matching-dismiss" class="btn btn-outline btn-full">
-              View Dashboard
-            </button>
-            <button type="button" id="btn-matching-cancel" class="btn btn-outline btn-full" style="color: #ef4444; border-color: #fca5a5;">
-              Cancel Request
-            </button>
-          </div>
-        </div>
-      </div>
-    `;
-
-    modal.style.display = "flex";
-
-    const closeModal = () => {
-      if (this.matchingPollInterval) {
-        clearInterval(this.matchingPollInterval);
-        this.matchingPollInterval = null;
-      }
-      this.matchingRequestId = null;
-      modal.style.display = "none";
-    };
-
-    document.getElementById("btn-matching-dismiss")?.addEventListener("click", () => {
-      closeModal();
-      this.switchTab("overview");
-    });
-
-    document.getElementById("btn-matching-view-quotes")?.addEventListener("click", () => {
-      closeModal();
-      this.switchTab("active-bids");
-    });
-
-    document.getElementById("btn-matching-cancel")?.addEventListener("click", async () => {
-      if (!confirm("Are you sure you want to cancel this request?")) return;
-      try {
-        await RequestService.cancelRequest(request.id || request.$id);
-        alert("Request cancelled.");
-        closeModal();
-        this.switchTab("overview");
-      } catch (err) {
-        alert("Could not cancel request: " + err.message);
-      }
+      `,
+      actions: [
+        {
+          label: "Cancel request",
+          danger: true,
+          onClick: async () => {
+            if (!confirm("Are you sure you want to cancel this request?")) return;
+            try {
+              await RequestService.cancelRequest(requestId);
+              if (this.matchingPollInterval) {
+                clearInterval(this.matchingPollInterval);
+                this.matchingPollInterval = null;
+              }
+              this.matchingRequestId = null;
+              SmartPopup.close();
+              NotificationService.showToast("Request cancelled", "Your request has been withdrawn.", "info");
+              this.switchTab("overview");
+            } catch (err) {
+              alert("Could not cancel request: " + err.message);
+            }
+          }
+        }
+      ]
     });
 
     let matchingPollBusy = false;
     const checkBids = async () => {
-      const requestId = request.id || request.$id;
-      if (matchingPollBusy || this.matchingRequestId !== requestId || modal.style.display === "none") return;
+      if (matchingPollBusy || this.matchingRequestId !== requestId) return;
       matchingPollBusy = true;
       try {
         const [bidResult, bookings, currentRequests] = await Promise.all([
@@ -3123,86 +3157,33 @@ export const CustomerView = {
         ]);
         const booking = (bookings || []).find((item) => item.request_id === requestId);
         if (booking) {
-          closeModal();
-          window.location.hash = `#customer?tab=booking-details&id=${booking.id || booking.$id}`;
+          if (this.matchingPollInterval) {
+            clearInterval(this.matchingPollInterval);
+            this.matchingPollInterval = null;
+          }
+          this.matchingRequestId = null;
+          this.showDriverConfirmedPopup(booking, { force: true });
           return;
         }
 
         const currentRequest = (currentRequests || []).find((item) => (item.id || item.$id) === requestId);
         if (currentRequest?.status === "cancelled") {
-          closeModal();
+          if (this.matchingPollInterval) {
+            clearInterval(this.matchingPollInterval);
+            this.matchingPollInterval = null;
+          }
+          this.matchingRequestId = null;
+          SmartPopup.close();
           this.switchTab("overview");
           return;
         }
 
         const bids = Array.isArray(bidResult) ? bidResult : (bidResult?.bids || []);
         const pendingBids = bids.filter((bid) => bid.status === "pending");
-        const acceptedBid = bids.find((bid) => bid.status === "accepted");
-        const count = pendingBids.length;
 
-        // Realtime is an accelerator only. The matching poll is authoritative
-        // and announces each newly observed quotation once per browser session.
-        pendingBids.forEach((bid) => {
-          const bidId = bid.id || bid.$id;
-          if (bidId && !this.knownBidStates.has(bidId)) this.showQuotationPopup(bid);
-        });
-
-        const banner = document.getElementById("matching-quotes-banner");
-        const quotesList = document.getElementById("matching-quotations-list");
-        const viewBtn = document.getElementById("btn-matching-view-quotes");
-        const countSpan = document.getElementById("matching-quote-count");
-        const step3 = document.getElementById("step-3");
-        const step2 = document.getElementById("step-2");
-
-        if (acceptedBid) {
-          if (banner) {
-            banner.style.background = "#ecfdf5";
-            banner.style.borderColor = "#a7f3d0";
-            banner.style.color = "#065f46";
-            banner.textContent = "Quotation accepted. Preparing your active booking…";
-          }
-          if (quotesList) quotesList.innerHTML = "";
-          return;
-        }
-
-        if (count > 0) {
-          if (banner) {
-            banner.style.background = "#ecfdf5";
-            banner.style.borderColor = "#a7f3d0";
-            banner.style.color = "#065f46";
-            banner.innerHTML = `🎉 <strong>Quotation received (${count})</strong>`;
-          }
-
-          if (quotesList) {
-            quotesList.innerHTML = pendingBids.map((b) => this.renderQuotationCardHtml(b, currentRequest || request)).join("");
-            this.attachBidActionHandlers(quotesList);
-          }
-
-          if (viewBtn && countSpan) {
-            countSpan.innerText = count;
-            viewBtn.style.display = "block";
-          }
-
-          if (step2) {
-            step2.classList.remove("active");
-            step2.classList.add("complete");
-            const dot = step2.querySelector(".lifecycle-step-dot");
-            if (dot) dot.innerText = "✓";
-          }
-
-          if (step3) {
-            step3.classList.add("active");
-          }
-        } else {
-          if (banner) {
-            banner.style.background = "#eff6ff";
-            banner.style.borderColor = "#bfdbfe";
-            banner.style.color = "#1e40af";
-            banner.textContent = "⏳ Waiting for driver's quotations...";
-          }
-          if (quotesList) {
-            quotesList.innerHTML = "";
-          }
+        if (pendingBids.length > 0) {
+          // In-place transition from waiting sheet directly to offers sheet
+          this.showQuotationPopup(pendingBids[0], false, { force: true });
         }
       } catch (err) {
         console.warn("Matching quotes poll notice:", err.message);
@@ -3212,10 +3193,10 @@ export const CustomerView = {
     };
 
     await checkBids();
-    if (this.matchingRequestId === (request.id || request.$id) && modal.style.display !== "none") {
+    if (this.matchingRequestId === requestId) {
       this.matchingPollInterval = setInterval(() => {
         checkBids().catch(() => {});
-      }, 6000);
+      }, 4000);
     }
     this.scheduleJourneySync(0);
   }
