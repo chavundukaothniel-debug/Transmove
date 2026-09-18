@@ -52,6 +52,10 @@ export const DriverView = {
   selectedRequestId: null,
   selectedRequest: null,
   requestPopupState: "idle",
+  requestSheetMap: null,
+  requestCountdownTimer: null,
+  smartSheetRestored: false,
+  connectionHandlers: null,
   selectedVehicleForPhotos: null,
   realtimeChannel: null,
   realtimeSubscription: null,
@@ -527,6 +531,8 @@ export const DriverView = {
       await this.loadRecentActivity();
 
       this.seedJourneyBaseline();
+      this.restoreDriverSmartSheetState();
+      this.setupConnectionAwareness();
 
       if (this.currentTab === "offers") {
         await this.renderOffersTab();
@@ -1713,6 +1719,18 @@ export const DriverView = {
         ["confirmed", "driver_arriving", "arrived", "in_progress"].includes(booking.status)
       ) || null;
 
+      const currentFlowMatch = String(SmartPopup.current?.flowKey || "").match(/^driver-request:(.+)$/);
+      const currentFlowRequestId = currentFlowMatch?.[1] || null;
+      if (currentFlowRequestId && !this.activeBooking) {
+        const flowBid = this.driverBids.find((bid) => bid.request_id === currentFlowRequestId);
+        const stillAvailable = (availableJobs || []).some((job) => (job.id || job.$id) === currentFlowRequestId);
+        if (flowBid?.status === "rejected") {
+          this.showRequestUnavailable(currentFlowRequestId, "This request has been taken");
+        } else if (["incoming_request", "composing_offer"].includes(SmartPopup.current?.state) && !stillAvailable) {
+          this.showRequestUnavailable(currentFlowRequestId, "Request no longer available");
+        }
+      }
+
       await this.loadDriverData();
       await this.loadAvailableJobs();
       await this.loadRecentActivity();
@@ -1730,6 +1748,147 @@ export const DriverView = {
 
   getPopupUserId() {
     return this.driverProfile?.user_id || this.driverProfile?.id || "driver";
+  },
+
+  setupConnectionAwareness() {
+    if (this.connectionHandlers) return;
+    const offline = () => SmartPopup.setConnectionStatus(true);
+    const online = async () => {
+      SmartPopup.setConnectionStatus(false);
+      await this.syncDriverJourneyState().catch(() => {});
+      this.restoreDriverSmartSheetState({ force: true });
+    };
+    this.connectionHandlers = { offline, online };
+    window.addEventListener("offline", offline);
+    window.addEventListener("online", online);
+    if (navigator.onLine === false) offline();
+  },
+
+  driverDraftKey() {
+    return `transmove_driver_sheet_draft:${this.getPopupUserId()}`;
+  },
+
+  readDriverDraft() {
+    try { return JSON.parse(sessionStorage.getItem(this.driverDraftKey()) || "null"); } catch (_) { return null; }
+  },
+
+  saveDriverDraft(requestId, state, backdrop) {
+    if (!requestId || !backdrop) return;
+    const payload = {
+      requestId,
+      state,
+      price: backdrop.querySelector("#quick-quote-price, #driver-counter-amount")?.value || "",
+      eta: backdrop.querySelector("#quick-quote-eta")?.value || "",
+      message: backdrop.querySelector("#quick-quote-message, #driver-counter-message")?.value || ""
+    };
+    try { sessionStorage.setItem(this.driverDraftKey(), JSON.stringify(payload)); } catch (_) {}
+  },
+
+  clearDriverDraft() {
+    try { sessionStorage.removeItem(this.driverDraftKey()); } catch (_) {}
+  },
+
+  restoreDriverSmartSheetState({ force = false } = {}) {
+    if (this.smartSheetRestored && !force) return;
+    this.smartSheetRestored = true;
+    if (this.activeBooking) {
+      if (this.activeBooking.status === "confirmed") this.showJobConfirmedPopup(this.activeBooking, { force: true });
+      else this.showActiveJobSheet(this.activeBooking);
+      return;
+    }
+    const countered = (this.driverBids || []).find((bid) => bid.status === "pending" && bid.negotiation_status === "countered_by_passenger");
+    if (countered) {
+      this.showCounterOfferPopup(countered, { repeat: true });
+      return;
+    }
+    const pending = (this.driverBids || []).find((bid) => bid.status === "pending");
+    if (pending) {
+      this.showDriverOfferSentState(pending, pending.counter_amount || pending.amount);
+      setTimeout(() => SmartPopup.current?.flowKey === `driver-request:${pending.request_id}` && SmartPopup.minimize(), 60);
+      return;
+    }
+    const draft = this.readDriverDraft();
+    const request = draft && (this.availableJobs || []).find((job) => (job.id || job.$id) === draft.requestId);
+    if (request) {
+      this.showNewRequestPopup(request, { force: true });
+      if (draft.state === "composing_offer") this.openBidModal(draft.requestId, request);
+    }
+  },
+
+  requestMapHtml(job) {
+    const values = [job.pickup_latitude, job.pickup_longitude, job.destination_latitude, job.destination_longitude].map(Number);
+    return values.every(Number.isFinite) ? `<div id="smart-request-map" class="smart-request-map" aria-label="Pickup and destination map preview"></div>` : "";
+  },
+
+  initRequestMap(job) {
+    const element = document.getElementById("smart-request-map");
+    const values = [job.pickup_latitude, job.pickup_longitude, job.destination_latitude, job.destination_longitude].map(Number);
+    if (!element || !values.every(Number.isFinite) || !window.L) return;
+    try { this.requestSheetMap?.remove?.(); } catch (_) {}
+    const [pickupLat, pickupLng, destinationLat, destinationLng] = values;
+    const map = window.L.map(element, { zoomControl: false, attributionControl: true, dragging: false, scrollWheelZoom: false, doubleClickZoom: false, touchZoom: false, keyboard: false });
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "&copy; OpenStreetMap" }).addTo(map);
+    window.L.marker([pickupLat, pickupLng]).addTo(map).bindTooltip("Pickup");
+    window.L.marker([destinationLat, destinationLng]).addTo(map).bindTooltip("Destination");
+    map.fitBounds([[pickupLat, pickupLng], [destinationLat, destinationLng]], { padding: [24, 24], maxZoom: 15 });
+    this.requestSheetMap = map;
+    setTimeout(() => map.invalidateSize(), 60);
+  },
+
+  startRequestCountdown(job) {
+    if (this.requestCountdownTimer) clearInterval(this.requestCountdownTimer);
+    this.requestCountdownTimer = null;
+    if (!job.expires_at || !Number.isFinite(new Date(job.expires_at).getTime())) return;
+    const update = () => {
+      const element = document.getElementById("smart-request-countdown");
+      const seconds = Math.max(0, Math.ceil((new Date(job.expires_at).getTime() - Date.now()) / 1000));
+      if (element) element.textContent = `Request available for ${seconds}s`;
+      if (seconds <= 0) this.showRequestUnavailable(job.id || job.$id, "Request no longer available");
+    };
+    update();
+    this.requestCountdownTimer = setInterval(update, 1000);
+  },
+
+  showRequestUnavailable(requestId, title = "This request has been taken") {
+    if (!requestId || SmartPopup.current?.flowKey !== `driver-request:${requestId}`) return;
+    if (this.requestCountdownTimer) clearInterval(this.requestCountdownTimer);
+    this.requestCountdownTimer = null;
+    this.clearDriverDraft();
+    SmartPopup.update({ state: "unavailable", eyebrow: "Request update", title, minimizable: false, dismissible: true, html: "<p>This request is no longer accepting driver offers.</p>", actions: [] });
+    setTimeout(() => {
+      if (SmartPopup.current?.flowKey === `driver-request:${requestId}` && SmartPopup.current?.state === "unavailable") SmartPopup.close();
+    }, 2600);
+  },
+
+  renderPriceEditor(inputId, value) {
+    const safeValue = Number(value || 1).toFixed(2);
+    return `<div class="smart-price-editor">
+      <div class="smart-price-stepper">
+        <button type="button" data-price-delta="-1" aria-label="Decrease price">−</button>
+        <input id="${escapeHtml(inputId)}" type="number" min="0.01" step="0.50" inputmode="decimal" value="${escapeHtml(safeValue)}" aria-label="Offer price">
+        <button type="button" data-price-delta="1" aria-label="Increase price">+</button>
+      </div>
+      <div class="smart-price-quick" aria-label="Quick price adjustments">
+        <button type="button" data-price-delta="-2">−$2</button>
+        <button type="button" data-price-delta="-1">−$1</button>
+        <button type="button" data-price-delta="1">+$1</button>
+        <button type="button" data-price-delta="2">+$2</button>
+      </div>
+    </div>`;
+  },
+
+  bindPriceEditor(backdrop, inputId, onChange = null) {
+    const input = backdrop.querySelector(`#${inputId}`);
+    if (!input) return;
+    const apply = (nextValue) => {
+      const next = Math.max(0.01, Number(nextValue || 0));
+      input.value = next.toFixed(2);
+      onChange?.(next);
+    };
+    backdrop.querySelectorAll("[data-price-delta]").forEach((button) => {
+      button.addEventListener("click", () => apply(Number(input.value || 0) + Number(button.dataset.priceDelta || 0)));
+    });
+    input.addEventListener("change", () => apply(input.value));
   },
 
   loadDismissedRequestIds() {
@@ -1752,6 +1911,23 @@ export const DriverView = {
     this.loadAvailableJobs().catch(() => {});
   },
 
+  async undoDismissRequest(requestId, originalJob) {
+    const jobs = await RequestService.getAvailableRequestsForDrivers().catch(() => []);
+    const current = jobs.find((job) => (job.id || job.$id) === requestId);
+    if (!current) {
+      NotificationService.showToast("Request unavailable", "It is no longer open for offers.", "info");
+      return;
+    }
+    this.dismissedRequestIds.delete(requestId);
+    try {
+      const key = `transmove_declined_requests:${this.getPopupUserId()}`;
+      localStorage.setItem(key, JSON.stringify([...this.dismissedRequestIds].slice(-100)));
+    } catch (_) {}
+    if (!this.availableJobs.some((job) => (job.id || job.$id) === requestId)) this.availableJobs.unshift(current || originalJob);
+    await this.loadAvailableJobs().catch(() => {});
+    this.showNewRequestPopup(current || originalJob, { force: true });
+  },
+
   seedJourneyBaseline() {
     this.knownAvailableRequestIds = new Set((this.availableJobs || []).map((job) => job.id || job.$id));
     this.knownBidStates = new Map((this.driverBids || []).map((bid) => [bid.id || bid.$id, {
@@ -1766,79 +1942,171 @@ export const DriverView = {
     this.journeyBaselineReady = true;
   },
 
-  showNewRequestPopup(job) {
+  showNewRequestPopup(job, { transition = false, force = false } = {}) {
     const id = job.id || job.$id;
     const pickup = escapeHtml(job.pickup_address || job.pickup_location || "Pickup");
     const destination = escapeHtml(job.destination_address || job.destination || "Destination");
     const detail = escapeHtml(job.load_description || job.details || job.service_type || "Transport request");
     const budget = Number(job.suggested_price || job.budget || 0);
     if (this.requestPopupState === "idle") this.requestPopupState = "incoming_request";
-    SmartPopup.open({
+    const created = job.created_at || job.$createdAt;
+    const requestTime = created ? new Intl.DateTimeFormat(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(created)) : "";
+    const options = {
       userId: this.getPopupUserId(),
-      eventKey: `new-request:${id}:${job.created_at || "live"}`,
-      eyebrow: "Live marketplace",
-      title: "NEW TRANSMOVE REQUEST",
-      html: `<div class="smart-popup-route"><strong>${pickup}</strong><span>→</span><strong>${destination}</strong></div>
-        <div class="smart-popup-detail-grid"><span>Service</span><strong>${detail}</strong><span>Budget</span><strong>${budget ? `$${budget.toFixed(2)}` : "Open quote"}</strong></div>`,
+      eventKey: force ? undefined : `new-request:${id}:${job.created_at || "live"}`,
+      flowKey: `driver-request:${id}`,
+      state: "incoming_request",
+      eyebrow: "New request",
+      title: "NEW REQUEST",
+      minimizable: true,
+      pillText: `New request • ${pickup} → ${destination}`,
+      pulse: !transition,
+      html: `${this.requestMapHtml(job)}<div class="smart-popup-route"><strong>${pickup}</strong><span>→</span><strong>${destination}</strong></div>
+        <div class="smart-popup-detail-grid"><span>Service</span><strong>${detail}</strong>${budget ? `<span>Passenger budget</span><strong>$${budget.toFixed(2)}</strong>` : ""}${requestTime ? `<span>Posted</span><strong>${escapeHtml(requestTime)}</strong>` : ""}</div>${job.expires_at ? `<p id="smart-request-countdown" class="smart-request-countdown"></p>` : ""}`,
+      onRender: () => { this.initRequestMap(job); this.startRequestCountdown(job); },
       actions: [
-        { label: "DECLINE", danger: true, onClick: () => { this.dismissRequest(id); this.clearRequestPopupState(); } },
-        { label: "ACCEPT REQUEST", primary: true, onClick: () => this.openBidModal(id, job) }
+        { label: "Not interested", onClick: () => {
+          this.dismissRequest(id);
+          this.clearRequestPopupState();
+          NotificationService.showToast("Request dismissed", "You can restore it for 5 seconds.", "info", { actionLabel: "Undo", duration: 5000, onAction: () => this.undoDismissRequest(id, job) });
+        } },
+        { label: "Make an offer", primary: true, close: false, onClick: () => { this.openBidModal(id, job); return false; } }
       ]
-    });
+    };
+    return transition ? SmartPopup.update(options) : SmartPopup.open(options);
   },
 
   showCounterOfferPopup(bid, { repeat = false } = {}) {
     const id = bid.id || bid.$id;
     const request = bid.request || {};
     const counterAmount = Number(bid.counter_amount || 0);
-    SmartPopup.open({
+    const options = {
       userId: this.getPopupUserId(),
       eventKey: repeat ? undefined : `passenger-counter:${id}:${bid.updated_at || counterAmount}`,
+      flowKey: `driver-request:${bid.request_id || request.id || request.$id || id}`,
+      state: "passenger_countered",
       eyebrow: "Fare negotiation",
-      title: "PASSENGER COUNTER OFFER",
+      title: "PASSENGER COUNTERED",
+      minimizable: true,
+      pillText: `Passenger countered • $${counterAmount.toFixed(2)}`,
       html: `<div class="smart-popup-route"><strong>${escapeHtml(request.pickup_location || "Pickup")}</strong><span>→</span><strong>${escapeHtml(request.destination || "Destination")}</strong></div>
         <div class="smart-popup-detail-grid"><span>Your quotation</span><strong>$${Number(bid.amount || 0).toFixed(2)}</strong><span>Passenger offer</span><strong>$${counterAmount.toFixed(2)}</strong></div>
-        ${bid.counter_message ? `<p>${escapeHtml(bid.counter_message)}</p>` : ""}`,
+        ${bid.counter_message ? `<p>${escapeHtml(bid.counter_message)}</p>` : ""}
+        <div class="smart-negotiation-history"><span>You offered $${Number(bid.amount || 0).toFixed(2)}</span><span>Passenger countered $${counterAmount.toFixed(2)}</span></div>`,
       actions: [
-        { label: "DECLINE", danger: true, busyLabel: "Declining…", onClick: async () => { await BidService.declineCounterOffer(id); await this.syncDriverJourneyState(); } },
-        { label: "COUNTER AGAIN", close: false, onClick: ({ close }) => { close(); setTimeout(() => this.showDriverCounterComposer(bid), 100); return false; } },
-        { label: `ACCEPT $${counterAmount.toFixed(2)}`, primary: true, busyLabel: "Accepting…", onClick: async () => { await BidService.acceptCounterOffer(id); NotificationService.showToast("Counter accepted", "The passenger can now confirm your quotation.", "success"); await this.syncDriverJourneyState(); } }
+        { label: "Not interested", danger: true, busyLabel: "Updating…", onClick: async () => { await BidService.declineCounterOffer(id); await this.syncDriverJourneyState(); } },
+        { label: "Counter", close: false, onClick: () => { this.showDriverCounterComposer(bid); return false; } },
+        { label: `Accept $${counterAmount.toFixed(2)}`, primary: true, close: false, busyLabel: "Accepting…", onClick: async () => {
+          await BidService.acceptCounterOffer(id);
+          this.showDriverOfferSentState(bid, counterAmount);
+          NotificationService.showToast("Counter accepted ✓", "Waiting for passenger confirmation.", "success");
+          await this.syncDriverJourneyState();
+          return false;
+        } }
       ]
-    });
+    };
+    return SmartPopup.current?.flowKey === options.flowKey ? SmartPopup.update(options) : SmartPopup.open(options);
   },
 
   showDriverCounterComposer(bid) {
     const id = bid.id || bid.$id;
-    const suggested = Number(bid.counter_amount || bid.amount || 0).toFixed(2);
-    SmartPopup.open({
+    const suggested = Number(bid.counter_amount || bid.amount || 0);
+    this.requestPopupState = "composing_counter";
+    SmartPopup.update({
       userId: this.getPopupUserId(),
-      title: "SEND A NEW COUNTER OFFER",
-      html: `<label class="smart-popup-field">Your proposed fare (USD)<input id="driver-counter-amount" type="number" min="1" step="0.50" value="${escapeHtml(suggested)}"></label>
+      state: "composing_counter",
+      eyebrow: "Fare negotiation",
+      title: "MAKE A COUNTER OFFER",
+      html: `<div class="smart-popup-detail-grid"><span>Passenger counter</span><strong>$${Number(bid.counter_amount || 0).toFixed(2)}</strong></div>
+        <label class="smart-popup-field">Your counter${this.renderPriceEditor("driver-counter-amount", suggested)}</label>
         <label class="smart-popup-field">Message (optional)<textarea id="driver-counter-message" rows="3" placeholder="Add a short note"></textarea></label>`,
+      onRender: ({ backdrop }) => {
+        const requestId = bid.request_id || bid.request?.id || bid.request?.$id || id;
+        const draft = this.readDriverDraft();
+        if (draft?.requestId === requestId && draft.state === "composing_counter") {
+          const input = backdrop.querySelector("#driver-counter-amount");
+          const message = backdrop.querySelector("#driver-counter-message");
+          if (input && draft.price) input.value = draft.price;
+          if (message) message.value = draft.message || "";
+        }
+        this.bindPriceEditor(backdrop, "driver-counter-amount", () => this.saveDriverDraft(requestId, "composing_counter", backdrop));
+        backdrop.querySelector("#driver-counter-message")?.addEventListener("input", () => this.saveDriverDraft(requestId, "composing_counter", backdrop));
+        this.saveDriverDraft(requestId, "composing_counter", backdrop);
+      },
       actions: [
-        { label: "CANCEL" },
-        { label: "SEND COUNTER", primary: true, busyLabel: "Sending…", onClick: async ({ backdrop }) => {
+        { label: "Back", close: false, onClick: () => { this.showCounterOfferPopup(bid, { repeat: true }); return false; } },
+        { label: "Send counter", primary: true, close: false, busyLabel: "Sending…", onClick: async ({ backdrop }) => {
           const counterAmount = Number(backdrop.querySelector("#driver-counter-amount")?.value || 0);
           const message = backdrop.querySelector("#driver-counter-message")?.value?.trim() || "";
           if (counterAmount <= 0) throw new Error("Enter a valid counter amount.");
           await BidService.counterBid({ bidId: id, counterAmount, message });
-          NotificationService.showToast("Counter offer sent", "Waiting for passenger response.", "success");
+          this.clearDriverDraft();
+          this.showDriverOfferSentState(bid, counterAmount);
+          NotificationService.showToast("Counter sent ✓", "Waiting for passenger response.", "success");
           await this.syncDriverJourneyState();
+          return false;
         } }
       ]
     });
   },
 
-  showJobConfirmedPopup(booking) {
+  showDriverOfferSentState(source, amount) {
+    const requestId = source.request_id || source.id || source.$id || this.selectedRequestId;
+    const budget = Number(source.request?.budget || source.request?.suggested_price || this.selectedRequest?.budget || this.selectedRequest?.suggested_price || 0);
+    this.requestPopupState = "offer_sent";
+    this.clearDriverDraft();
+    SmartPopup.update({
+      flowKey: `driver-request:${requestId}`,
+      state: "offer_sent",
+      eyebrow: "Offer sent",
+      title: "OFFER SENT ✓",
+      minimizable: true,
+      pillText: `Offer $${Number(amount).toFixed(2)} • Waiting`,
+      html: `<div class="smart-popup-success"><span class="smart-popup-success-mark">✓</span><strong>Your offer: $${Number(amount).toFixed(2)}</strong><span>Waiting for passenger…</span></div>${budget ? `<div class="smart-popup-detail-grid"><span>Passenger budget</span><strong>$${budget.toFixed(2)}</strong></div>` : ""}`,
+      actions: [{ label: "View request", primary: true, onClick: () => { window.location.hash = "#driver?tab=offers"; } }]
+    });
+    setTimeout(() => {
+      if (SmartPopup.current?.flowKey === `driver-request:${requestId}` && SmartPopup.current?.state === "offer_sent") SmartPopup.minimize();
+    }, 2600);
+  },
+
+  showJobConfirmedPopup(booking, { force = false } = {}) {
     const id = booking.id || booking.$id;
-    SmartPopup.open({
+    const requestId = booking.request_id || booking.request?.id || booking.request?.$id || id;
+    const options = {
       userId: this.getPopupUserId(),
-      eventKey: `job-confirmed:${id}`,
+      eventKey: force ? undefined : `job-confirmed:${id}`,
+      flowKey: `driver-request:${requestId}`,
+      state: "accepted",
       eyebrow: "Booking assigned",
-      title: "JOB CONFIRMED",
+      title: "YOU GOT THE JOB 🎉",
+      minimizable: true,
+      pillText: `Active job • $${Number(booking.amount || 0).toFixed(2)}`,
       html: `<div class="smart-popup-route"><strong>${escapeHtml(booking.request?.pickup_location || "Pickup")}</strong><span>→</span><strong>${escapeHtml(booking.request?.destination || "Destination")}</strong></div>
         <div class="smart-popup-detail-grid"><span>Passenger</span><strong>${escapeHtml(booking.passenger?.full_name || "Passenger")}</strong><span>Fare</span><strong>$${Number(booking.amount || 0).toFixed(2)}</strong><span>Reference</span><strong>${escapeHtml(booking.booking_reference || id)}</strong></div>`,
-      actions: [{ label: "OPEN ACTIVE JOB", primary: true, onClick: () => { window.location.hash = "#driver"; } }]
+      actions: [{ label: "START HEADING TO PICKUP", primary: true, close: false, busyLabel: "Updating…", onClick: async () => {
+        await BookingService.updateBookingStatus(id, "driver_arriving");
+        this.showActiveJobSheet({ ...booking, status: "driver_arriving" });
+        NotificationService.showToast("On the way", "The passenger can now see your status.", "success");
+        await this.syncDriverJourneyState();
+        return false;
+      } }]
+    };
+    return SmartPopup.current?.flowKey === options.flowKey ? SmartPopup.update(options) : SmartPopup.open(options);
+  },
+
+  showActiveJobSheet(booking) {
+    const id = booking.id || booking.$id;
+    const requestId = booking.request_id || booking.request?.id || booking.request?.$id || id;
+    return SmartPopup.update({
+      flowKey: `driver-request:${requestId}`,
+      state: "active_job",
+      eyebrow: "Active job",
+      title: "ACTIVE JOB",
+      minimizable: true,
+      pillText: `Active job • $${Number(booking.amount || 0).toFixed(2)}`,
+      html: `<div class="smart-popup-detail-grid"><span>Pickup</span><strong>${escapeHtml(booking.request?.pickup_location || "Pickup")}</strong><span>Agreed fare</span><strong>$${Number(booking.amount || 0).toFixed(2)}</strong><span>Status</span><strong>${booking.status === "driver_arriving" ? "On the way" : "Ready to leave"}</strong></div>`,
+      actions: [{ label: "Open active job", primary: true, onClick: () => { window.location.hash = "#driver"; } }]
     });
   },
 
@@ -1911,6 +2179,16 @@ export const DriverView = {
     this.knownAvailableRequestIds = new Set();
     this.knownBidStates = new Map();
     this.knownBookingStates = new Map();
+    if (this.requestCountdownTimer) clearInterval(this.requestCountdownTimer);
+    this.requestCountdownTimer = null;
+    try { this.requestSheetMap?.remove?.(); } catch (_) {}
+    this.requestSheetMap = null;
+    if (this.connectionHandlers) {
+      window.removeEventListener("offline", this.connectionHandlers.offline);
+      window.removeEventListener("online", this.connectionHandlers.online);
+      this.connectionHandlers = null;
+    }
+    this.smartSheetRestored = false;
     this.clearRequestPopupState();
     if (!(window.location.hash || "").startsWith("#driver")) SmartPopup.clear();
   },
@@ -1928,33 +2206,59 @@ export const DriverView = {
     this.selectedJobForBid = job;
     this.selectedRequestId = job.$id || job.id;
     this.selectedRequest = job;
-    this.requestPopupState = "quick_quote";
+    this.requestPopupState = "composing_offer";
     this.showQuickQuotePopup();
   },
 
   showQuickQuotePopup() {
     const job = this.selectedRequest;
     const requestId = this.selectedRequestId || job?.$id || job?.id;
-    if (!job || !requestId || this.requestPopupState !== "quick_quote") return false;
+    if (!job || !requestId || this.requestPopupState !== "composing_offer") return false;
 
     const pickup = job.pickup_address || job.pickup_location || "Pickup";
     const destination = job.destination_address || job.destination || "Destination";
     const details = job.notes || job.details || job.load_description || job.service_type || "Transport request";
-    const suggested = job.suggested_price || job.budget || "";
+    const suggested = Number(job.suggested_price || job.budget || 1);
+    try { this.requestSheetMap?.remove?.(); } catch (_) {}
+    this.requestSheetMap = null;
 
-    const opened = SmartPopup.open({
+    const opened = SmartPopup.update({
       userId: this.getPopupUserId(),
-      eyebrow: "Request quotation",
-      title: "SEND QUOTATION",
+      flowKey: `driver-request:${requestId}`,
+      state: "composing_offer",
+      eyebrow: "New request",
+      title: "MAKE YOUR OFFER",
       dismissible: false,
+      minimizable: true,
+      pillText: `Making offer • ${escapeHtml(pickup)} → ${escapeHtml(destination)}`,
       html: `<div class="smart-popup-route"><strong>${escapeHtml(pickup)}</strong><span>→</span><strong>${escapeHtml(destination)}</strong></div>
-        <div class="smart-popup-detail-grid"><span>Request details</span><strong>${escapeHtml(details)}</strong><span>Request reference</span><strong>${escapeHtml(requestId)}</strong></div>
-        <label class="smart-popup-field">Your Price (USD)<input id="quick-quote-price" type="number" min="0.01" step="0.50" value="${escapeHtml(suggested)}" required></label>
-        <label class="smart-popup-field">ETA in minutes (optional)<input id="quick-quote-eta" type="number" min="1" step="1" value="15"></label>
-        <label class="smart-popup-field">Optional message<textarea id="quick-quote-message" rows="3" placeholder="Add a short message for the passenger"></textarea></label>`,
+        <div class="smart-popup-detail-grid"><span>Request details</span><strong>${escapeHtml(details)}</strong>${suggested ? `<span>Passenger budget</span><strong>$${suggested.toFixed(2)}</strong>` : ""}</div>
+        <label class="smart-popup-field">Your price${this.renderPriceEditor("quick-quote-price", suggested)}</label>
+        <label class="smart-popup-field">Arrival time (optional)<input id="quick-quote-eta" type="number" min="1" step="1" inputmode="numeric" value="15" placeholder="Minutes"></label>
+        <label class="smart-popup-field">Message (optional)<textarea id="quick-quote-message" rows="2" placeholder="I'll be there shortly"></textarea></label>`,
+      onRender: ({ backdrop }) => {
+        const draft = this.readDriverDraft();
+        if (draft?.requestId === requestId && draft.state === "composing_offer") {
+          const price = backdrop.querySelector("#quick-quote-price");
+          const eta = backdrop.querySelector("#quick-quote-eta");
+          const message = backdrop.querySelector("#quick-quote-message");
+          if (price && draft.price) price.value = draft.price;
+          if (eta && draft.eta) eta.value = draft.eta;
+          if (message) message.value = draft.message || "";
+        }
+        const updateDraft = () => this.saveDriverDraft(requestId, "composing_offer", backdrop);
+        this.bindPriceEditor(backdrop, "quick-quote-price", (amount) => {
+          const sendButton = backdrop.querySelector(".smart-popup-action.btn-primary");
+          if (sendButton) sendButton.textContent = `Send $${amount.toFixed(2)} offer`;
+          updateDraft();
+        });
+        backdrop.querySelector("#quick-quote-eta")?.addEventListener("input", updateDraft);
+        backdrop.querySelector("#quick-quote-message")?.addEventListener("input", updateDraft);
+        updateDraft();
+      },
       actions: [
-        { label: "CANCEL", onClick: () => this.clearRequestPopupState() },
-        { label: "SEND QUOTE", primary: true, close: false, busyLabel: "Sending…", onClick: async ({ backdrop, close }) => {
+        { label: "Back", close: false, onClick: () => { this.requestPopupState = "incoming_request"; this.showNewRequestPopup(job, { transition: true }); return false; } },
+        { label: `Send $${suggested.toFixed(2)} offer`, primary: true, close: false, busyLabel: "Sending…", onClick: async ({ backdrop }) => {
           const price = Number(backdrop.querySelector("#quick-quote-price")?.value || 0);
           const etaValue = backdrop.querySelector("#quick-quote-eta")?.value;
           const eta = etaValue ? Number.parseInt(etaValue, 10) : undefined;
@@ -1974,13 +2278,11 @@ export const DriverView = {
               throw new Error("Quotation could not be saved to server.");
             }
           } catch (error) {
-            this.requestPopupState = "quick_quote";
+            this.requestPopupState = "composing_offer";
             throw error;
           }
-          this.requestPopupState = "quote_sent";
-          close();
+          this.showDriverOfferSentState(job, price);
           NotificationService.showToast("Quotation sent ✓", "Waiting for passenger response", "success");
-          this.clearRequestPopupState();
           await Promise.allSettled([
             this.loadDriverData(),
             this.loadRecentActivity(),

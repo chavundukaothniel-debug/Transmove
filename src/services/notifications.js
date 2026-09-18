@@ -116,7 +116,7 @@ export const NotificationService = {
    * Creates an in-app toast popup overlay.
    * UI PRESERVED: Zero visual changes.
    */
-  showToast(title, message, type = "info") {
+  showToast(title, message, type = "info", options = {}) {
     let container = document.getElementById("toast-container");
     if (!container) {
       container = document.createElement("div");
@@ -151,14 +151,26 @@ export const NotificationService = {
     toast.innerHTML = `
       <div style="font-weight: 700; margin-bottom: 4px;">${title}</div>
       <div style="color: var(--text-muted, #94a3b8); font-size: 0.85rem;">${message}</div>
+      ${options.actionLabel ? `<button type="button" class="toast-action" style="margin-top: 0.65rem; padding: 0; border: 0; background: transparent; color: #60a5fa; font: inherit; font-weight: 800; cursor: pointer;">${options.actionLabel}</button>` : ""}
     `;
 
     container.appendChild(toast);
 
+    let settled = false;
+    toast.querySelector(".toast-action")?.addEventListener("click", async () => {
+      if (settled) return;
+      settled = true;
+      try { await options.onAction?.(); } finally { toast.remove(); }
+    });
+
     setTimeout(() => {
+      if (settled || !toast.isConnected) return;
+      settled = true;
       toast.style.opacity = "0";
       toast.style.transition = "opacity 0.3s ease";
       setTimeout(() => toast.remove(), 300);
-    }, 4500);
+    }, Number(options.duration || 4500));
+
+    return toast;
   }
 };

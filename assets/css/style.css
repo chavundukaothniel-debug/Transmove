@@ -979,26 +979,50 @@ img {
   inset: 0;
   z-index: 10050;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  background: rgba(2, 17, 34, 0.68);
-  backdrop-filter: blur(5px);
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 1.25rem;
+  background: rgba(2, 17, 34, 0.22);
+  backdrop-filter: blur(2px);
+  animation: smartSheetFade 0.24s ease both;
 }
 
 .smart-popup-card {
   position: relative;
-  width: min(100%, 520px);
+  width: min(100%, 460px);
   max-height: min(88vh, 760px);
   overflow-y: auto;
   padding: 1.4rem;
   border: 1px solid var(--border-light);
-  border-radius: 14px;
+  border-radius: 20px;
   background: var(--bg-surface);
   color: var(--text-main);
   box-shadow: 0 24px 60px rgba(2, 17, 34, 0.32);
-  animation: modalPop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: smartSheetIn 0.26s cubic-bezier(0.16, 1, 0.3, 1);
 }
+
+@keyframes smartSheetFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes smartSheetIn { from { opacity: 0; transform: translateY(18px) scale(0.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes smartSheetPulse { 0%, 100% { box-shadow: 0 24px 60px rgba(2, 17, 34, 0.28); } 50% { box-shadow: 0 24px 65px rgba(11, 92, 255, 0.28); } }
+.smart-popup-card--transitioning { animation: smartSheetState 0.24s ease both; }
+.smart-popup-card--pulse { animation: smartSheetIn 0.26s cubic-bezier(0.16, 1, 0.3, 1), smartSheetPulse 0.8s ease 0.28s 1; }
+@keyframes smartSheetState { from { opacity: 0.35; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+.smart-popup-grabber { display: none; width: 42px; height: 4px; margin: -0.45rem auto 0.75rem; border-radius: 999px; background: var(--border-light); }
+.smart-popup-window-actions { display: flex; align-items: center; gap: 0.4rem; }
+.smart-popup-minimize,
+.smart-popup-close { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--border-light); border-radius: 50%; background: var(--bg-subtle); color: var(--text-main); cursor: pointer; font-size: 1.25rem; line-height: 1; }
+.smart-popup-pill { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 10060; display: inline-flex; align-items: center; gap: 0.55rem; max-width: min(88vw, 360px); padding: 0.72rem 1rem; border: 1px solid var(--border-light); border-radius: 999px; background: var(--bg-surface); color: var(--text-main); box-shadow: 0 14px 35px rgba(2, 17, 34, 0.2); font: inherit; font-size: 0.84rem; font-weight: 800; cursor: pointer; animation: smartSheetIn 0.22s ease both; }
+.smart-popup-pill-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: #0b5cff; }
+.smart-popup-pill--offline .smart-popup-pill-dot { background: #f59e0b; }
+.smart-popup-connection { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-top: 0.8rem; padding: 0.55rem 0.7rem; border: 1px solid #fcd34d; border-radius: 9px; background: #fffbeb; color: #92400e; font-size: 0.76rem; }
+.smart-popup-connection[hidden] { display: none; }
+.smart-popup-connection span { color: #a16207; }
+.smart-request-map { width: 100%; height: 145px; margin: 0.75rem 0; overflow: hidden; border: 1px solid var(--border-light); border-radius: 12px; background: var(--bg-subtle); z-index: 0; }
+.smart-request-map .leaflet-control-attribution { font-size: 8px; }
+.smart-profile-peek { display: grid; gap: 0.75rem; }
+.smart-profile-verified { display: inline-flex; width: fit-content; align-items: center; gap: 0.3rem; padding: 0.25rem 0.5rem; border-radius: 999px; background: #dcfce7; color: #166534; font-size: 0.72rem; font-weight: 800; }
+.smart-negotiation-history span:last-child { color: var(--text-main); font-weight: 800; }
 
 .smart-popup-accent {
   position: absolute;
@@ -1034,13 +1058,6 @@ img {
 }
 
 .smart-popup-close {
-  width: 34px;
-  height: 34px;
-  border: 1px solid var(--border-light);
-  border-radius: 50%;
-  background: var(--bg-subtle);
-  color: var(--text-main);
-  cursor: pointer;
   font-size: 1.35rem;
 }
 
@@ -1068,6 +1085,21 @@ img {
 .smart-popup-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
 .smart-popup-field { display: grid; gap: 0.35rem; margin-top: 0.8rem; color: var(--text-main); font-size: 0.8rem; font-weight: 800; }
 .smart-popup-field input, .smart-popup-field textarea, .smart-popup-field select { width: 100%; box-sizing: border-box; padding: 0.7rem 0.75rem; border: 1px solid var(--border-light); border-radius: 8px; background: var(--bg-surface); color: var(--text-main); font: inherit; font-weight: 500; }
+.smart-price-editor { display: grid; gap: 0.7rem; margin-top: 0.85rem; }
+.smart-price-stepper { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 0.55rem; align-items: center; }
+.smart-price-stepper button, .smart-price-quick button { border: 1px solid var(--border-light); border-radius: 10px; background: var(--bg-subtle); color: var(--text-main); font-weight: 900; cursor: pointer; }
+.smart-price-stepper button { min-height: 44px; font-size: 1.2rem; }
+.smart-price-stepper input { width: 100%; min-height: 44px; box-sizing: border-box; border: 1.5px solid #93b4ff; border-radius: 10px; background: var(--bg-surface); color: var(--text-main); text-align: center; font: inherit; font-size: 1.15rem; font-weight: 900; }
+.smart-price-quick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.45rem; }
+.smart-price-quick button { min-height: 34px; font-size: 0.78rem; }
+.smart-popup-success { display: grid; place-items: center; gap: 0.5rem; padding: 0.8rem 0; text-align: center; }
+.smart-popup-success-mark { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; background: #dcfce7; color: #15803d; font-size: 1.4rem; font-weight: 900; animation: smartCheckIn 0.3s ease both; }
+@keyframes smartCheckIn { from { transform: scale(0.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.smart-offer-list { display: grid; gap: 0.65rem; max-height: min(48vh, 390px); overflow-y: auto; padding-right: 0.1rem; }
+.smart-offer-card { padding: 0.85rem; border: 1px solid var(--border-light); border-radius: 12px; background: var(--bg-subtle); }
+.smart-offer-card-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.45rem; margin-top: 0.7rem; }
+.smart-offer-card-actions button { padding: 0.42rem 0.7rem; font-size: 0.76rem; }
+.smart-negotiation-history { display: grid; gap: 0.25rem; margin-top: 0.7rem; padding: 0.7rem; border-left: 2px solid #93b4ff; color: var(--text-muted); font-size: 0.78rem; }
 .smart-popup-pin { display: grid; place-items: center; gap: 0.25rem; margin: 1rem 0; padding: 1rem; border: 1px solid #bfdbfe; border-radius: 10px; background: #eff6ff; }
 .smart-popup-pin span { color: #1d4ed8; font-size: 0.72rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; }
 .smart-popup-pin strong { color: #0b5cff; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1.65rem; letter-spacing: 0.25em; }
@@ -1079,19 +1111,26 @@ img {
 
 @media (max-width: 600px) {
   .smart-popup-backdrop { align-items: flex-end; padding: 0; }
-  .smart-popup-card { width: 100%; max-height: 86vh; border-radius: 18px 18px 0 0; padding: 1.2rem; }
+  .smart-popup-card { width: 100%; max-height: min(86vh, calc(100dvh - 72px)); border-radius: 20px 20px 0 0; padding: 1.2rem; padding-bottom: max(1.2rem, env(safe-area-inset-bottom)); overscroll-behavior: contain; }
+  .smart-popup-grabber { display: block; }
   .smart-popup-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .smart-popup-actions .btn:only-child { grid-column: 1 / -1; }
   .smart-popup-body .smart-popup-grid { grid-template-columns: 1fr; }
   .smart-popup-detail-grid { grid-template-columns: 1fr; gap: 0.12rem; }
   .smart-popup-detail-grid strong { margin-bottom: 0.45rem; text-align: left; }
+  .smart-popup-pill { right: 0.75rem; bottom: calc(4.75rem + env(safe-area-inset-bottom)); }
+  .smart-popup-field input, .smart-popup-field textarea, .smart-popup-field select { font-size: 16px; }
 }
 
 [data-theme="dark"] .smart-popup-backdrop { background: rgba(0, 0, 0, 0.78); }
 [data-theme="dark"] .smart-popup-card,
-[data-theme="dark"] .smart-popup-close { background: var(--bg-surface); border-color: var(--border-light); color: var(--text-main); }
+[data-theme="dark"] .smart-popup-close,
+[data-theme="dark"] .smart-popup-minimize,
+[data-theme="dark"] .smart-popup-pill { background: #111827; border-color: var(--border-light); color: var(--text-main); }
 [data-theme="dark"] .smart-popup-pin { background: rgba(37, 99, 235, 0.12); border-color: rgba(96, 165, 250, 0.35); }
 [data-theme="dark"] .smart-popup-warning { background: rgba(154, 52, 18, 0.2); color: #fdba74; }
+[data-theme="dark"] .smart-popup-connection { background: rgba(146, 64, 14, 0.18); border-color: rgba(245, 158, 11, 0.42); color: #fcd34d; }
+[data-theme="dark"] .smart-popup-connection span { color: #fbbf24; }
 
 /* Toast Notifications */
 .toast-container {

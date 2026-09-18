@@ -1583,7 +1583,11 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
           id: req.$id,
           service_type: req.service_type,
           pickup_location: req.pickup_location,
+          pickup_latitude: req.pickup_latitude,
+          pickup_longitude: req.pickup_longitude,
           destination: req.destination,
+          destination_latitude: req.destination_latitude,
+          destination_longitude: req.destination_longitude,
           request_date: req.request_date,
           preferred_time: req.preferred_time,
           passenger_count: req.passenger_count,
@@ -1593,7 +1597,8 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
           suggested_price: req.budget,
           status: req.status,
           created_at: req.created_at,
-          updated_at: req.updated_at
+          updated_at: req.updated_at,
+          expires_at: req.expires_at || null
         });
       }
     }
@@ -1664,7 +1669,11 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       id: reqDoc.$id,
       service_type: reqDoc.service_type,
       pickup_location: reqDoc.pickup_location,
+      pickup_latitude: reqDoc.pickup_latitude,
+      pickup_longitude: reqDoc.pickup_longitude,
       destination: reqDoc.destination,
+      destination_latitude: reqDoc.destination_latitude,
+      destination_longitude: reqDoc.destination_longitude,
       request_date: reqDoc.request_date,
       preferred_time: reqDoc.preferred_time,
       passenger_count: reqDoc.passenger_count,
@@ -1674,6 +1683,7 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       suggested_price: reqDoc.budget,
       status: reqDoc.status,
       created_at: reqDoc.created_at,
+      expires_at: reqDoc.expires_at || null,
       images
     };
   }
@@ -1979,6 +1989,18 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
           driverProfile.review_count = reviews.length;
         }
       } catch (e) { /* rating fetch failure is non-fatal */ }
+
+      try {
+        const driverBookingsQ = buildEqualQuery("driver_id", bid.driver_id);
+        const driverBookingsRes = await fetch(
+          `${creds.endpoint}/databases/transmove/collections/bookings/documents?queries[]=${driverBookingsQ}`,
+          { headers: serverHeaders }
+        );
+        if (driverBookingsRes.ok && driverProfile) {
+          const driverBookingsData = await driverBookingsRes.json();
+          driverProfile.completed_trips = (driverBookingsData.documents || []).filter((booking) => booking.status === "completed").length;
+        }
+      } catch (e) { /* completed trip count is non-fatal */ }
 
       try {
         if (bid.vehicle_id) {
