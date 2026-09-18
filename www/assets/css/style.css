@@ -5129,6 +5129,34 @@ body {
   box-shadow: 0 10px 32px rgba(36, 149, 255, 0.07) !important;
 }
 
+/* Retire the legacy passenger-local navy/blue token set. Passenger pages now
+   consume the same design tokens as every other web and Capacitor surface. */
+.passenger-shell-page,
+.passenger-dashboard-container {
+  --primary: #2495ff;
+  --primary-hover: #087fe9;
+  --primary-light: #eaf6ff;
+  --primary-border: #a8d8ff;
+  --secondary: #ef3340;
+  --secondary-hover: #d91f2c;
+  --border-focus: #2495ff;
+  --bg-main: #f7fbff;
+  --bg-surface: #ffffff;
+  --bg-surface-hover: #eaf6ff;
+  --bg-subtle: #eaf6ff;
+  --bg-input: #f7fbff;
+  --border-light: #d9eeff;
+  --border-hover: #b9ddfb;
+  --text-main: #102033;
+  --text-muted: #60758a;
+}
+
+body.passenger-route,
+body.passenger-route .app-main,
+.app-main:has(.passenger-dashboard-container) {
+  background: var(--bg-main) !important;
+}
+
 .passenger-overview-card {
   background: linear-gradient(135deg, #fff 0%, #f4faff 58%, #eaf6ff 100%);
 }
@@ -5262,6 +5290,25 @@ body {
 [data-theme="dark"] .app-sidebar,
 [data-theme="dark"] .app-header,
 [data-theme="dark"] .mobile-bottom-nav { background: rgba(10, 10, 10, 0.97) !important; }
+[data-theme="dark"] .passenger-shell-page,
+[data-theme="dark"] .passenger-dashboard-container {
+  --primary: #2495ff;
+  --primary-hover: #53acff;
+  --primary-light: rgba(36, 149, 255, 0.16);
+  --primary-border: #2495ff;
+  --secondary: #ef3340;
+  --secondary-hover: #ff5964;
+  --border-focus: #2495ff;
+  --bg-main: #050505;
+  --bg-surface: #111111;
+  --bg-surface-hover: #181818;
+  --bg-subtle: #181818;
+  --bg-input: #111111;
+  --border-light: #2b2b2b;
+  --border-hover: #3a3a3a;
+  --text-main: #f8fbff;
+  --text-muted: #a6b2be;
+}
 [data-theme="dark"] .sidebar-brand { color: #fff !important; }
 [data-theme="dark"] .passenger-overview-card,
 [data-theme="dark"] .passenger-panel,

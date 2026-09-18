@@ -53,6 +53,10 @@ async function audit(label) {
       navLabels: [...document.querySelectorAll('.mobile-nav-label')].map((node) => node.textContent.trim()),
       theme: document.documentElement.dataset.theme,
       textMain: getComputedStyle(document.documentElement).getPropertyValue('--text-main').trim(),
+      bodyBackground: getComputedStyle(document.body).backgroundColor,
+      passengerPrimary: document.querySelector('.passenger-dashboard-container')
+        ? getComputedStyle(document.querySelector('.passenger-dashboard-container')).getPropertyValue('--primary').trim()
+        : null,
       welcomeColor: document.querySelector('.passenger-welcome-title')
         ? getComputedStyle(document.querySelector('.passenger-welcome-title')).color
         : null,
@@ -102,6 +106,9 @@ async function run() {
       const label = `passenger-home-${width}x${height}`;
       const result = await audit(label);
       assertNav(label, result.navLabels, ["Home", "Requests", "Trips", "Messages", "Profile"]);
+      if (result.bodyBackground !== "rgb(247, 251, 255)" || result.passengerPrimary !== "#2495ff") {
+        throw new Error(`${label} passenger theme tokens do not match the shared palette`);
+      }
       await shot(label);
     }
 
