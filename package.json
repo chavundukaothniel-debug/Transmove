@@ -4,9 +4,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "setup:appwrite": "node scripts/setup-appwrite.js"
+    "setup:appwrite": "node scripts/setup-appwrite.js",
+    "package:web": "node scripts/package-web.js",
+    "cap:sync": "npx cap sync android",
+    "build:apk:debug": "node scripts/package-web.js && npx cap sync android && cd android && gradlew assembleDebug"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/status-bar": "^8.0.3",
     "dotenv": "^17.4.2",
     "node-appwrite": "^29.0.0"
   }
