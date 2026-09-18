@@ -4,7 +4,7 @@
 // payments, and verification documents strictly BYPASSED from cache.
 // ==============================================================================
 
-const CACHE_NAME = "transmove-v2";
+const CACHE_NAME = "transmove-mobile-blue-red-v4";
 const STATIC_ASSETS = [
   "/",
   "/index.html",
@@ -67,20 +67,11 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // For static assets: Cache-First with Network Fallback
+  // For public static assets: prefer the current deployed frontend, with the
+  // cache retained only as an offline fallback. This keeps web and APK-facing
+  // web content from lingering on an older interface after deployment.
   event.respondWith(
-    caches.match(request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Fetch update in background for next time (stale-while-revalidate for local static assets)
-        fetch(request).then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200 && networkResponse.type === "basic") {
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, networkResponse));
-          }
-        }).catch(() => {});
-        return cachedResponse;
-      }
-
-      return fetch(request).then((networkResponse) => {
+    fetch(request).then((networkResponse) => {
         if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== "basic") {
           return networkResponse;
         }
@@ -91,12 +82,14 @@ self.addEventListener("fetch", (event) => {
           cache.put(request, responseToCache);
         });
         return networkResponse;
-      }).catch(() => {
+      }).catch(async () => {
+        const cachedResponse = await caches.match(request);
+        if (cachedResponse) return cachedResponse;
         // Offline fallback for navigation
         if (request.mode === "navigate") {
           return caches.match("/index.html");
         }
-      });
-    })
+        return Response.error();
+      })
   );
 });

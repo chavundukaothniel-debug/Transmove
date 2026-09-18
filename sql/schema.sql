@@ -358,7 +358,7 @@ CREATE TABLE IF NOT EXISTS public.user_subscriptions (
     start_date TIMESTAMPTZ,
     expiry_date TIMESTAMPTZ,
     payment_reference TEXT,
-    provider TEXT NOT NULL DEFAULT 'paynow',
+    provider TEXT NOT NULL DEFAULT 'ecocash_manual',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -371,8 +371,8 @@ CREATE TABLE IF NOT EXISTS public.payment_transactions (
     user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
     amount NUMERIC(10, 2) NOT NULL,
     currency TEXT NOT NULL DEFAULT 'USD',
-    payment_provider TEXT NOT NULL DEFAULT 'paynow',
-    paynow_reference TEXT,
+    payment_provider TEXT NOT NULL DEFAULT 'ecocash_manual',
+    transaction_reference TEXT,
     internal_reference TEXT NOT NULL UNIQUE,
     payment_status payment_status NOT NULL DEFAULT 'pending',
     subscription_id UUID REFERENCES public.user_subscriptions(id),

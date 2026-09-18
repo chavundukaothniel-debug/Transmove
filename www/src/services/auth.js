@@ -56,6 +56,10 @@ export const AuthService = {
     const account = getAppwriteAccount();
     const databases = getAppwriteDatabases();
 
+    // A user may register after another account signed out in the same app
+    // process. Never allow that account's cached JWT to cross the auth boundary.
+    clearAppwriteJWTCache();
+
     // Enforce valid user roles for public registration (never allow normal signup to specify "admin")
     const validRoles = [
       "customer",
@@ -89,6 +93,7 @@ export const AuthService = {
     } catch (_) {
       // Ignore if no prior session existed
     }
+    clearAppwriteJWTCache();
     const session = await account.createEmailPasswordSession(email, password);
 
     // 3. Create JWT and call trusted create_profile
@@ -153,6 +158,7 @@ export const AuthService = {
     const databases = getAppwriteDatabases();
 
     // Clear any existing active session on client
+    clearAppwriteJWTCache();
     try {
       await account.deleteSession("current");
     } catch (_) {
@@ -163,6 +169,8 @@ export const AuthService = {
     let session;
     try {
       session = await account.createEmailPasswordSession(email, password);
+      // Ensure the first trusted call is signed by the newly authenticated user.
+      clearAppwriteJWTCache();
     } catch (err) {
       if (err.code === 401 || err.type === "user_invalid_credentials") {
         throw new Error("Invalid credentials. Please check your email and password.");

@@ -9,7 +9,7 @@ export function renderReceiptModal(booking, transaction) {
   const platformFee = parseFloat((fare * 0.05).toFixed(2));
   const total = fare;
   const paymentStatus = (transaction?.payment_status || "PAID").toUpperCase();
-  const paymentMethod = transaction?.payment_provider ? transaction.payment_provider.toUpperCase() : "PAYNOW (ECOCASH/VISA)";
+  const paymentMethod = transaction?.payment_provider ? transaction.payment_provider.toUpperCase() : "ECOCASH MANUAL";
   const dateStr = new Date(booking?.created_at || Date.now()).toLocaleString("en-ZW");
 
   return `

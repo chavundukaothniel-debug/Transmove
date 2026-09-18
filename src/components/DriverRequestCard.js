@@ -203,12 +203,12 @@ export const DriverRequestCard = {
         progressBar.style.width = `${percentage}%`;
 
         // Color transitions:
-        // 10-6s: normal accent (#10b981 brand green)
+        // 10-6s: TransMove blue, 5-3s amber, 2-1s red
         // 5-3s: slightly warmer indicator (#f59e0b warm amber)
         // 2-1s: subtle warning accent (#ef4444 rose, no flashing)
         if (remainingSec >= 6) {
-          progressBar.style.backgroundColor = "#10b981";
-          if (countdownText) countdownText.style.color = "#10b981";
+          progressBar.style.backgroundColor = "#2495ff";
+          if (countdownText) countdownText.style.color = "#2495ff";
         } else if (remainingSec >= 3) {
           progressBar.style.backgroundColor = "#f59e0b";
           if (countdownText) countdownText.style.color = "#d97706";

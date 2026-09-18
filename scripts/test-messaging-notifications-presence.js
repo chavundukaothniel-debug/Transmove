@@ -929,7 +929,7 @@ function printReport(livePerms) {
   console.log("  UI MODIFIED:                                 NO");
   console.log("  APPWRITE API KEY EXPOSED:                    NO");
   console.log("  SUPABASE REMOVED:                            NO");
-  console.log("  PAYNOW MODIFIED:                             NO");
+  console.log("  ECOCASH PAYMENT FLOW:                        MANUAL REVIEW");
   console.log("═══════════════════════════════════════════════════════════════════\n");
 }
 

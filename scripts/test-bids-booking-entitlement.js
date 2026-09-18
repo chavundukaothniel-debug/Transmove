@@ -923,7 +923,7 @@ function printReport(livePerms, idxStatus) {
   console.log("  UI MODIFIED                                            NO");
   console.log("  APPWRITE API KEY EXPOSED                               NO");
   console.log("  SUPABASE REMOVED                                       NO");
-  console.log("  PAYNOW MODIFIED                                        NO");
+  console.log("  ECOCASH PAYMENT FLOW                                  MANUAL REVIEW");
   console.log("  FREE JOB COUNT SOURCE                                  bookings table (driver_id + status filter)");
   console.log("  ACTIVE SUBSCRIPTION RULE                               subscriptions.user_id=driver + status=active + expires_at>now");
   console.log("  ATOMIC TRANSACTION                                     accept bid → reject others → update request → create booking");

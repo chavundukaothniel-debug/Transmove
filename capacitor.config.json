@@ -14,7 +14,7 @@
   "plugins": {
     "StatusBar": {
       "style": "DARK",
-      "backgroundColor": "#059669"
+      "backgroundColor": "#F7FBFF"
     }
   }
 }

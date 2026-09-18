@@ -76,16 +76,16 @@ export const AdminView = {
   async render() {
     return `
       <div class="admin-portal">
-        <div class="card-header" style="margin-bottom: 1.5rem;">
+        <div class="card-header admin-portal-heading" style="margin-bottom: 1.5rem;">
           <div>
-            <h2 style="font-size: 1.5rem; font-weight: 800; color: #ef4444;">🛡️ TransMove Stealth Administrative Dashboard</h2>
+            <h2 style="font-size: 1.5rem; font-weight: 800; color: var(--transmove-red);">🛡️ TransMove Operations</h2>
             <p style="color: var(--text-muted); font-size: 0.9rem;">Real-time database analytics, driver document approvals, live trip monitoring, dispute resolution &amp; audit trails</p>
           </div>
           <span class="badge badge-danger">ADMINISTRATOR</span>
         </div>
 
         <!-- Admin Sub-tabs -->
-        <div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; overflow-x: auto; padding-bottom: 0.5rem;">
+        <div class="admin-tab-strip" style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; overflow-x: auto; padding-bottom: 0.5rem;">
           <button class="btn btn-outline btn-sm adm-tab-btn active" data-tab="analytics">📊 Analytics &amp; KPIs</button>
           <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="approvals">📋 Driver Approvals</button>
           <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="users">👥 Users</button>
@@ -436,6 +436,7 @@ export const AdminView = {
         const tab = e.currentTarget.getAttribute("data-tab");
         document.querySelectorAll(".adm-tab-btn").forEach((b) => b.classList.remove("active"));
         e.currentTarget.classList.add("active");
+        e.currentTarget.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
 
         ["analytics", "approvals", "users", "machinery", "trips", "financials", "plans", "destinations", "ads", "settings", "disputes", "audit"].forEach((t) => {
           const el = document.getElementById(`adm-tab-${t}`);

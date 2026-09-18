@@ -1,7 +1,7 @@
 // ==============================================================================
 // TRANSMOVE SUBSCRIPTION SERVICE (ECOCASH MANUAL PAYMENTS)
 // Provider subscription plans, status verification, and EcoCash payment submission.
-// Paynow has been completely replaced with manual EcoCash + admin verification.
+// Subscription activation uses manual EcoCash proof + admin verification.
 // ==============================================================================
 import { getAppwriteAccount, getTrustedApiEndpoint } from "../config/appwrite.js";
 import { PaymentService } from "./payments.js";

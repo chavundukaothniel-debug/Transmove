@@ -1,13 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
     <linearGradient id="tmGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#059669" />
-      <stop offset="100%" stop-color="#047857" />
+      <stop offset="0%" stop-color="#2495FF" />
+      <stop offset="100%" stop-color="#087FE9" />
     </linearGradient>
   </defs>
   <rect width="512" height="512" rx="112" fill="url(#tmGrad)" />
   <path d="M120 360 L120 180 L200 280 L280 180 L280 360" fill="none" stroke="#ffffff" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M280 270 L392 270 M344 220 L394 270 L344 320" fill="none" stroke="#a7f3d0" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="160" cy="390" r="16" fill="#a7f3d0"/>
-  <circle cx="350" cy="390" r="16" fill="#a7f3d0"/>
+  <path d="M280 270 L392 270 M344 220 L394 270 L344 320" fill="none" stroke="#EF3340" stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="160" cy="390" r="16" fill="#EF3340"/>
+  <circle cx="350" cy="390" r="16" fill="#EF3340"/>
 </svg>

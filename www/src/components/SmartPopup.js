@@ -67,6 +67,48 @@ export const SmartPopup = {
     backdrop.querySelector(".smart-popup-close")?.addEventListener("click", () => this.close());
     backdrop.querySelector(".smart-popup-minimize")?.addEventListener("click", () => this.minimize());
 
+    // Native-feeling mobile sheet drag. Dragging down minimizes flows that can
+    // safely continue in the background; a short drag snaps to half height.
+    const card = backdrop.querySelector(".smart-popup-card");
+    const grabber = backdrop.querySelector(".smart-popup-grabber");
+    if (card && grabber && window.matchMedia?.("(max-width: 768px)").matches) {
+      let startY = 0;
+      let deltaY = 0;
+      const resetDrag = () => {
+        card.style.removeProperty("transform");
+        card.style.removeProperty("transition");
+      };
+      grabber.addEventListener("pointerdown", (event) => {
+        startY = event.clientY;
+        deltaY = 0;
+        grabber.setPointerCapture?.(event.pointerId);
+        card.style.transition = "none";
+      });
+      grabber.addEventListener("pointermove", (event) => {
+        if (!startY) return;
+        deltaY = Math.max(-45, event.clientY - startY);
+        card.style.transform = `translateY(${Math.max(0, deltaY)}px)`;
+      });
+      grabber.addEventListener("pointerup", () => {
+        const drag = deltaY;
+        startY = 0;
+        deltaY = 0;
+        resetDrag();
+        if (drag > 110 && options.minimizable) {
+          this.minimize();
+        } else if (drag > 42) {
+          card.dataset.sheetPosition = "half";
+        } else {
+          card.dataset.sheetPosition = "expanded";
+        }
+      });
+      grabber.addEventListener("pointercancel", () => {
+        startY = 0;
+        deltaY = 0;
+        resetDrag();
+      });
+    }
+
     backdrop.querySelectorAll(".smart-popup-action").forEach((button) => {
       button.addEventListener("click", async () => {
         const action = actions[Number(button.dataset.actionIndex)];

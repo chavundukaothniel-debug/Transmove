@@ -109,6 +109,7 @@ export const CustomerView = {
   knownBookingStates: new Map(),
   adPopupTimer: null,
   liveLocationWatchId: null,
+  activeTripMap: null,
   currentProfile: null,
 
   async render(currentProfile = null) {
@@ -148,8 +149,8 @@ export const CustomerView = {
           <section class="passenger-overview-card" aria-labelledby="passenger-welcome-title">
             <div class="passenger-welcome-row">
               <div>
-                <h2 id="passenger-welcome-title" class="passenger-welcome-title">Welcome back, ${firstName}</h2>
-                <p class="passenger-welcome-sub">Find reliable transport, anytime, anywhere.</p>
+                <h2 id="passenger-welcome-title" class="passenger-welcome-title">Hello, ${firstName} <span aria-hidden="true">👋</span></h2>
+                <p class="passenger-welcome-sub">Where are you going today?</p>
               </div>
               <button id="btn-quick-request-service" class="btn passenger-primary-button" type="button">
                 ${passengerIcon("plus", 20)}
@@ -199,7 +200,7 @@ export const CustomerView = {
           <div class="passenger-main-grid">
             <section class="passenger-panel passenger-find-panel" aria-labelledby="find-transport-title">
               <div class="passenger-panel-header">
-                <h3 id="find-transport-title">Find Transport</h3>
+                <h3 id="find-transport-title">Where are you going?</h3>
                 <button type="button" class="passenger-link-button" data-customer-tab="new-request">View All</button>
               </div>
 
@@ -249,7 +250,7 @@ export const CustomerView = {
                 </div>
                 <button id="btn-dashboard-search-transport" class="btn passenger-search-button" type="submit">
                   ${passengerIcon("search", 20)}
-                  <span>Search Transport</span>
+                  <span>Find Transport</span>
                 </button>
               </form>
             </section>
@@ -297,7 +298,7 @@ export const CustomerView = {
         <!-- TAB 1: NEW REQUEST FORM -->
         <div id="tab-content-new-request" class="${this.activeTab === "new-request" ? "" : "hidden"}" style="${this.activeTab === "new-request" ? "" : "display:none;"}">
           <div class="passenger-page-heading">
-            <div><h2>Post a New Request</h2><p>Tell us what you need and receive quotes from verified drivers.</p></div>
+            <div><h2>Request details</h2><p>Choose the route, timing and fare you want to offer.</p></div>
           </div>
           <div class="grid-2 passenger-request-layout">
             <!-- Left Form Column -->
@@ -377,7 +378,7 @@ export const CustomerView = {
                 </div>
 
                 <button type="submit" id="btn-submit-request" class="btn btn-primary btn-lg btn-full passenger-submit-button" disabled>
-                  Post Request
+                  Find Drivers
                 </button>
               </form>
             </div>
@@ -1002,6 +1003,10 @@ export const CustomerView = {
       this.connectionHandlers = null;
     }
     this.smartSheetRestored = false;
+    if (this.activeTripMap) {
+      try { this.activeTripMap.remove(); } catch (_) {}
+      this.activeTripMap = null;
+    }
     if (!(window.location.hash || "").startsWith("#customer")) SmartPopup.clear();
   },
 
@@ -2146,6 +2151,15 @@ export const CustomerView = {
           <div><h2>Booking Details</h2><p>Booking #${String(booking.id).slice(0, 12).toUpperCase()}</p></div>
           <span class="badge ${statusClass}">${status.replace("_", " ")}</span>
         </div>
+        ${ACTIVE_BOOKING_STATUSES.includes(booking.status) ? `
+          <section class="card passenger-active-trip-map-card" aria-label="Live trip map">
+            <div class="passenger-active-trip-map-head">
+              <div><small>Active trip</small><strong>${pickup} → ${destination}</strong></div>
+              <span>${status.replace("_", " ")}</span>
+            </div>
+            <div id="passenger-active-trip-map" class="map-container"></div>
+          </section>
+        ` : ""}
         <div class="booking-detail-layout">
           <section class="card booking-detail-summary">
             <div class="booking-route-block">
@@ -2269,6 +2283,8 @@ export const CustomerView = {
           </section>
         ` : ""}
       `;
+
+      if (ACTIVE_BOOKING_STATUSES.includes(booking.status)) this.initPassengerActiveTripMap(booking);
 
       container.querySelector(".btn-share-trip")?.addEventListener("click", async () => {
         try {
@@ -2455,6 +2471,32 @@ export const CustomerView = {
     } catch (error) {
       container.innerHTML = renderEmptyState({ title: "Booking unavailable", description: "This booking could not be loaded.", icon: "car" });
     }
+  },
+
+  initPassengerActiveTripMap(booking) {
+    const mapElement = document.getElementById("passenger-active-trip-map");
+    if (!mapElement || !window.L) return;
+    if (this.activeTripMap) {
+      try { this.activeTripMap.remove(); } catch (_) {}
+    }
+
+    const pickup = [Number(booking.request?.pickup_latitude), Number(booking.request?.pickup_longitude)];
+    const destination = [Number(booking.request?.destination_latitude), Number(booking.request?.destination_longitude)];
+    const driver = [Number(booking.driver_live_lat || booking.driver_latitude), Number(booking.driver_live_lng || booking.driver_longitude)];
+    const valid = (coords) => coords.every(Number.isFinite);
+    const points = [pickup, destination, driver].filter(valid);
+    const center = points[0] || [LocationService.DEFAULT_CENTER.lat, LocationService.DEFAULT_CENTER.lng];
+    const map = window.L.map(mapElement, { zoomControl: false, attributionControl: false }).setView(center, 13);
+    this.activeTripMap = map;
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
+    window.L.control.zoom({ position: "bottomright" }).addTo(map);
+
+    if (valid(pickup)) window.L.circleMarker(pickup, { radius: 8, color: "#ffffff", weight: 3, fillColor: "#2495ff", fillOpacity: 1 }).addTo(map).bindPopup("Pickup");
+    if (valid(destination)) window.L.circleMarker(destination, { radius: 8, color: "#ffffff", weight: 3, fillColor: "#ef3340", fillOpacity: 1 }).addTo(map).bindPopup("Destination");
+    if (valid(driver)) window.L.circleMarker(driver, { radius: 9, color: "#ffffff", weight: 3, fillColor: "#18a66a", fillOpacity: 1 }).addTo(map).bindPopup("Driver location");
+    if (valid(pickup) && valid(destination)) window.L.polyline([pickup, destination], { color: "#2495ff", weight: 5, opacity: 0.78 }).addTo(map);
+    if (points.length > 1) map.fitBounds(window.L.latLngBounds(points), { padding: [34, 34], maxZoom: 15 });
+    setTimeout(() => map.invalidateSize(), 180);
   },
 
   async loadPayments() {

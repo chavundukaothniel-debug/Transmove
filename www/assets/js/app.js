@@ -402,8 +402,11 @@ class App {
     const isAuthRoute = ["login", "register", "forgot-password", "reset-password", "verify-email"].includes(this.currentRoute);
     const isPassengerRoute = ["customer", "messages", "profile", "support", "help", "safety", "status"].includes(this.currentRoute)
       && ["customer", "passenger"].includes(this.currentProfile?.role);
+    const isDriverRoute = ["driver", "messages", "profile", "subscriptions", "support", "help"].includes(this.currentRoute)
+      && this.currentProfile?.role === "driver";
     document.body.classList.toggle("auth-route", isAuthRoute);
     document.body.classList.toggle("passenger-route", isPassengerRoute);
+    document.body.classList.toggle("driver-route", isDriverRoute);
 
     // Render Sidebar
     if (sidebarMount) {

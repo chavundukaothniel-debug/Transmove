@@ -23,10 +23,7 @@ export const SubscriptionsView = {
   async render() {
     return `
       <div id="subscription-page-container" style="max-width: 1100px; margin: 0 auto; padding-top: 1rem; padding-bottom: 3rem;">
-        <div style="padding: 3rem; text-align: center; color: var(--text-muted);">
-          <div style="font-size: 2rem; margin-bottom: 0.5rem;">💳</div>
-          Loading subscription options &amp; EcoCash channels...
-        </div>
+        <div class="tm-skeleton-state tm-skeleton-state--plans" aria-label="Loading subscription options and EcoCash channels"><i></i><i></i><i></i></div>
       </div>
     `;
   },

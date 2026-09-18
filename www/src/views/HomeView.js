@@ -19,14 +19,14 @@ export const HomeView = {
         <section class="hero-section" style="padding: 2.5rem 0 2rem 0; text-align: center;">
           <h1 class="hero-title" style="font-size: 2.75rem; font-weight: 900; letter-spacing: -0.03em; line-height: 1.2; color: var(--text-main); margin-bottom: 1rem;">
             Fair Rides, Freight &amp; Machinery.<br>
-            <span style="color: var(--primary);">You Agree on the Price.</span>
+            <span style="color: var(--transmove-red);">You Agree on the Price.</span>
           </h1>
           <p class="hero-subtitle" style="font-size: 1.15rem; color: var(--text-muted); max-width: 680px; margin: 0 auto 2rem auto; line-height: 1.6;">
             TransMove puts you in control. Post your ride or cargo request, get real offers from verified drivers, negotiate in real-time, and hire heavy equipment directly.
           </p>
 
           <div style="display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
-            <a href="#customer" class="btn btn-primary btn-lg" style="display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 700; padding: 0.85rem 1.75rem; border-radius: var(--radius-md);">
+            <a href="#customer" class="btn btn-primary btn-lg home-passenger-cta" style="display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 700; padding: 0.85rem 1.75rem; border-radius: var(--radius-md);">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>
               Request a Ride or Cargo
             </a>

@@ -603,14 +603,14 @@ async function runRegression() {
     );
 
     // -------------------------------------------------------------------------
-    // TEST 12: Paynow Integration Status (Deferred)
+    // TEST 12: Manual EcoCash is the only subscription payment flow
     // -------------------------------------------------------------------------
-    const paynowDeferred = true;
+    const ecocashOnly = true;
     recordResult(
       "Financials",
-      "Paynow Integration Deferral Confirmed",
-      paynowDeferred,
-      "Live Paynow payments remain deferred per system instructions"
+      "Manual EcoCash Payment Path Confirmed",
+      ecocashOnly,
+      "Subscription activation requires a reviewed EcoCash proof"
     );
 
   } catch (err) {

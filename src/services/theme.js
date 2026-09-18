@@ -19,11 +19,6 @@ export const ThemeService = {
       return stored;
     }
 
-    // Default to system preference if user hasn't explicitly set one
-    if (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
-      return "dark";
-    }
-
     return "light";
   },
 
@@ -61,7 +56,7 @@ export const ThemeService = {
       // Update PWA theme-color meta tag
       const metaThemeColor = document.querySelector('meta[name="theme-color"]');
       if (metaThemeColor) {
-        metaThemeColor.setAttribute("content", targetTheme === "dark" ? "#0b1120" : "#059669");
+        metaThemeColor.setAttribute("content", targetTheme === "dark" ? "#050505" : "#f7fbff");
       }
     }
 

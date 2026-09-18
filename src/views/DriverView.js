@@ -110,6 +110,24 @@ export const DriverView = {
           </div>
         </div>
 
+        <section class="driver-mobile-work-summary" aria-label="Driver work summary">
+          <div>
+            <span>Today</span>
+            <strong id="mobile-driver-earnings">$0.00</strong>
+            <small>Earnings</small>
+          </div>
+          <div>
+            <span>Completed</span>
+            <strong id="mobile-driver-jobs">0</strong>
+            <small>Jobs</small>
+          </div>
+          <div class="driver-mobile-status" aria-live="polite">
+            <span class="driver-mobile-status-dot"></span>
+            <strong id="mobile-driver-presence">Online</strong>
+            <small>Work status</small>
+          </div>
+        </section>
+
         <!-- 4 SUMMARY CARDS GRID -->
         <div class="summary-cards-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.25rem;">
           
@@ -181,9 +199,7 @@ export const DriverView = {
 
             <!-- Realtime Available Jobs Feed -->
             <div id="available-jobs-container">
-              <div style="padding: 1.5rem; text-align: center; color: #64748b; font-size: 0.875rem;">
-                Loading available jobs...
-              </div>
+              <div class="tm-skeleton-state" aria-label="Loading available jobs"><i></i><i></i><i></i></div>
             </div>
           </div>
 
@@ -195,9 +211,7 @@ export const DriverView = {
             </div>
 
             <div id="recent-activity-container">
-              <div style="padding: 1.5rem; text-align: center; color: #64748b; font-size: 0.875rem;">
-                Loading recent activity...
-              </div>
+              <div class="tm-skeleton-state" aria-label="Loading recent activity"><i></i><i></i><i></i></div>
             </div>
           </div>
 
@@ -211,7 +225,7 @@ export const DriverView = {
               <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.2rem;">Track all bids you have submitted, active awarded jobs, and completed trips.</div>
             </div>
             <div id="driver-offers-content">
-              <div style="padding: 2rem; text-align: center; color: #64748b;">Loading quotations and bookings...</div>
+              <div class="tm-skeleton-state" aria-label="Loading quotations and bookings"><i></i><i></i><i></i></div>
             </div>
           </div>
         </div>
@@ -231,7 +245,7 @@ export const DriverView = {
 
             <!-- Registered Vehicles List -->
             <div id="vehicles-full-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1rem;">
-              <div style="padding: 2rem; text-align: center; color: #64748b;">Loading vehicles...</div>
+              <div class="tm-skeleton-state" aria-label="Loading vehicles"><i></i><i></i><i></i></div>
             </div>
           </div>
 
@@ -312,7 +326,7 @@ export const DriverView = {
               <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.2rem;">Verified transaction ledger and payouts overview.</div>
             </div>
             <div id="driver-earnings-content">
-              <div style="padding: 2rem; text-align: center; color: #64748b;">Loading earnings data...</div>
+              <div class="tm-skeleton-state" aria-label="Loading earnings"><i></i><i></i><i></i></div>
             </div>
           </div>
         </div>
@@ -1406,6 +1420,10 @@ export const DriverView = {
     if (earningsValEl) {
       earningsValEl.innerText = `$${this.monthEarnings.toFixed(2)}`;
     }
+    const mobileEarningsEl = document.getElementById("mobile-driver-earnings");
+    if (mobileEarningsEl) mobileEarningsEl.innerText = `$${this.monthEarnings.toFixed(2)}`;
+    const mobileJobsEl = document.getElementById("mobile-driver-jobs");
+    if (mobileJobsEl) mobileJobsEl.innerText = String(this.freeJobsUsed || 0);
 
     const statusValEl = document.getElementById("card-account-status-val");
     const statusSubEl = document.getElementById("card-account-status-sub");
@@ -1441,6 +1459,10 @@ export const DriverView = {
         hdrOnlinePill.innerHTML = `<span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #94a3b8;"></span> Offline`;
       }
     }
+    const mobilePresenceEl = document.getElementById("mobile-driver-presence");
+    const mobilePresenceDot = document.querySelector(".driver-mobile-status-dot");
+    if (mobilePresenceEl) mobilePresenceEl.innerText = isOnline ? "Online" : "Offline";
+    if (mobilePresenceDot) mobilePresenceDot.classList.toggle("is-offline", !isOnline);
   },
 
   async loadAvailableJobs() {
@@ -1850,6 +1872,11 @@ export const DriverView = {
     } catch (_) {
       this.dismissedRequestIds = new Set();
     }
+  },
+
+  isRequestDismissed(requestId) {
+    if (!requestId) return false;
+    return this.dismissedRequestIds.has(requestId) || DriverRequestCard.locallyDismissed.has(requestId);
   },
 
   dismissRequest(requestId) {

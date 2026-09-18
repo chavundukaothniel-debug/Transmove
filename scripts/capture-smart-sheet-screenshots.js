@@ -3,10 +3,11 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 
-const artifactDir = 'C:\\Users\\PC\\.gemini\\antigravity-ide\\brain\\ae0487d9-6ec2-43d3-8f9d-b24dc7d17341';
+const artifactDir = path.resolve('test-output', 'mobile-ui');
 
 async function captureScreenshots() {
   console.log('=== CAPTURING SMART SHEET SCREENSHOTS VIA CHROME CDP ===');
+  fs.mkdirSync(artifactDir, { recursive: true });
 
   const tempDir = path.join(os.tmpdir(), 'chrome-screens-' + Date.now());
   const chromePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
@@ -134,7 +135,8 @@ async function captureScreenshots() {
     await evaluate(`
       (async () => {
         const backdrop = document.querySelector('.smart-popup-backdrop');
-        const makeOfferBtn = [...backdrop.querySelectorAll('.smart-popup-action')].find(el => el.textContent.includes('Make an offer'));
+        const makeOfferBtn = document.getElementById('driver-btn-make-offer')
+          || [...(backdrop?.querySelectorAll('.smart-popup-action') || [])].find(el => el.textContent.includes('Make an offer'));
         makeOfferBtn?.click();
       })()
     `);
@@ -228,6 +230,52 @@ async function captureScreenshots() {
     `);
     await new Promise((r) => setTimeout(r, 400));
     await takeScreenshot('driver_job_confirmed');
+
+    // 9. Passenger active trip (actual booking-details render path)
+    await evaluate(`
+      (async () => {
+        const { SmartPopup } = await import('/src/components/SmartPopup.js');
+        const { CustomerView } = await import('/src/views/CustomerView.js');
+        const { BookingService } = await import('/src/services/bids.js');
+        SmartPopup.clear();
+        const booking = {
+          id: 'test-active-booking-passenger', request_id: 'test-req-101', passenger_id: 'passenger-1',
+          status: 'arrived', amount: 11.5, trip_pin: '4821', created_at: new Date().toISOString(),
+          request: {
+            pickup_location: 'MSU Batanai Campus', destination: 'Southdowns, Gweru', passenger_count: 1,
+            pickup_latitude: -19.4521, pickup_longitude: 29.8175,
+            destination_latitude: -19.4722, destination_longitude: 29.8299
+          },
+          driver: { full_name: 'Tendai M.' },
+          vehicle: { make: 'Toyota', model: 'Aqua', registration_number: 'ABC 1234' }
+        };
+        BookingService.getUserBookings = async () => [booking];
+        document.getElementById('app-root').innerHTML = '<div class="customer-dashboard passenger-dashboard-container"><div id="booking-details-board"></div></div>';
+        await CustomerView.loadBookingDetails(booking.id);
+      })()
+    `);
+    await new Promise((r) => setTimeout(r, 900));
+    await takeScreenshot('passenger_active_trip');
+
+    // 10. Driver active job (actual active-job render path)
+    await evaluate(`
+      (async () => {
+        const { DriverView } = await import('/src/views/DriverView.js');
+        document.getElementById('app-root').innerHTML = await DriverView.render();
+        DriverView.activeBooking = {
+          id: 'test-active-booking-driver', status: 'arrived', amount: 11.5,
+          request: {
+            pickup_location: 'MSU Batanai Campus', destination: 'Southdowns, Gweru',
+            pickup_latitude: -19.4521, pickup_longitude: 29.8175,
+            destination_latitude: -19.4722, destination_longitude: 29.8299
+          },
+          passenger: { full_name: 'Simba M.' }
+        };
+        DriverView.renderActiveTripCard();
+      })()
+    `);
+    await new Promise((r) => setTimeout(r, 900));
+    await takeScreenshot('driver_active_job');
 
   } finally {
     ws.close();

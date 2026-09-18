@@ -36,16 +36,18 @@ export const MessagesView = {
   renderedMessageIds: new Set(),
 
   renderPassengerMessages() {
+    const showingThread = new URLSearchParams((window.location.hash.split("?")[1] || "")).has("booking");
     return `
       <div class="passenger-shell-page passenger-messages-page">
         <div class="passenger-page-heading"><div><h2>Messages</h2><p>Coordinate safely with drivers assigned to your bookings.</p></div></div>
-        <section class="passenger-messages-layout">
+        <section class="passenger-messages-layout ${showingThread ? "is-thread-open" : "is-list-open"}">
           <aside class="conversation-panel">
             <div class="conversation-search"><span>⌕</span><input type="search" id="conversation-search-input" placeholder="Search conversations…" aria-label="Search conversations"></div>
-            <div id="passenger-conversation-list" class="conversation-list"><div class="passenger-loading-state">Loading conversations…</div></div>
+            <div id="passenger-conversation-list" class="conversation-list"><div class="tm-skeleton-state" aria-label="Loading conversations"><i></i><i></i><i></i></div></div>
           </aside>
           <div class="conversation-chat-panel">
             <div class="conversation-chat-header">
+              <a href="#messages" class="conversation-mobile-back" aria-label="Back to conversations">←</a>
               <div><strong id="chat-subheading">Select a conversation</strong><small>Booking messages</small></div>
             </div>
             <div id="chat-messages-box" class="chat-messages"><div class="passenger-loading-state">Select a booking to view messages.</div></div>
@@ -131,7 +133,7 @@ export const MessagesView = {
       return [];
     });
 
-    if (!this.activeBookingId) {
+    if (!this.activeBookingId && !this.isPassengerView) {
       const openBooking = this.bookings.find(
         (b) => !["completed", "cancelled"].includes(b.status)
       );

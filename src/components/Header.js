@@ -184,6 +184,12 @@ export function renderHeader(currentProfile, currentRoute) {
         <button id="btn-mobile-sidebar-trigger" class="btn-mobile-menu" aria-label="Toggle navigation menu" style="background: transparent; border: none; cursor: pointer; color: var(--text-main);">
           ${headerIcon("menu", 25)}
         </button>
+        <a class="header-mobile-brand" href="${isAuth ? `#${currentProfile?.role === "driver" ? "driver" : "customer"}` : "#home"}" aria-label="TransMove home">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M19 17h2v-3c0-1-.8-1.8-1.7-2L16 11l-2.2-2.5a2.5 2.5 0 0 0-1.9-.8H6.2c-.9 0-1.7.5-2.1 1.3L3 11.5V17h2"/><path d="M9 17h6"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/>
+          </svg>
+          <span>Trans<em>Move</em></span>
+        </a>
         <h1 class="header-page-title" style="font-size: 1.2rem; font-weight: 800; color: var(--text-main); margin: 0;">${pageTitle}</h1>
       </div>
 

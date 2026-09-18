@@ -13,7 +13,7 @@ TransMove is a real, production-oriented transportation, ride-request, logistics
 * **Heavy Machinery Hire**: Direct equipment listings for tractors, excavators, tippers, cranes, and flatbeds by verified owners.
 * **Driver Onboarding & Verification**: Multi-step onboarding with vehicle specs and documentation uploads to Supabase Storage; admin approval queue.
 * **Real Location & Maps**: Interactive Leaflet maps with GPS coordinate auto-detection (`navigator.geolocation`), OpenStreetMap geocoding, and distance calculation.
-* **Paynow Payment Verification**: Real Paynow payment checkout with transaction ledger and server-verified subscription activation.
+* **Manual EcoCash Verification**: Private proof upload, transaction ledger, admin review, and server-verified subscription activation.
 * **Hidden Admin Management**: Server-enforced role access for verifying drivers, auditing dispute logs, and viewing financial ledgers.
 * **Pristine Light Theme UI**: High-contrast, clean modern aesthetic with dedicated empty states.
 
@@ -53,7 +53,7 @@ Transmove/
 ├── src/
 │   ├── config/
 │   │   ├── supabase.js         # Supabase client & connection validator
-│   │   └── paynow.js           # Paynow payment gateway configuration
+│   │   └── social.js           # Public social and support configuration
 │   ├── services/
 │   │   ├── auth.js             # Supabase Auth, registration & RBAC
 │   │   ├── location.js         # Real GPS geolocation & OSM geocoding
@@ -63,7 +63,7 @@ Transmove/
 │   │   ├── vehicles.js         # Driver vehicle management & storage
 │   │   ├── equipment.js        # Machinery & equipment listings
 │   │   ├── messaging.js        # Realtime chat per booking
-│   │   ├── subscriptions.js    # Plans & Paynow payment checkout
+│   │   ├── subscriptions.js    # Plans and manual EcoCash verification
 │   │   └── admin.js            # Server-verified admin approvals & ledger
 │   ├── views/
 │   │   ├── HomeView.js         # Landing page & quick fare estimator
@@ -74,7 +74,7 @@ Transmove/
 │   │   ├── AdminView.js        # Hidden admin verification & audit portal
 │   │   ├── EquipmentView.js    # Public machinery marketplace
 │   │   ├── MessagesView.js     # Realtime booking chat
-│   │   ├── SubscriptionsView.js# Subscription plans & Paynow flow
+│   │   ├── SubscriptionsView.js# Subscription plans and EcoCash flow
 │   │   └── ProfileView.js      # User profile & credentials configuration
 │   └── components/
 │       ├── Navbar.js           # Role-aware dynamic navbar
