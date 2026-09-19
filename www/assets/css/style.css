@@ -4575,6 +4575,8 @@ body.passenger-route footer {
   font-family: inherit;
 }
 
+.driver-request-map-backdrop { display: none; }
+
 .driver-request-card-inner {
   display: flex;
   flex-direction: column;
@@ -4632,12 +4634,30 @@ body.passenger-route footer {
 }
 
 .driver-request-countdown {
-  font-size: 0.95rem;
+  --timer-progress: 100;
+  position: relative;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  place-items: center;
+  border-radius: 50%;
+  background: conic-gradient(#ef3340 calc(var(--timer-progress) * 1%), #d9eeff 0);
+  font-size: 0.72rem;
   font-weight: 800;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   color: #10b981;
   transition: color 0.3s ease;
 }
+.driver-request-countdown::before {
+  position: absolute;
+  width: 31px;
+  height: 31px;
+  border-radius: 50%;
+  background: var(--bg-surface, #fff);
+  content: "";
+}
+.driver-request-countdown span { position: relative; z-index: 1; }
 
 .driver-request-timer-bar-bg {
   width: 100%;
@@ -4775,6 +4795,22 @@ body.passenger-route footer {
 
 /* Mobile adjustments for driver request floating card */
 @media (max-width: 768px) {
+  .driver-request-map-backdrop {
+    position: fixed;
+    z-index: 9990;
+    top: calc(62px + env(safe-area-inset-top));
+    right: 0;
+    bottom: calc(66px + env(safe-area-inset-bottom));
+    left: 0;
+    display: block;
+    overflow: hidden;
+    background-color: #dff1f8;
+    background-image:
+      linear-gradient(32deg, transparent 46%, rgba(255,255,255,.9) 47%, rgba(255,255,255,.9) 50%, transparent 51%),
+      linear-gradient(112deg, transparent 45%, rgba(188,220,230,.72) 46%, rgba(188,220,230,.72) 49%, transparent 50%);
+    background-size: 150px 105px, 180px 125px;
+  }
+  .driver-request-background-map { width: 100%; height: 100%; }
   .driver-request-floating-card {
     top: 12px;
     left: 12px;

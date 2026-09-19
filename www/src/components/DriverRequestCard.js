@@ -86,6 +86,15 @@ export const DriverRequestCard = {
     // Remove existing card if any
     this._removeCardElement();
 
+    const coords = [job.pickup_latitude, job.pickup_longitude, job.destination_latitude, job.destination_longitude].map(Number);
+    const hasRouteCoordinates = coords.every(Number.isFinite);
+    const mapBackdrop = document.createElement("div");
+    mapBackdrop.id = "driver-request-map-backdrop";
+    mapBackdrop.className = "driver-request-map-backdrop";
+    mapBackdrop.setAttribute("aria-hidden", "true");
+    mapBackdrop.innerHTML = '<div id="driver-request-background-map" class="driver-request-background-map"></div>';
+    document.body.appendChild(mapBackdrop);
+
     const pickup = escapeHtml(job.pickup_address || job.pickup_location || "Pickup");
     const destination = escapeHtml(job.destination_address || job.destination || "Destination");
     const rawType = (job.service_type || job.request_type || "ride").toLowerCase();
@@ -109,7 +118,7 @@ export const DriverRequestCard = {
             <span class="driver-request-title" id="driver-request-header-title">${headerTitle}</span>
             <span class="driver-request-badge">${serviceLabel}</span>
           </div>
-          <div class="driver-request-countdown" id="driver-request-countdown-text">10s</div>
+          <div class="driver-request-countdown"><span id="driver-request-countdown-text">10s</span></div>
         </div>
 
         <div class="driver-request-timer-bar-bg">
@@ -160,8 +169,31 @@ export const DriverRequestCard = {
       job,
       options,
       element: cardEl,
-      timerId: null
+      timerId: null,
+      map: null
     };
+
+    if (hasRouteCoordinates && window.L) {
+      try {
+        const [pickupLat, pickupLng, destinationLat, destinationLng] = coords;
+        const map = window.L.map("driver-request-background-map", {
+          zoomControl: false,
+          attributionControl: false,
+          dragging: false,
+          scrollWheelZoom: false,
+          doubleClickZoom: false,
+          touchZoom: false,
+          keyboard: false
+        });
+        window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
+        window.L.marker([pickupLat, pickupLng]).addTo(map);
+        window.L.marker([destinationLat, destinationLng]).addTo(map);
+        window.L.polyline([[pickupLat, pickupLng], [destinationLat, destinationLng]], { color: "#2495ff", weight: 5 }).addTo(map);
+        map.fitBounds([[pickupLat, pickupLng], [destinationLat, destinationLng]], { padding: [54, 54], maxZoom: 15 });
+        this.active.map = map;
+        setTimeout(() => map.invalidateSize(), 50);
+      } catch (_) {}
+    }
 
     // Attach click listeners
     const notInterestedBtn = cardEl.querySelector("#driver-btn-not-interested");
@@ -197,6 +229,7 @@ export const DriverRequestCard = {
 
       if (countdownText) {
         countdownText.textContent = `${remainingSec}s`;
+        countdownText.parentElement?.style.setProperty("--timer-progress", percentage);
       }
 
       if (progressBar) {
@@ -316,10 +349,12 @@ export const DriverRequestCard = {
   },
 
   _removeCardElement() {
+    try { this.active?.map?.remove?.(); } catch (_) {}
     const el = document.getElementById("driver-floating-request-card");
     if (el) {
       el.remove();
     }
+    document.getElementById("driver-request-map-backdrop")?.remove();
   },
 
   onQuotationClosed() {
