@@ -2131,10 +2131,10 @@ export const DriverView = {
       html: `
         <div class="smart-sheet-status-box">
           <div class="smart-sheet-success-badge">✓</div>
-          <h3 class="smart-sheet-status-heading">✓ Offer sent</h3>
+          <h3 class="smart-sheet-status-heading">Offer sent!</h3>
           <div class="smart-sheet-status-price-card">
             <div style="font-size: 0.85rem; color: var(--text-muted); font-weight: 700;">Your offer</div>
-            <div style="font-size: 2.2rem; font-weight: 900; color: #059669; margin-top: 0.2rem;">$${formattedAmount}</div>
+            <div class="smart-offer-sent-amount">$${formattedAmount}</div>
           </div>
           <p class="smart-sheet-waiting-text">Waiting for passenger...</p>
         </div>
@@ -2328,26 +2328,20 @@ export const DriverView = {
       minimizable: true,
       pillText: `Making offer • $${initialPrice}`,
       html: `
+        <div class="smart-sheet-route-flow smart-offer-route-summary">
+          <div class="smart-sheet-stop"><span class="smart-sheet-dot"></span><strong>${escapeHtml(pickup)}</strong></div>
+          <div class="smart-sheet-arrow-connector">↓</div>
+          <div class="smart-sheet-stop"><span class="smart-sheet-dot smart-sheet-dot--dest"></span><strong>${escapeHtml(destination)}</strong></div>
+        </div>
         ${suggested > 0 ? `
           <div class="smart-sheet-budget-card">
-            <span>Passenger budget</span>
+            <span>Passenger offered</span>
             <strong>$${suggested.toFixed(2)}</strong>
           </div>
         ` : ""}
 
-        <div class="smart-sheet-price-editor-wrap">
-          <div class="smart-sheet-price-display-box">
-            <span class="smart-sheet-currency-symbol">$</span>
-            <input type="number" id="quick-quote-price" class="smart-sheet-price-number-input" value="${initialPrice}" step="0.5" min="1" />
-          </div>
-
-          <div class="smart-sheet-price-steppers-grid">
-            <button type="button" class="smart-stepper-pill btn-quote-stepper" data-delta="-1">- $1</button>
-            <button type="button" class="smart-stepper-pill btn-quote-stepper" data-delta="+1">+ $1</button>
-            <button type="button" class="smart-stepper-pill btn-quote-stepper" data-delta="-2">- $2</button>
-            <button type="button" class="smart-stepper-pill btn-quote-stepper" data-delta="+2">+ $2</button>
-          </div>
-        </div>
+        <label class="smart-sheet-field-label">Your offer</label>
+        ${this.renderPriceEditor("quick-quote-price", initialPrice)}
 
         <div class="smart-sheet-compact-field" style="margin-top: 0.75rem;">
           <label class="smart-sheet-field-label" for="quick-quote-eta">ETA</label>
@@ -2372,15 +2366,7 @@ export const DriverView = {
           this.saveDriverDraft(requestId, "composing_offer", backdrop);
         };
         priceInput?.addEventListener("input", (e) => updateSend(e.target.value));
-        backdrop.querySelectorAll(".btn-quote-stepper").forEach((btn) => {
-          btn.addEventListener("click", () => {
-            const delta = Number(btn.getAttribute("data-delta") || 0);
-            const current = Number(priceInput.value || initialPrice);
-            const next = Math.max(1, current + delta);
-            priceInput.value = next;
-            updateSend(next);
-          });
-        });
+        this.bindPriceEditor(backdrop, "quick-quote-price", updateSend);
         backdrop.querySelector("#quick-quote-eta")?.addEventListener("input", () => this.saveDriverDraft(requestId, "composing_offer", backdrop));
         backdrop.querySelector("#quick-quote-message")?.addEventListener("input", () => this.saveDriverDraft(requestId, "composing_offer", backdrop));
         updateSend(priceInput?.value || initialPrice);

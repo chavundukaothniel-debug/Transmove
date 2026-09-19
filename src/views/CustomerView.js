@@ -33,7 +33,11 @@ const passengerIcon = (name, size = 20) => {
     search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
     pin: '<path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',
     chevron: '<path d="m9 18 6-6-6-6"/>',
-    chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'
+    chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+    home: '<path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10M9 20v-6h6v6"/>',
+    briefcase: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18"/>',
+    building: '<path d="M4 21V3h12v18M16 9h4v12M8 7h4M8 11h4M8 15h4M8 19h4"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
   };
 
   return `<svg class="passenger-icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.bus}</svg>`;
@@ -252,6 +256,20 @@ export const CustomerView = {
                   ${passengerIcon("search", 20)}
                   <span>Find Transport</span>
                 </button>
+                <div class="passenger-place-shortcuts" aria-label="Quick destinations">
+                  <button type="button" data-quick-place="Home" aria-label="Use Home as destination">
+                    <span>${passengerIcon("home", 19)}</span><small>Home</small>
+                  </button>
+                  <button type="button" data-quick-place="Work" aria-label="Use Work as destination">
+                    <span>${passengerIcon("briefcase", 19)}</span><small>Work</small>
+                  </button>
+                  <button type="button" data-quick-place="Midlands State University" aria-label="Use MSU as destination">
+                    <span>${passengerIcon("building", 19)}</span><small>MSU</small>
+                  </button>
+                  <button type="button" data-customer-tab="bookings" aria-label="Open recent trips">
+                    <span>${passengerIcon("clock", 19)}</span><small>Recent</small>
+                  </button>
+                </div>
               </form>
             </section>
 
@@ -304,6 +322,10 @@ export const CustomerView = {
             <!-- Left Form Column -->
             <div class="card passenger-form-card">
               <form id="create-request-form">
+                <div class="mobile-ride-sheet-heading">
+                  <h3>Ride details</h3>
+                  <p>Set your trip and choose what you want to pay.</p>
+                </div>
                 <div class="request-type-tabs" role="tablist" aria-label="Request type">
                   <button type="button" class="request-type-btn active" data-request-type="ride">${passengerIcon("users", 18)} Passenger</button>
                   <button type="button" class="request-type-btn" data-request-type="logistics">${passengerIcon("package", 18)} Goods</button>
@@ -361,14 +383,42 @@ export const CustomerView = {
                   </div>
                 </div>
 
-                <div class="grid-2">
+                <div class="mobile-ride-options" aria-label="Ride options">
+                  <div class="mobile-ride-option-row">
+                    <span>Passengers</span>
+                    <div class="mobile-count-stepper">
+                      <button type="button" data-passenger-delta="-1" aria-label="Remove passenger">−</button>
+                      <strong id="mobile-passenger-count">1</strong>
+                      <button type="button" data-passenger-delta="1" aria-label="Add passenger">+</button>
+                    </div>
+                  </div>
+                  <div class="mobile-ride-option-row">
+                    <span>When</span>
+                    <div class="mobile-time-toggle" role="group" aria-label="Trip time">
+                      <button type="button" class="active" data-trip-time="now">Now</button>
+                      <button type="button" data-trip-time="later">Later</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="grid-2 request-fare-grid">
                   <div class="form-group">
                     <label class="form-label">Estimated Route Distance</label>
                     <input type="text" id="req-distance" class="form-input" value="Enter a destination to calculate your route." readonly style="font-size: 0.85rem; font-weight: 600; color: var(--primary);" />
                   </div>
-                  <div class="form-group">
-                    <label class="form-label">Your Suggested Price ($)</label>
-                    <input type="number" id="req-suggested-price" class="form-input" placeholder="e.g. 12.00" min="1" step="0.5" required />
+                  <div class="form-group request-price-group">
+                    <div class="request-price-label-row"><label class="form-label">Your price</label><span>Suggested <strong id="mobile-suggested-price">$10</strong></span></div>
+                    <div class="request-price-stepper">
+                      <button type="button" data-request-price-delta="-1" aria-label="Decrease price">−</button>
+                      <span>$</span><input type="number" id="req-suggested-price" class="form-input" value="10" min="1" step="0.5" required />
+                      <button type="button" data-request-price-delta="1" aria-label="Increase price">+</button>
+                    </div>
+                    <div class="request-price-chips" aria-label="Quick price adjustments">
+                      <button type="button" data-request-price-delta="-2">−$2</button>
+                      <button type="button" data-request-price-delta="-1">−$1</button>
+                      <button type="button" data-request-price-delta="1">+$1</button>
+                      <button type="button" data-request-price-delta="2">+$2</button>
+                    </div>
                   </div>
                 </div>
 
@@ -563,6 +613,15 @@ export const CustomerView = {
       pickupInput?.focus();
     });
 
+    document.querySelectorAll("[data-quick-place]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const destinationInput = document.getElementById("dashboard-destination");
+        if (!destinationInput) return;
+        destinationInput.value = button.getAttribute("data-quick-place") || "";
+        destinationInput.focus();
+      });
+    });
+
     // Service type toggle
     document.getElementById("req-service-type")?.addEventListener("change", (e) => {
       const cargoDiv = document.getElementById("cargo-fields");
@@ -621,6 +680,32 @@ export const CustomerView = {
     document.getElementById("req-suggested-price")?.addEventListener("input", (e) => {
       delete e.target.dataset.autoCalculated;
       this.validateForm();
+    });
+
+    document.querySelectorAll("[data-request-price-delta]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const input = document.getElementById("req-suggested-price");
+        if (!input) return;
+        input.value = Math.max(1, Number(input.value || 10) + Number(button.getAttribute("data-request-price-delta") || 0));
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    });
+
+    document.querySelectorAll("[data-passenger-delta]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const countNode = document.getElementById("mobile-passenger-count");
+        const count = Math.min(8, Math.max(1, Number(countNode?.textContent || 1) + Number(button.getAttribute("data-passenger-delta") || 0)));
+        if (countNode) countNode.textContent = String(count);
+        this.pendingRequestMeta = { ...(this.pendingRequestMeta || {}), passengerCount: count };
+      });
+    });
+
+    document.querySelectorAll("[data-trip-time]").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll("[data-trip-time]").forEach((item) => item.classList.toggle("active", item === button));
+        const later = button.getAttribute("data-trip-time") === "later";
+        this.pendingRequestMeta = { ...(this.pendingRequestMeta || {}), requestDate: later ? new Date(Date.now() + 86400000).toISOString() : null };
+      });
     });
 
     document.getElementById("req-pickup")?.addEventListener("input", () => this.validateForm());
@@ -1269,6 +1354,9 @@ export const CustomerView = {
       const avatar = fileViewUrl(bid.driver?.profile_image_id);
       const rating = Number(bid.driver?.rating || 0);
       const vehicle = [bid.vehicle?.make, bid.vehicle?.model].filter(Boolean).join(" ");
+      const registration = bid.vehicle?.registration_number || bid.vehicle?.plate_number || "";
+      const trips = Number(bid.driver?.completed_trips || bid.driver?.trip_count || 0);
+      const verified = bid.driver?.verification_status === "approved" || bid.driver?.is_verified === true;
       const eta = bid.estimated_arrival_minutes || bid.estimated_arrival_mins;
       const amount = Number(bid.negotiation_status === "countered_by_driver" ? bid.counter_amount : bid.amount || 0);
       const amountFormatted = Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
@@ -1280,9 +1368,10 @@ export const CustomerView = {
               ${avatar ? `<img src="${escapeHtml(avatar)}" alt="${escapeHtml(name)}">` : escapeHtml(name.charAt(0))}
             </div>
             <div>
-              <strong style="font-size: 1.05rem; display: block; color: var(--text-main);">${escapeHtml(name)}</strong>
+              <strong style="font-size: 1.05rem; display: block; color: var(--text-main);">${escapeHtml(name)} ${verified ? '<span class="smart-driver-verified" title="Verified driver">✓</span>' : ""}</strong>
               ${rating > 0 ? `<span style="color: #f59e0b; font-weight: 700; font-size: 0.85rem;">★ ${rating.toFixed(1)}${bid.driver?.review_count ? ` (${Number(bid.driver.review_count)})` : ""}</span>` : ""}
-              ${vehicle ? `<span style="color: var(--text-muted); font-size: 0.85rem; display: block;">${escapeHtml(vehicle)}</span>` : ""}
+              ${trips ? `<span class="smart-driver-trips">${trips} trips</span>` : ""}
+              ${vehicle ? `<span style="color: var(--text-muted); font-size: 0.85rem; display: block;">${escapeHtml(vehicle)}${registration ? ` • ${escapeHtml(registration)}` : ""}</span>` : ""}
             </div>
           </div>
 
@@ -1302,6 +1391,7 @@ export const CustomerView = {
           ${bid.message ? `<p style="font-size: 0.85rem; font-style: italic; color: var(--text-muted); margin: 0.4rem 0;">“${escapeHtml(bid.message)}”</p>` : ""}
 
           <div style="display: flex; gap: 0.5rem; margin-top: 0.85rem;">
+            <button type="button" class="btn btn-outline smart-view-driver" style="flex: 1; padding: 0.65rem 0.45rem; font-weight: 700; border-radius: 8px;">View profile</button>
             <button type="button" class="btn btn-outline smart-counter-offer" style="flex: 1; padding: 0.65rem 1rem; font-weight: 700; border-radius: 8px;">Counter</button>
             <button type="button" class="btn btn-primary smart-accept-offer" style="flex: 1.3; padding: 0.65rem 1rem; font-weight: 800; border-radius: 8px;">Accept $${amountFormatted}</button>
           </div>

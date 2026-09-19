@@ -5655,3 +5655,228 @@ html[data-theme="dark"] body .passenger-page-heading p,
 html[data-theme="dark"] body .recent-booking-main span {
   color: #a6b2be !important;
 }
+
+/* Reference-aligned shared marketplace controls. These remain in the web DOM
+   used by both browsers and Capacitor; mobile only changes their arrangement. */
+.passenger-place-shortcuts,
+.mobile-ride-sheet-heading,
+.mobile-ride-options { display: none; }
+
+.smart-driver-verified {
+  display: inline-grid;
+  width: 17px;
+  height: 17px;
+  place-items: center;
+  border-radius: 50%;
+  background: #2495ff;
+  color: #fff;
+  font-size: 0.68rem;
+  vertical-align: 1px;
+}
+.smart-driver-trips {
+  margin-left: 0.35rem;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+.smart-offer-sent-amount {
+  margin-top: 0.15rem;
+  color: var(--text-main);
+  font-size: 2.2rem;
+  font-weight: 900;
+}
+.smart-offer-route-summary { margin: 0 0 0.7rem !important; }
+
+@media (max-width: 768px) {
+  .passenger-find-panel .passenger-panel-header .passenger-link-button,
+  .passenger-find-panel .service-tab-group { display: none !important; }
+  .passenger-find-panel { padding: 0.8rem !important; }
+  .passenger-find-panel .passenger-panel-header { margin-bottom: 0.55rem !important; }
+  .passenger-find-panel .passenger-panel-header h3 { font-size: 0.96rem !important; }
+  .passenger-search-grid { gap: 0.5rem !important; }
+  .passenger-field > span:first-child {
+    position: absolute;
+    z-index: 2;
+    margin: 0.48rem 0 0 2.75rem;
+    color: var(--text-muted);
+    font-size: 0.62rem;
+    font-weight: 700;
+    pointer-events: none;
+  }
+  .passenger-field { position: relative; }
+  .passenger-field > span:first-child b { display: none; }
+  .passenger-input-shell { min-height: 51px !important; padding-left: 0.75rem !important; }
+  .passenger-input-shell input {
+    min-height: 49px !important;
+    padding: 0.9rem 0 0 0.3rem !important;
+    font-size: 0.85rem !important;
+  }
+  .passenger-search-button { min-height: 49px !important; margin-top: 0.05rem; }
+  .passenger-place-shortcuts {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.45rem;
+    margin-top: 0.7rem;
+  }
+  .passenger-place-shortcuts button {
+    min-width: 0;
+    min-height: 58px;
+    padding: 0.45rem 0.2rem;
+    border: 1px solid #d9eeff;
+    border-radius: 13px;
+    background: #f7fbff;
+    color: #2495ff;
+  }
+  .passenger-place-shortcuts span,
+  .passenger-place-shortcuts small { display: block; margin-inline: auto; }
+  .passenger-place-shortcuts small { margin-top: 0.2rem; color: #102033; font-size: 0.66rem; font-weight: 700; }
+
+  #tab-content-new-request .passenger-page-heading { display: none; }
+  .passenger-request-layout {
+    margin: -0.85rem -0.85rem 0 !important;
+  }
+  .passenger-map-card {
+    border: 0 !important;
+    border-radius: 0 !important;
+  }
+  .passenger-map-card #customer-map {
+    height: 255px !important;
+    background-color: #dff1f8;
+    background-image:
+      linear-gradient(32deg, transparent 46%, rgba(255,255,255,.85) 47%, rgba(255,255,255,.85) 50%, transparent 51%),
+      linear-gradient(112deg, transparent 45%, rgba(188,220,230,.68) 46%, rgba(188,220,230,.68) 49%, transparent 50%),
+      linear-gradient(rgba(36,149,255,.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(36,149,255,.06) 1px, transparent 1px);
+    background-size: 130px 95px, 155px 110px, 36px 36px, 36px 36px;
+  }
+  .passenger-form-card {
+    margin: -22px 0 0 !important;
+    padding: 0.75rem 0.9rem max(0.85rem, env(safe-area-inset-bottom)) !important;
+    border-width: 1px 0 0 !important;
+    border-radius: 22px 22px 0 0 !important;
+  }
+  .passenger-form-card::before { margin-bottom: 0.45rem !important; }
+  .mobile-ride-sheet-heading { display: block; margin-bottom: 0.55rem; }
+  .mobile-ride-sheet-heading h3 { margin: 0; color: var(--text-main); font-size: 1.02rem; }
+  .mobile-ride-sheet-heading p { display: none; }
+  .passenger-form-card .request-type-tabs,
+  .passenger-form-card .request-type-select-wrap { display: none !important; }
+  .passenger-form-card .form-group { margin-bottom: 0.55rem !important; }
+  .passenger-form-card .form-label { margin-bottom: 0.22rem !important; font-size: 0.68rem !important; }
+  .passenger-form-card .form-input,
+  .passenger-form-card .form-select,
+  .passenger-form-card .form-textarea { min-height: 42px !important; padding: 0.55rem 0.7rem !important; font-size: 0.79rem !important; }
+  #saved-pickup-chips,
+  #saved-dest-chips,
+  #btn-clear-pickup,
+  #btn-clear-dest { display: none !important; }
+  #btn-cust-gps { min-height: 42px; padding-inline: 0.55rem !important; font-size: 0.68rem; }
+  .mobile-ride-options { display: block; border-top: 1px solid var(--border-light); }
+  .mobile-ride-option-row {
+    display: flex;
+    min-height: 42px;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border-light);
+    color: var(--text-main);
+    font-size: 0.77rem;
+    font-weight: 700;
+  }
+  .mobile-count-stepper,
+  .mobile-time-toggle { display: flex; align-items: center; gap: 0.35rem; }
+  .mobile-count-stepper button,
+  .mobile-time-toggle button {
+    min-width: 32px;
+    height: 30px;
+    padding: 0 0.5rem;
+    border: 1px solid var(--border-light);
+    border-radius: 9px;
+    background: #eaf6ff;
+    color: #102033;
+    font-weight: 800;
+  }
+  .mobile-time-toggle button.active { border-color: #ef3340; background: #ef3340; color: #fff; }
+  .request-fare-grid { display: block !important; }
+  .request-fare-grid > .form-group:first-child { display: none !important; }
+  .request-price-label-row { display: flex; align-items: center; justify-content: space-between; }
+  .request-price-label-row > span { color: var(--text-muted); font-size: 0.68rem; }
+  .request-price-stepper {
+    display: grid;
+    grid-template-columns: 42px 18px 1fr 42px;
+    align-items: center;
+    gap: 0.1rem;
+  }
+  .request-price-stepper button {
+    height: 42px;
+    border: 0;
+    border-radius: 10px;
+    background: #ef3340;
+    color: #fff;
+    font-size: 1.4rem;
+  }
+  .request-price-stepper span { text-align: right; color: var(--text-main); font-size: 1.1rem; font-weight: 900; }
+  .request-price-stepper #req-suggested-price {
+    border: 0 !important;
+    background: transparent !important;
+    color: var(--text-main) !important;
+    font-size: 1.35rem !important;
+    font-weight: 900;
+    text-align: left;
+    box-shadow: none !important;
+  }
+  .request-price-chips { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.35rem; margin-top: 0.35rem; }
+  .request-price-chips button {
+    min-height: 30px;
+    border: 1px solid #d9eeff;
+    border-radius: 999px;
+    background: #eaf6ff;
+    color: #102033;
+    font-size: 0.7rem;
+    font-weight: 800;
+  }
+  .passenger-form-card #req-notes { min-height: 40px !important; height: 40px; }
+  .passenger-form-card .form-group:has(#req-notes) { display: none !important; }
+  .passenger-submit-button { min-height: 49px !important; }
+
+  .driver-request-floating-card {
+    top: calc(72px + env(safe-area-inset-top)) !important;
+    left: 0.8rem !important;
+    right: 0.8rem !important;
+    width: auto !important;
+    border-radius: 18px !important;
+  }
+  .driver-request-card-inner { padding: 0.75rem !important; }
+  .driver-request-card-header { margin-bottom: 0.45rem !important; }
+  .driver-request-badge { display: none !important; }
+  .driver-request-card-body { padding: 0.65rem !important; }
+  .driver-request-route { gap: 0.15rem !important; }
+  .driver-request-location { font-size: 0.77rem !important; }
+  .driver-request-arrow { height: 10px !important; line-height: 10px !important; }
+  .driver-request-budget-row { margin-top: 0.45rem !important; padding-top: 0.45rem !important; }
+  .driver-request-card-actions { margin-top: 0.6rem !important; }
+  .driver-request-card-actions .btn { min-height: 42px !important; }
+
+  .smart-popup-card { padding: 0.75rem 0.85rem max(0.8rem, env(safe-area-inset-bottom)) !important; }
+  .smart-popup-body { padding-block: 0.15rem !important; }
+  .smart-sheet-route-flow { padding: 0.65rem !important; }
+  .smart-sheet-budget-card { min-height: 46px !important; padding: 0.55rem 0.7rem !important; }
+  .smart-price-stepper { grid-template-columns: 48px 1fr 48px !important; }
+  .smart-price-stepper button { min-height: 48px !important; background: #ef3340 !important; color: #fff !important; }
+  .smart-price-stepper input { height: 48px !important; font-size: 1.55rem !important; }
+  .smart-price-quick { gap: 0.35rem !important; }
+  .smart-price-quick button { min-height: 32px !important; border-radius: 999px !important; }
+  .smart-sheet-compact-field { margin-top: 0.55rem !important; }
+  .smart-sheet-driver-card { padding: 0.75rem !important; border-radius: 16px !important; }
+  .smart-sheet-driver-card .smart-popup-avatar { width: 48px !important; height: 48px !important; }
+  .smart-sheet-offer-grid { margin: 0.55rem 0 !important; padding: 0.5rem 0.7rem !important; }
+  .smart-sheet-offer-grid div[style*="#059669"] { color: var(--text-main) !important; }
+  .smart-sheet-driver-card .btn { min-width: 0; min-height: 39px !important; padding-inline: 0.35rem !important; font-size: 0.7rem !important; }
+  .smart-sheet-status-box { padding: 0.55rem 0 !important; }
+  .smart-sheet-success-badge { width: 60px !important; height: 60px !important; background: #ef3340 !important; }
+  .smart-sheet-status-price-card { margin: 0.55rem 0 !important; padding: 0.65rem !important; }
+  .smart-offer-sent-amount { color: var(--text-main); font-size: 2rem; }
+}
+
+[data-theme="dark"] .passenger-place-shortcuts button,
+[data-theme="dark"] .mobile-count-stepper button,
+[data-theme="dark"] .request-price-chips button { background: #181818; border-color: #2b2b2b; color: #f8fbff; }
+[data-theme="dark"] .passenger-place-shortcuts small { color: #f8fbff; }
