@@ -1,26 +1,67 @@
 // ==============================================================================
 // TRANSMOVE SUPABASE CLIENT CONFIGURATION
-// PRIMARY APPLICATION BACKEND
+// PRIMARY APPLICATION BACKEND (BROWSER SAFE)
+// NEVER includes or exposes SUPABASE_SERVICE_ROLE_KEY
 // ==============================================================================
 
-const DEFAULT_SUPABASE_URL = "https://mhghjurlwmgeiuhcxieg.supabase.co";
-const DEFAULT_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1oZ2hqdXJsd21nZWl1aGN4aWVnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkzOTczNjgsImV4cCI6MjEwNDk3MzM2OH0.ZkI-ZdrZq-KSCQDEJCEJZ5RoJVK7XGSSzvzNgJu7Ui4";
+export const PRODUCTION_SUPABASE_URL = "https://wwvnnnistexgyvhvnqes.supabase.co";
+export const PRODUCTION_SUPABASE_ANON_KEY = "sb_publishable__EpXdp1hPVYf-k0VSUF4Uw_5_rBEYm4";
+
+let runtimeConfigPromise = null;
+
+// Asynchronously sync with server runtime config if available
+export async function syncRuntimeConfig() {
+  if (typeof window === "undefined" || !window.fetch) return;
+  if (runtimeConfigPromise) return runtimeConfigPromise;
+
+  runtimeConfigPromise = (async () => {
+    try {
+      const res = await fetch("/api/public-config", { cache: "no-store" });
+      if (res.ok) {
+        const config = await res.json();
+        if (config.supabaseUrl && config.supabaseAnonKey) {
+          if (
+            window.localStorage &&
+            (window.localStorage.getItem("transmove_supabase_url") !== config.supabaseUrl ||
+             window.localStorage.getItem("transmove_supabase_key") !== config.supabaseAnonKey)
+          ) {
+            window.localStorage.setItem("transmove_supabase_url", config.supabaseUrl);
+            window.localStorage.setItem("transmove_supabase_key", config.supabaseAnonKey);
+          }
+        }
+      }
+    } catch (_) {
+      // Offline / Capacitor / static fallback
+    }
+  })();
+
+  return runtimeConfigPromise;
+}
 
 export function getSupabaseCredentials() {
   let customUrl = null;
   let customKey = null;
+
   try {
     if (typeof window !== "undefined" && window.localStorage) {
       customUrl = window.localStorage.getItem("transmove_supabase_url");
       customKey = window.localStorage.getItem("transmove_supabase_key");
+
+      // Purge any stale legacy project URLs from earlier builds
+      if (customUrl && (customUrl.includes("mhghjurlwmgeiuhcxieg") || customUrl.includes("your-project"))) {
+        window.localStorage.removeItem("transmove_supabase_url");
+        window.localStorage.removeItem("transmove_supabase_key");
+        customUrl = null;
+        customKey = null;
+      }
     } else if (typeof process !== "undefined" && process.env) {
       customUrl = process.env.SUPABASE_URL;
       customKey = process.env.SUPABASE_ANON_KEY;
     }
   } catch (_) {}
 
-  const url = customUrl || DEFAULT_SUPABASE_URL;
-  const anonKey = customKey || DEFAULT_SUPABASE_ANON_KEY;
+  const url = customUrl || PRODUCTION_SUPABASE_URL;
+  const anonKey = customKey || PRODUCTION_SUPABASE_ANON_KEY;
 
   const isConfigured = Boolean(
     url &&
@@ -61,7 +102,8 @@ export function getSupabase() {
         auth: {
           persistSession: true,
           autoRefreshToken: true,
-          detectSessionInUrl: true
+          detectSessionInUrl: true,
+          storage: window.localStorage
         },
         realtime: {
           params: {
@@ -71,7 +113,7 @@ export function getSupabase() {
       });
       return supabaseInstance;
     }
-    console.warn("Supabase JS SDK not found in window object. CDN may still be loading.");
+    console.warn("Supabase JS SDK not found on window object. CDN script may still be loading.");
     return null;
   }
 
@@ -86,28 +128,28 @@ export async function getAuthJwt() {
       if (session?.access_token) return session.access_token;
     } catch (_) {}
   }
-  if (typeof window !== "undefined" && window.localStorage) {
-    return window.localStorage.getItem("transmove_mock_jwt") || "";
-  }
   return "";
 }
 
 export async function checkSupabaseConnection() {
-  const { isConfigured } = getSupabaseCredentials();
+  const { isConfigured, url } = getSupabaseCredentials();
   if (!isConfigured) {
-    return { connected: false, error: "Supabase credentials not configured yet" };
+    return { connected: false, error: "Supabase credentials not configured." };
   }
 
   const client = getSupabase();
-  if (!client) return { connected: false, error: "Supabase SDK not loaded" };
+  if (!client) return { connected: false, error: "Supabase SDK not loaded." };
 
   try {
-    const { data, error } = await client.from("profiles").select("id").limit(1);
-    if (error && error.code !== "PGRST116" && !error.message.includes("0 rows")) {
-      return { connected: false, error: error.message };
-    }
-    return { connected: true };
+    const { error } = await client.auth.getSession();
+    if (error) return { connected: false, error: error.message };
+    return { connected: true, url };
   } catch (err) {
     return { connected: false, error: err.message };
   }
+}
+
+// Trigger background runtime config synchronization
+if (typeof window !== "undefined") {
+  syncRuntimeConfig().catch(() => {});
 }

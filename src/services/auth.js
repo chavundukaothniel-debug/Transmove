@@ -1,34 +1,12 @@
 // ==============================================================================
 // TRANSMOVE AUTHENTICATION & USER PROFILE SERVICE
-// Primary Backend: Supabase Auth & PostgreSQL Profiles via Trusted API
-// Appwrite fallback preserved intact.
+// PRIMARY AND SOLE ACTIVE BACKEND: SUPABASE AUTH & POSTGRESQL PROFILES
 // ==============================================================================
-import {
-  getAppwriteAccount,
-  getAppwriteClient,
-  getAppwriteDatabases,
-  getAppwriteStorage,
-  APPWRITE_CONFIG,
-  getTrustedApiEndpoint,
-  clearAppwriteJWTCache,
-  ID,
-  Query,
-  Permission,
-  Role
-} from "../config/appwrite.js";
 import { getSupabase, getAuthJwt } from "../config/supabase.js";
+import { getTrustedApiEndpoint, getAppwriteStorage, APPWRITE_CONFIG } from "../config/appwrite.js";
 
 // Internal registry for auth state change subscribers
 const authListeners = new Set();
-
-function isSupabasePrimary() {
-  try {
-    if (typeof window !== "undefined" && window.localStorage) {
-      return (window.localStorage.getItem("transmove_database_provider") || "supabase") === "supabase";
-    }
-  } catch (_) {}
-  return true;
-}
 
 export const AuthService = {
   /**
@@ -39,10 +17,7 @@ export const AuthService = {
     if (!doc) return null;
     let photoUrl = "";
     if (doc.profile_image_id) {
-      try {
-        const storage = getAppwriteStorage();
-        photoUrl = storage.getFileView(APPWRITE_CONFIG.bucketId, doc.profile_image_id);
-      } catch (_) {}
+      photoUrl = `/api/files/preview/${encodeURIComponent(doc.profile_image_id)}`;
     } else if (doc.profile_photo_url) {
       photoUrl = doc.profile_photo_url;
     }
@@ -62,12 +37,15 @@ export const AuthService = {
   },
 
   /**
-   * Registers a new user and creates exactly ONE matching row
-   * in public.profiles via trusted API.
-   * Role: 'customer' | 'driver' | 'owner' | etc.
+   * Registers a new user via Supabase Auth and creates exactly ONE matching row
+   * in public.profiles via the trusted API.
+   * Normal signup can NEVER assign the 'admin' role.
    */
   async register({ email, password, fullName, phoneNumber, role, city }) {
-    clearAppwriteJWTCache();
+    const supabase = getSupabase();
+    if (!supabase) {
+      throw new Error("Unable to connect to authentication service. Please check your network connection.");
+    }
 
     const validRoles = [
       "customer",
@@ -82,62 +60,57 @@ export const AuthService = {
       "business",
       "advertiser"
     ];
-    const assignedRole = validRoles.includes(role) ? role : "customer";
 
-    if (isSupabasePrimary()) {
-      const supabase = getSupabase();
-      let user = null;
-      let session = null;
-      let jwt = "";
+    // SECURITY: Normal signup can NEVER assign role='admin'
+    let assignedRole = validRoles.includes(role) ? role : "customer";
+    if (assignedRole === "admin") {
+      assignedRole = "customer";
+    }
 
-      if (supabase) {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            data: {
-              full_name: fullName,
-              phone: phoneNumber || "",
-              role: assignedRole
-            }
-          }
-        });
+    const cleanEmail = String(email || "").trim().toLowerCase();
 
-        if (error) {
-          if (error.message?.includes("already registered") || error.status === 422) {
-            throw new Error("An account with this email address already exists.");
-          }
-          throw error;
-        }
-
-        user = data.user;
-        session = data.session;
-        jwt = session?.access_token || "";
-      } else {
-        // Local offline / mock user simulation
-        const uid = `usr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-        user = { id: uid, $id: uid, email, user_metadata: { full_name: fullName, phone: phoneNumber, role: assignedRole } };
-        jwt = `test_user_${uid}`;
-        session = { access_token: jwt, user };
-        if (typeof window !== "undefined" && window.localStorage) {
-          window.localStorage.setItem("transmove_mock_user", JSON.stringify(user));
-          window.localStorage.setItem("transmove_mock_jwt", jwt);
+    const { data, error } = await supabase.auth.signUp({
+      email: cleanEmail,
+      password,
+      options: {
+        data: {
+          full_name: fullName,
+          phone: phoneNumber || "",
+          role: assignedRole
         }
       }
+    });
 
-      // Call trusted create_profile
+    if (error) {
+      if (
+        error.message?.includes("already registered") ||
+        error.message?.includes("already exists") ||
+        error.status === 422
+      ) {
+        throw new Error("An account with this email address already exists. Please Sign In.");
+      }
+      throw new Error(error.message || "Failed to create account. Please check your details.");
+    }
+
+    const user = data.user;
+    const session = data.session;
+    const jwt = session?.access_token || "";
+
+    // Provision matching row in public.profiles via trusted API
+    let profile = null;
+    try {
       const endpoint = getTrustedApiEndpoint();
       const res = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${jwt}`
+          ...(jwt ? { Authorization: `Bearer ${jwt}` } : {})
         },
         body: JSON.stringify({
           action: "create_profile",
           jwt,
           data: {
-            fullName: fullName,
+            fullName: fullName || user?.user_metadata?.full_name || "TransMove User",
             phoneNumber: phoneNumber || "",
             role: assignedRole,
             city: city || "",
@@ -146,168 +119,23 @@ export const AuthService = {
         })
       });
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(errData.error || "Failed to create user profile on trusted server.");
+      if (res.ok) {
+        profile = await res.json();
       }
-
-      const profileDoc = await res.json();
-      this.notifyAuthStateChange("SIGNED_IN", session);
-
-      return {
-        user,
-        session,
-        profile: this._formatProfile(profileDoc)
-      };
-    }
-
-    // Appwrite Fallback Path
-    const account = getAppwriteAccount();
-    let user;
-    try {
-      user = await account.create(ID.unique(), email, password, fullName);
-    } catch (err) {
-      if (err.code === 409 || err.type === "user_already_exists") {
-        throw new Error("An account with this email address already exists.");
-      }
-      throw err;
-    }
-
-    try {
-      await account.deleteSession("current");
     } catch (_) {}
-    clearAppwriteJWTCache();
-    const session = await account.createEmailPasswordSession(email, password);
 
-    const jwtRes = await account.createJWT();
-    const endpoint = getTrustedApiEndpoint();
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${jwtRes.jwt}`,
-        "X-Appwrite-JWT": jwtRes.jwt
-      },
-      body: JSON.stringify({
-        action: "create_profile",
-        data: {
-          fullName: fullName,
-          phoneNumber: phoneNumber || "",
-          role: assignedRole,
-          city: city || "",
-          bio: ""
-        }
-      })
-    });
-
-    const profileDoc = await res.json();
-    this.notifyAuthStateChange("SIGNED_IN", session);
-    return {
-      user,
-      session,
-      profile: this._formatProfile(profileDoc)
-    };
-  },
-
-  /**
-   * Signs in an existing user via Supabase Auth (or Appwrite fallback).
-   */
-  async login({ email, password }) {
-    clearAppwriteJWTCache();
-
-    if (isSupabasePrimary()) {
-      const supabase = getSupabase();
-      let user = null;
-      let session = null;
-      let jwt = "";
-
-      if (supabase) {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) {
-          throw new Error("Invalid credentials. Please check your email and password.");
-        }
-        user = data.user;
-        session = data.session;
-        jwt = session?.access_token || "";
-      } else {
-        // Check local mock users
-        const mockUser = typeof window !== "undefined" && window.localStorage ? window.localStorage.getItem("transmove_mock_user") : null;
-        if (mockUser) {
-          user = JSON.parse(mockUser);
-          jwt = window.localStorage.getItem("transmove_mock_jwt") || `test_user_${user.id}`;
-          session = { access_token: jwt, user };
-        } else {
-          const uid = `usr_${Date.now()}`;
-          user = { id: uid, $id: uid, email, user_metadata: { full_name: "TransMove User" } };
-          jwt = `test_user_${uid}`;
-          session = { access_token: jwt, user };
-          if (typeof window !== "undefined" && window.localStorage) {
-            window.localStorage.setItem("transmove_mock_user", JSON.stringify(user));
-            window.localStorage.setItem("transmove_mock_jwt", jwt);
-          }
-        }
-      }
-
-      // Load matching profile via trusted API
-      let profile = null;
+    // Fallback: direct load if profile already created
+    if (!profile && user?.id) {
       try {
-        const endpoint = getTrustedApiEndpoint();
-        const res = await fetch(endpoint, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${jwt}`
-          },
-          body: JSON.stringify({
-            action: "create_profile", // Idempotent: returns existing profile if exists
-            jwt,
-            data: {
-              fullName: user?.user_metadata?.full_name || user?.name || "TransMove User",
-              phoneNumber: user?.phone || "",
-              role: "customer",
-              city: "",
-              bio: ""
-            }
-          })
-        });
-        if (res.ok) profile = await res.json();
-      } catch (e) {
-        console.warn("Notice: Fetching profile during login:", e.message);
-      }
-
-      this.notifyAuthStateChange("SIGNED_IN", session);
-      return {
-        user,
-        session,
-        profile: this._formatProfile(profile)
-      };
+        const { data: directProfile } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", user.id)
+          .maybeSingle();
+        if (directProfile) profile = directProfile;
+      } catch (_) {}
     }
 
-    // Appwrite Fallback
-    const account = getAppwriteAccount();
-    try {
-      await account.deleteSession("current");
-    } catch (_) {}
-
-    let session;
-    try {
-      session = await account.createEmailPasswordSession(email, password);
-      clearAppwriteJWTCache();
-    } catch (err) {
-      if (err.code === 401 || err.type === "user_invalid_credentials") {
-        throw new Error("Invalid credentials. Please check your email and password.");
-      }
-      throw err;
-    }
-
-    const user = await account.get();
-    const databases = getAppwriteDatabases();
-    const profileList = await databases.listDocuments("transmove", "profiles", [
-      Query.equal("user_id", user.$id),
-      Query.limit(1)
-    ]).catch(() => ({ documents: [] }));
-
-    let profile = profileList.documents[0] || null;
     this.notifyAuthStateChange("SIGNED_IN", session);
 
     return {
@@ -318,202 +146,318 @@ export const AuthService = {
   },
 
   /**
-   * Signs out currently authenticated user.
+   * Signs in an existing user via Supabase Auth as the SOLE active authentication provider.
+   * Loads matching row from public.profiles, enforces account_status, and returns formatted profile.
    */
-  async logout() {
-    clearAppwriteJWTCache();
-
-    if (isSupabasePrimary()) {
-      const supabase = getSupabase();
-      if (supabase) {
-        await supabase.auth.signOut().catch(() => {});
-      }
-      if (typeof window !== "undefined" && window.localStorage) {
-        window.localStorage.removeItem("transmove_mock_user");
-        window.localStorage.removeItem("transmove_mock_jwt");
-      }
-      this.notifyAuthStateChange("SIGNED_OUT", null);
-      return;
+  async login({ email, password }) {
+    const supabase = getSupabase();
+    if (!supabase) {
+      throw new Error("Unable to connect to authentication service. Please check your network connection.");
     }
 
-    const account = getAppwriteAccount();
+    const cleanEmail = String(email || "").trim().toLowerCase();
+
+    // 1. Authenticate with Supabase Auth
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: cleanEmail,
+      password
+    });
+
+    if (error) {
+      throw new Error("Invalid credentials. Please check your email and password.");
+    }
+
+    const user = data.user;
+    const session = data.session;
+    const jwt = session?.access_token || "";
+
+    if (!user || !user.id) {
+      throw new Error("Authentication failed: No valid user returned from server.");
+    }
+
+    // 2. Load exactly one row from public.profiles where profiles.id = auth user.id
+    let profile = null;
+
+    // Direct database query via Supabase RLS client
     try {
-      await account.deleteSession("current");
+      const { data: profileRow, error: pErr } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (!pErr && profileRow) {
+        profile = profileRow;
+      }
     } catch (_) {}
+
+    // Fallback query via trusted server backend endpoint
+    if (!profile) {
+      try {
+        const endpoint = getTrustedApiEndpoint();
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${jwt}`
+          },
+          body: JSON.stringify({
+            action: "get_profile",
+            jwt
+          })
+        });
+
+        if (res.ok) {
+          const resData = await res.json();
+          profile = resData.profile || resData;
+        }
+      } catch (_) {}
+    }
+
+    // Provision profile if missing
+    if (!profile) {
+      try {
+        const endpoint = getTrustedApiEndpoint();
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${jwt}`
+          },
+          body: JSON.stringify({
+            action: "create_profile",
+            jwt,
+            data: {
+              fullName: user?.user_metadata?.full_name || user?.name || cleanEmail.split("@")[0],
+              phoneNumber: user?.phone || user?.user_metadata?.phone || "",
+              role: user?.user_metadata?.role || "customer",
+              city: "",
+              bio: ""
+            }
+          })
+        });
+        if (res.ok) {
+          profile = await res.json();
+        }
+      } catch (_) {}
+    }
+
+    if (!profile) {
+      throw new Error("Your account profile could not be loaded. Please contact support.");
+    }
+
+    // 3. Enforce account_status
+    if (profile.account_status === "suspended" || profile.account_status === "deactivated") {
+      await supabase.auth.signOut().catch(() => {});
+      throw new Error("Your account has been suspended. Please contact support.");
+    }
+
+    const formattedProfile = this._formatProfile(profile);
+
+    // 4. Notify app listeners & return
+    this.notifyAuthStateChange("SIGNED_IN", session);
+
+    return {
+      user,
+      session,
+      profile: formattedProfile
+    };
+  },
+
+  /**
+   * Signs out the currently authenticated user from Supabase Auth.
+   */
+  async logout() {
+    const supabase = getSupabase();
+    if (supabase) {
+      await supabase.auth.signOut().catch(() => {});
+    }
+
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.removeItem("transmove_active_role");
+      window.localStorage.removeItem("transmove_mock_user");
+      window.localStorage.removeItem("transmove_mock_jwt");
+    }
+
     this.notifyAuthStateChange("SIGNED_OUT", null);
   },
 
   /**
-   * Initiates password recovery email.
+   * Initiates password recovery email via Supabase Auth.
    */
   async resetPassword(email) {
-    if (isSupabasePrimary()) {
-      const supabase = getSupabase();
-      if (supabase) {
-        return await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/#reset-password`
-        });
-      }
+    const supabase = getSupabase();
+    if (!supabase) {
+      throw new Error("Supabase authentication service unavailable.");
     }
-    const account = getAppwriteAccount();
+    const cleanEmail = String(email || "").trim().toLowerCase();
     const redirectUrl = `${window.location.origin}/#reset-password`;
-    return await account.createRecovery(email, redirectUrl);
+    const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+      redirectTo: redirectUrl
+    });
+    if (error) {
+      throw new Error(error.message || "Failed to send password reset email.");
+    }
+    return { success: true };
   },
 
+  /**
+   * Completes password reset using new password via Supabase Auth.
+   */
   async completePasswordReset(userId, secret, password) {
-    if (isSupabasePrimary()) {
-      const supabase = getSupabase();
-      if (supabase) {
-        return await supabase.auth.updateUser({ password });
-      }
+    const supabase = getSupabase();
+    if (!supabase) {
+      throw new Error("Supabase authentication service unavailable.");
     }
-    const account = getAppwriteAccount();
-    return await account.updateRecovery(userId, secret, password);
+    const { data, error } = await supabase.auth.updateUser({ password });
+    if (error) {
+      throw new Error(error.message || "Failed to update password.");
+    }
+    return data;
   },
 
   async sendEmailVerification() {
-    if (isSupabasePrimary()) return { success: true };
-    const account = getAppwriteAccount();
-    const redirectUrl = `${window.location.origin}/#verify-email`;
-    return await account.createVerification(redirectUrl);
+    return { success: true };
   },
 
   async verifyEmail(userId, secret) {
-    if (isSupabasePrimary()) return { success: true };
-    const account = getAppwriteAccount();
-    return await account.updateVerification(userId, secret);
+    return { success: true };
   },
 
+  /**
+   * Retrieves current Supabase session.
+   */
   async getSession() {
-    if (isSupabasePrimary()) {
-      const supabase = getSupabase();
-      if (supabase) {
-        const { data: { session } } = await supabase.auth.getSession();
-        return session ? { user: session.user } : null;
-      }
-      const mockUser = typeof window !== "undefined" && window.localStorage ? window.localStorage.getItem("transmove_mock_user") : null;
-      return mockUser ? { user: JSON.parse(mockUser) } : null;
-    }
+    const supabase = getSupabase();
+    if (!supabase) return null;
 
     try {
-      const account = getAppwriteAccount();
-      const user = await account.get();
-      return user ? { user } : null;
-    } catch (e) {
+      const { data: { session } } = await supabase.auth.getSession();
+      return session ? { user: session.user, session } : null;
+    } catch (_) {
       return null;
     }
   },
 
+  /**
+   * Retrieves currently authenticated Supabase Auth user.
+   */
   async getCurrentUser() {
-    if (isSupabasePrimary()) {
-      const supabase = getSupabase();
-      if (supabase) {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          return {
-            $id: user.id,
-            id: user.id,
-            email: user.email,
-            name: user.user_metadata?.full_name || user.email,
-            phone: user.phone || ""
-          };
-        }
-      }
-      const mockUser = typeof window !== "undefined" && window.localStorage ? window.localStorage.getItem("transmove_mock_user") : null;
-      return mockUser ? JSON.parse(mockUser) : null;
-    }
+    const supabase = getSupabase();
+    if (!supabase) return null;
 
     try {
-      const account = getAppwriteAccount();
-      return await account.get();
-    } catch (e) {
-      return null;
-    }
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (!error && user) {
+        return {
+          $id: user.id,
+          id: user.id,
+          email: user.email,
+          name: user.user_metadata?.full_name || user.email,
+          phone: user.phone || user.user_metadata?.phone || ""
+        };
+      }
+    } catch (_) {}
+
+    return null;
   },
 
+  /**
+   * Loads current user's profile from Supabase PostgreSQL public.profiles.
+   */
   async getCurrentProfile() {
     const user = await this.getCurrentUser();
     if (!user) return null;
 
-    const jwt = await getAuthJwt();
-    const endpoint = getTrustedApiEndpoint();
+    const supabase = getSupabase();
+    let profile = null;
 
-    try {
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(jwt ? { Authorization: `Bearer ${jwt}` } : {})
+    // 1. Direct query from Supabase
+    if (supabase) {
+      try {
+        const { data: row } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", user.id)
+          .maybeSingle();
+        if (row) profile = row;
+      } catch (_) {}
+    }
+
+    // 2. Fallback to trusted API with JWT
+    if (!profile) {
+      const jwt = await getAuthJwt();
+      const endpoint = getTrustedApiEndpoint();
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(jwt ? { Authorization: `Bearer ${jwt}` } : {})
+          },
+          body: JSON.stringify({
+            action: "get_profile",
+            jwt
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          profile = data.profile || data;
+        }
+      } catch (_) {}
+    }
+
+    if (!profile) return null;
+    return this._formatProfile(profile);
+  },
+
+  /**
+   * Realtime subscription for profile and verification document changes.
+   */
+  async subscribeVerificationUpdates(callback) {
+    const user = await this.getCurrentUser();
+    if (!user || typeof callback !== "function") return () => {};
+
+    const supabase = getSupabase();
+    if (!supabase) return () => {};
+
+    const channelName = `profile_sync_${user.id}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "profiles",
+          filter: `id=eq.${user.id}`
         },
-        body: JSON.stringify({
-          action: "create_profile", // Idempotent: returns existing profile
-          jwt,
-          data: {
-            fullName: user.name || user.full_name || "TransMove User",
-            phoneNumber: user.phone || "",
-            role: "customer"
-          }
-        })
-      });
+        (payload) => {
+          callback({ event: "profile_updated", payload: payload.new });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "verification_documents",
+          filter: `user_id=eq.${user.id}`
+        },
+        (payload) => {
+          callback({ event: "doc_updated", payload: payload.new });
+        }
+      )
+      .subscribe();
 
-      if (res.ok) {
-        const doc = await res.json();
-        return this._formatProfile(doc);
-      }
-    } catch (_) {}
-
-    return {
-      id: user.id || user.$id,
-      $id: user.id || user.$id,
-      user_id: user.id || user.$id,
-      email: user.email || "",
-      full_name: user.name || user.full_name || "TransMove User",
-      role: "passenger",
-      account_status: "active",
-      verification_status: "unverified"
+    return () => {
+      supabase.removeChannel(channel);
     };
   },
 
-  async subscribeToVerificationState(callback) {
-    if (isSupabasePrimary()) {
-      const supabase = getSupabase();
-      const user = await this.getCurrentUser();
-      if (!supabase || !user) return () => {};
-
-      const channel = supabase
-        .channel(`public:profiles:${user.id}`)
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "profiles", filter: `id=eq.${user.id}` },
-          (payload) => {
-            if (typeof callback === "function") callback({ event: payload.eventType, payload: payload.new });
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel);
-      };
-    }
-
-    // Appwrite Fallback
-    const account = getAppwriteAccount();
-    const user = await account.get().catch(() => null);
-    if (!user || typeof callback !== "function") return () => {};
-
-    const channels = [
-      `databases.transmove.collections.profiles.documents.${user.$id}`,
-      "databases.transmove.collections.vehicles.documents",
-      "databases.transmove.collections.verification_documents.documents"
-    ];
-    const unsubscribe = getAppwriteClient().subscribe(channels, (event) => {
-      const payload = event?.payload || {};
-      const belongsToUser = payload.user_id === user.$id || payload.driver_id === user.$id;
-      if (belongsToUser) callback({ event, payload });
-    });
-    return typeof unsubscribe === "function" ? unsubscribe : () => {};
-  },
-
+  /**
+   * Updates non-privileged user profile fields via trusted API.
+   */
   async updateProfile(updates) {
     const user = await this.getCurrentUser();
     if (!user) throw new Error("Not authenticated");
@@ -672,17 +616,14 @@ export const AuthService = {
     throw new Error("Additional role requests are not available yet. Roles are granted by TransMove after verification — please contact support.");
   },
 
-  async updatePassword(newPassword, oldPassword = "") {
-    if (isSupabasePrimary()) {
-      const supabase = getSupabase();
-      if (supabase) {
-        await supabase.auth.updateUser({ password: newPassword });
-        return true;
-      }
+  async updatePassword(newPassword) {
+    const supabase = getSupabase();
+    if (supabase) {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw new Error(error.message || "Failed to update password.");
+      return true;
     }
-    const account = getAppwriteAccount();
-    await account.updatePassword(newPassword, oldPassword);
-    return true;
+    throw new Error("Supabase authentication service unavailable.");
   },
 
   onAuthStateChange(callback) {

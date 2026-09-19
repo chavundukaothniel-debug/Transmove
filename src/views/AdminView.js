@@ -7,7 +7,6 @@ import { AuthService } from "../services/auth.js";
 import { DisputeService } from "../services/disputes.js";
 import { PaymentService } from "../services/payments.js";
 import { Modal } from "../components/Modal.js";
-import { getAppwriteAccount } from "../config/appwrite.js";
 import { renderEmptyState } from "../components/EmptyState.js";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -26,12 +25,12 @@ export const AdminView = {
           <form id="admin-login-form">
             <div class="form-group" style="margin-bottom: 1.25rem;">
               <label class="form-label" style="font-weight: 700;">Administrator Email / ID</label>
-              <input type="email" id="admin-login-email" class="form-input" placeholder="transmove@admin" value="transmove@admin" required />
+              <input type="email" id="admin-login-email" class="form-input" placeholder="admin@transmove.co.zw" autocomplete="email" required />
             </div>
 
             <div class="form-group" style="margin-bottom: 1.75rem;">
               <label class="form-label" style="font-weight: 700;">Password</label>
-              <input type="password" id="admin-login-password" class="form-input" placeholder="••••••••••••" required />
+              <input type="password" id="admin-login-password" class="form-input" placeholder="••••••••••••" autocomplete="current-password" required />
             </div>
 
             <button type="submit" id="btn-submit-admin-login" class="btn btn-primary btn-full btn-lg" style="background: var(--danger); border-color: var(--danger); color: #ffffff;">
@@ -58,15 +57,14 @@ export const AdminView = {
       submitBtn.innerText = "Authenticating Admin Session...";
 
       try {
-        await AuthService.login({ email, password });
-        const profile = await AuthService.getCurrentProfile();
-        if (profile?.role !== "admin") {
+        const { profile } = await AuthService.login({ email, password });
+        if (!profile || profile.role !== "admin" || profile.account_status !== "active") {
           await AuthService.logout();
-          throw new Error("Access Denied: Account does not possess verified administrator privileges.");
+          throw new Error("Access Denied: Account does not possess active verified administrator privileges.");
         }
         window.location.hash = "#admin";
       } catch (err) {
-        alert("Admin Authentication Failed: " + err.message);
+        alert("Admin Authentication Failed: " + (err.message || "Invalid credentials."));
         submitBtn.disabled = false;
         submitBtn.innerText = "Authenticate Administrator 🛡️";
       }

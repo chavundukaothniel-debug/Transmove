@@ -317,7 +317,7 @@ export const AuthView = {
             </div>
 
             <div id="verify-status-box" style="padding: 1.5rem; background: #f8fafc; border: 1px solid var(--border-light); border-radius: var(--radius-md); text-align: center;">
-              <p id="verify-status-text" style="color: var(--text-muted); font-size: 0.95rem; margin: 0 0 1rem 0;">Verifying your email token with Appwrite...</p>
+              <p id="verify-status-text" style="color: var(--text-muted); font-size: 0.95rem; margin: 0 0 1rem 0;">Verifying your account email...</p>
               <div id="verify-action-area" style="display: none;">
                 <a href="#login" class="btn btn-primary-blue btn-full" style="text-decoration: none; display: inline-block;">Continue to Sign In</a>
               </div>

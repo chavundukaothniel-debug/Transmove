@@ -67,6 +67,18 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Safe public configuration for browser frontend
+  if (urlPath === "/api/config" || urlPath === "/api/public-config") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      supabaseUrl: process.env.SUPABASE_URL || "https://wwvnnnistexgyvhvnqes.supabase.co",
+      supabaseAnonKey: process.env.SUPABASE_ANON_KEY || "sb_publishable__EpXdp1hPVYf-k0VSUF4Uw_5_rBEYm4",
+      databaseProvider: "supabase",
+      fileStorageProvider: "google_drive"
+    }));
+    return;
+  }
+
   // Static file serving
   let relativePath = urlPath === "/" ? "index.html" : urlPath.replace(/^\//, "");
   let filePath = path.resolve(process.cwd(), relativePath);

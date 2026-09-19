@@ -274,7 +274,22 @@ class SupabaseBackendEngine {
     // Helper: get caller profile
     const getCallerProfile = async () => {
       if (!userId) return null;
-      return this.db.profiles.find((p) => p.id === userId || p.user_id === userId) || null;
+      let profile = this.db.profiles.find((p) => p.id === userId || p.user_id === userId) || null;
+      if (!profile && this.supabaseAdmin) {
+        try {
+          const { data, error } = await this.supabaseAdmin
+            .from("profiles")
+            .select("*")
+            .eq("id", userId)
+            .maybeSingle();
+          if (!error && data) {
+            this.db.profiles.push(data);
+            this._persistLocalDb();
+            profile = data;
+          }
+        } catch (_) {}
+      }
+      return profile;
     };
 
     const requireAdmin = async () => {
@@ -288,6 +303,12 @@ class SupabaseBackendEngine {
     // =========================================================================
     // 1. PROFILES
     // =========================================================================
+    if (action === "get_profile") {
+      const profile = await getCallerProfile();
+      if (!profile) throw new Error("Profile not found.");
+      return profile;
+    }
+
     if (action === "create_profile") {
       const derivedUserId = verifiedUser.id;
       const derivedEmail = verifiedUser.email || "";
