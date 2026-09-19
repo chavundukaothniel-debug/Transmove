@@ -1,0 +1,518 @@
+{
+  "profiles": [],
+  "vehicles": [],
+  "vehicle_photos": [],
+  "verification_documents": [],
+  "driver_presence": [
+    {
+      "driver_id": "test_driver_1789814312262",
+      "is_online": true,
+      "last_seen_at": "2026-09-19T10:38:32.388Z",
+      "current_lat": -17.8252,
+      "current_lng": 31.0335,
+      "created_at": "2026-09-19T10:38:32.388Z",
+      "updated_at": "2026-09-19T10:38:32.388Z"
+    },
+    {
+      "driver_id": "test_driver_1789814608815",
+      "is_online": true,
+      "last_seen_at": "2026-09-19T10:43:28.924Z",
+      "current_lat": -17.8252,
+      "current_lng": 31.0335,
+      "created_at": "2026-09-19T10:43:28.924Z",
+      "updated_at": "2026-09-19T10:43:28.924Z"
+    }
+  ],
+  "service_requests": [],
+  "request_images": [],
+  "bids": [],
+  "bid_negotiations": [
+    {
+      "id": "neg_1789814312443_v5dq",
+      "bid_id": "bid_1789814312432_mspbw",
+      "sender_id": "test_passenger_1789814312262",
+      "sender_role": "passenger",
+      "counter_amount": 14,
+      "message": "Can you do $14.00?",
+      "status": "active",
+      "created_at": "2026-09-19T10:38:32.443Z"
+    },
+    {
+      "id": "neg_1789814608974_bu4k",
+      "bid_id": "bid_1789814608961_shit3",
+      "sender_id": "test_passenger_1789814608815",
+      "sender_role": "passenger",
+      "counter_amount": 14,
+      "message": "Can you do $14.00?",
+      "status": "active",
+      "created_at": "2026-09-19T10:43:28.974Z"
+    }
+  ],
+  "bookings": [],
+  "booking_events": [
+    {
+      "id": "be_1789814312504_cw5a",
+      "booking_id": "book_1789814312477_lthb3",
+      "actor_id": "test_driver_1789814312262",
+      "status": "driver_arriving",
+      "event_type": "status_driver_arriving",
+      "notes": "",
+      "created_at": "2026-09-19T10:38:32.504Z"
+    },
+    {
+      "id": "be_1789814312517_s9sl",
+      "booking_id": "book_1789814312477_lthb3",
+      "actor_id": "test_driver_1789814312262",
+      "status": "arrived",
+      "event_type": "status_arrived",
+      "notes": "",
+      "created_at": "2026-09-19T10:38:32.517Z"
+    },
+    {
+      "id": "be_1789814312531_t1fe",
+      "booking_id": "book_1789814312477_lthb3",
+      "actor_id": "test_driver_1789814312262",
+      "status": "in_progress",
+      "event_type": "status_in_progress",
+      "notes": "",
+      "created_at": "2026-09-19T10:38:32.531Z"
+    },
+    {
+      "id": "be_1789814312539_d76p",
+      "booking_id": "book_1789814312477_lthb3",
+      "actor_id": "test_driver_1789814312262",
+      "status": "completed",
+      "event_type": "status_completed",
+      "notes": "",
+      "created_at": "2026-09-19T10:38:32.539Z"
+    },
+    {
+      "id": "be_1789814608997_v2ca",
+      "booking_id": "book_1789814608986_kvpqr",
+      "actor_id": "test_driver_1789814608815",
+      "status": "driver_arriving",
+      "event_type": "status_driver_arriving",
+      "notes": "",
+      "created_at": "2026-09-19T10:43:28.997Z"
+    },
+    {
+      "id": "be_1789814609009_0yc0",
+      "booking_id": "book_1789814608986_kvpqr",
+      "actor_id": "test_driver_1789814608815",
+      "status": "arrived",
+      "event_type": "status_arrived",
+      "notes": "",
+      "created_at": "2026-09-19T10:43:29.009Z"
+    },
+    {
+      "id": "be_1789814609018_cuqr",
+      "booking_id": "book_1789814608986_kvpqr",
+      "actor_id": "test_driver_1789814608815",
+      "status": "in_progress",
+      "event_type": "status_in_progress",
+      "notes": "",
+      "created_at": "2026-09-19T10:43:29.018Z"
+    },
+    {
+      "id": "be_1789814609033_htop",
+      "booking_id": "book_1789814608986_kvpqr",
+      "actor_id": "test_driver_1789814608815",
+      "status": "completed",
+      "event_type": "status_completed",
+      "notes": "",
+      "created_at": "2026-09-19T10:43:29.033Z"
+    }
+  ],
+  "messages": [],
+  "notifications": [
+    {
+      "id": "notif_1789814312432_zihq",
+      "user_id": "test_passenger_1789814312262",
+      "type": "new_offer",
+      "title": "New Driver Offer Received",
+      "message": "A driver submitted an offer of $18.00 for your trip.",
+      "related_id": "bid_1789814312432_mspbw",
+      "read": false,
+      "created_at": "2026-09-19T10:38:32.432Z"
+    },
+    {
+      "id": "notif_1789814312443_qg91",
+      "user_id": "test_driver_1789814312262",
+      "type": "counter_offer",
+      "title": "Counter Offer Proposed",
+      "message": "New counter offer of $14.00 received.",
+      "related_id": "bid_1789814312432_mspbw",
+      "read": false,
+      "created_at": "2026-09-19T10:38:32.443Z"
+    },
+    {
+      "id": "notif_1789814312477_xd2v",
+      "user_id": "test_driver_1789814312262",
+      "type": "job_confirmed",
+      "title": "Booking Confirmed!",
+      "message": "Your offer was accepted for $14.00. Prepare to pick up passenger.",
+      "related_id": "book_1789814312477_lthb3",
+      "read": false,
+      "created_at": "2026-09-19T10:38:32.477Z"
+    },
+    {
+      "id": "notif_1789814312651_f3y0",
+      "user_id": "test_driver_1789814312262",
+      "type": "payment_approved",
+      "title": "Subscription Payment Approved!",
+      "message": "Your payment of $15.00 was approved. Subscription active until 19/10/2026.",
+      "related_id": "sub_1789814312650_p7kks",
+      "read": false,
+      "created_at": "2026-09-19T10:38:32.672Z"
+    },
+    {
+      "id": "notif_1789814312674_sugg",
+      "user_id": "test_passenger_1789814312262",
+      "type": "new_offer",
+      "title": "New Driver Offer Received",
+      "message": "A driver submitted an offer of $18.00 for your trip.",
+      "related_id": "bid_1789814312674_pohit",
+      "read": false,
+      "created_at": "2026-09-19T10:38:32.674Z"
+    },
+    {
+      "id": "notif_1789814608961_nikn",
+      "user_id": "test_passenger_1789814608815",
+      "type": "new_offer",
+      "title": "New Driver Offer Received",
+      "message": "A driver submitted an offer of $18.00 for your trip.",
+      "related_id": "bid_1789814608961_shit3",
+      "read": false,
+      "created_at": "2026-09-19T10:43:28.961Z"
+    },
+    {
+      "id": "notif_1789814608974_m3xd",
+      "user_id": "test_driver_1789814608815",
+      "type": "counter_offer",
+      "title": "Counter Offer Proposed",
+      "message": "New counter offer of $14.00 received.",
+      "related_id": "bid_1789814608961_shit3",
+      "read": false,
+      "created_at": "2026-09-19T10:43:28.974Z"
+    },
+    {
+      "id": "notif_1789814608986_eqxw",
+      "user_id": "test_driver_1789814608815",
+      "type": "job_confirmed",
+      "title": "Booking Confirmed!",
+      "message": "Your offer was accepted for $14.00. Prepare to pick up passenger.",
+      "related_id": "book_1789814608986_kvpqr",
+      "read": false,
+      "created_at": "2026-09-19T10:43:28.986Z"
+    },
+    {
+      "id": "notif_1789814609133_yts4",
+      "user_id": "test_driver_1789814608815",
+      "type": "payment_approved",
+      "title": "Subscription Payment Approved!",
+      "message": "Your payment of $15.00 was approved. Subscription active until 19/10/2026.",
+      "related_id": "sub_1789814609133_e8bnt",
+      "read": false,
+      "created_at": "2026-09-19T10:43:29.156Z"
+    },
+    {
+      "id": "notif_1789814609158_w7wy",
+      "user_id": "test_passenger_1789814608815",
+      "type": "new_offer",
+      "title": "New Driver Offer Received",
+      "message": "A driver submitted an offer of $18.00 for your trip.",
+      "related_id": "bid_1789814609158_4cfvu",
+      "read": false,
+      "created_at": "2026-09-19T10:43:29.158Z"
+    }
+  ],
+  "reviews": [
+    {
+      "id": "rev_1789814312565_72l5",
+      "booking_id": "book_1789814312477_lthb3",
+      "reviewer_id": "test_passenger_1789814312262",
+      "reviewee_id": "test_driver_1789814312262",
+      "rating": 5,
+      "comment": "Excellent drive, very courteous and safe!",
+      "created_at": "2026-09-19T10:38:32.565Z"
+    },
+    {
+      "id": "rev_1789814609059_l8wg",
+      "booking_id": "book_1789814608986_kvpqr",
+      "reviewer_id": "test_passenger_1789814608815",
+      "reviewee_id": "test_driver_1789814608815",
+      "rating": 5,
+      "comment": "Excellent drive, very courteous and safe!",
+      "created_at": "2026-09-19T10:43:29.059Z"
+    }
+  ],
+  "favourites": [],
+  "subscription_plans": [
+    {
+      "id": "plan_flex_pass",
+      "name": "Flex Pass",
+      "slug": "flex-pass",
+      "description": "7 days bidding access for casual operators",
+      "price": 5,
+      "currency": "USD",
+      "duration_days": 7,
+      "active": true,
+      "recommended": false,
+      "display_order": 1,
+      "features": [
+        "Full bidding access for 7 days",
+        "Standard search placement",
+        "Direct chat with customers"
+      ]
+    },
+    {
+      "id": "plan_professional",
+      "name": "TransMove Professional",
+      "slug": "professional",
+      "description": "30 days unlimited bidding and priority matching",
+      "price": 15,
+      "currency": "USD",
+      "duration_days": 30,
+      "active": true,
+      "recommended": true,
+      "display_order": 2,
+      "features": [
+        "Unlimited bidding for 30 days",
+        "Priority matching & 10s notifications",
+        "Direct phone & chat",
+        "Verified provider badge"
+      ]
+    },
+    {
+      "id": "plan_pro_90",
+      "name": "Pro 90",
+      "slug": "pro-90",
+      "description": "Quarterly savings for active fleet operators",
+      "price": 40,
+      "currency": "USD",
+      "duration_days": 90,
+      "active": true,
+      "recommended": false,
+      "display_order": 3,
+      "features": [
+        "Full bidding for 90 days (save $5)",
+        "Featured directory placement",
+        "Priority dispute resolution"
+      ]
+    },
+    {
+      "id": "plan_pro_annual",
+      "name": "Pro Annual",
+      "slug": "pro-annual",
+      "description": "Best annual value with dedicated support",
+      "price": 140,
+      "currency": "USD",
+      "duration_days": 365,
+      "active": true,
+      "recommended": false,
+      "display_order": 4,
+      "features": [
+        "Full bidding for 365 days (save $40)",
+        "Gold Verified Provider badge",
+        "Dedicated support line"
+      ]
+    }
+  ],
+  "subscriptions": [],
+  "payment_destinations": [
+    {
+      "id": "dest_ecocash_merchant_01",
+      "provider": "ecocash",
+      "account_name": "TransMove Logistics PVT LTD (Merchant)",
+      "account_number": "*151*2*2*123456#",
+      "instructions": "Dial *151*2*2*123456*AMOUNT# -> Enter PIN -> Save SMS reference code & upload screenshot.",
+      "active": true,
+      "display_order": 1
+    },
+    {
+      "id": "dest_ecocash_biller_02",
+      "provider": "ecocash",
+      "account_name": "TransMove Operations (Biller Code 78901)",
+      "account_number": "78901",
+      "instructions": "Dial *151*2*1# -> Enter Biller Code 78901 -> Enter Account (Your Phone) -> Enter Amount.",
+      "active": true,
+      "display_order": 2
+    },
+    {
+      "id": "dest_innbucks_03",
+      "provider": "innbucks",
+      "account_name": "TransMove Collections",
+      "account_number": "+263771234567",
+      "instructions": "Send to InnBucks agent/app to +263771234567. Include your TransMove registered phone as reference.",
+      "active": true,
+      "display_order": 3
+    }
+  ],
+  "payments": [],
+  "advertising_campaigns": [],
+  "activity_logs": [
+    {
+      "id": "act_1789814609157_7olqu",
+      "user_id": "test_admin_1789814608815",
+      "activity_type": "payment_approved",
+      "title": "Approved payment for TransMove Professional",
+      "description": "User: test_driver_1789814608815",
+      "related_id": "pay_1789814609107_cqd5i",
+      "created_at": "2026-09-19T10:43:29.157Z"
+    },
+    {
+      "id": "act_1789814609123_loz20",
+      "user_id": "test_driver_1789814608815",
+      "activity_type": "payment_submitted",
+      "title": "EcoCash payment submitted for review",
+      "description": "Ref: MP260919.608815",
+      "related_id": "pay_1789814609107_cqd5i",
+      "created_at": "2026-09-19T10:43:29.123Z"
+    },
+    {
+      "id": "act_1789814609084_93ky3",
+      "user_id": "test_passenger_1789814608815",
+      "activity_type": "request_created",
+      "title": "Request posted: ride",
+      "description": "Highlands, Harare -> Eastlea, Harare",
+      "related_id": "req_1789814609072_lcche",
+      "created_at": "2026-09-19T10:43:29.084Z"
+    },
+    {
+      "id": "act_1789814608987_0jq4m",
+      "user_id": "test_passenger_1789814608815",
+      "activity_type": "booking_created",
+      "title": "Trip booking confirmed",
+      "description": "Amount: $14",
+      "related_id": "book_1789814608986_kvpqr",
+      "created_at": "2026-09-19T10:43:28.987Z"
+    },
+    {
+      "id": "act_1789814608958_f1te1",
+      "user_id": "test_passenger_1789814608815",
+      "activity_type": "request_created",
+      "title": "Request posted: ride",
+      "description": "Avondale Shops, Harare -> CBD Roadport, Harare",
+      "related_id": "req_1789814608941_wapqp",
+      "created_at": "2026-09-19T10:43:28.958Z"
+    },
+    {
+      "id": "act_1789814608903_p1x28",
+      "user_id": "test_driver_1789814608815",
+      "activity_type": "verification_submitted",
+      "title": "Uploaded driver_license",
+      "description": "farai_licence.pdf",
+      "related_id": "doc_1789814608884_xozl4",
+      "created_at": "2026-09-19T10:43:28.903Z"
+    },
+    {
+      "id": "act_1789814608879_kfcbs",
+      "user_id": "test_driver_1789814608815",
+      "activity_type": "vehicle_created",
+      "title": "Vehicle submitted for review",
+      "description": "Toyota Corolla Quest",
+      "related_id": "veh_1789814608867_htnid",
+      "created_at": "2026-09-19T10:43:28.879Z"
+    },
+    {
+      "id": "act_1789814608850_ae45t",
+      "user_id": "test_driver_1789814608815",
+      "activity_type": "profile_created",
+      "title": "Profile created",
+      "description": "Role: driver",
+      "related_id": "test_driver_1789814608815",
+      "created_at": "2026-09-19T10:43:28.850Z"
+    },
+    {
+      "id": "act_1789814608836_1dcyk",
+      "user_id": "test_passenger_1789814608815",
+      "activity_type": "profile_created",
+      "title": "Profile created",
+      "description": "Role: passenger",
+      "related_id": "test_passenger_1789814608815",
+      "created_at": "2026-09-19T10:43:28.836Z"
+    },
+    {
+      "id": "act_1789814312673_pqx6e",
+      "user_id": "test_admin_1789814312262",
+      "activity_type": "payment_approved",
+      "title": "Approved payment for TransMove Professional",
+      "description": "User: test_driver_1789814312262",
+      "related_id": "pay_1789814312610_yfsqu",
+      "created_at": "2026-09-19T10:38:32.673Z"
+    },
+    {
+      "id": "act_1789814312626_mw6ln",
+      "user_id": "test_driver_1789814312262",
+      "activity_type": "payment_submitted",
+      "title": "EcoCash payment submitted for review",
+      "description": "Ref: MP260919.312262",
+      "related_id": "pay_1789814312610_yfsqu",
+      "created_at": "2026-09-19T10:38:32.626Z"
+    },
+    {
+      "id": "act_1789814312593_0hs2q",
+      "user_id": "test_passenger_1789814312262",
+      "activity_type": "request_created",
+      "title": "Request posted: ride",
+      "description": "Highlands, Harare -> Eastlea, Harare",
+      "related_id": "req_1789814312582_z47bu",
+      "created_at": "2026-09-19T10:38:32.593Z"
+    },
+    {
+      "id": "act_1789814312490_msqm2",
+      "user_id": "test_passenger_1789814312262",
+      "activity_type": "booking_created",
+      "title": "Trip booking confirmed",
+      "description": "Amount: $14",
+      "related_id": "book_1789814312477_lthb3",
+      "created_at": "2026-09-19T10:38:32.490Z"
+    },
+    {
+      "id": "act_1789814312418_4pnb0",
+      "user_id": "test_passenger_1789814312262",
+      "activity_type": "request_created",
+      "title": "Request posted: ride",
+      "description": "Avondale Shops, Harare -> CBD Roadport, Harare",
+      "related_id": "req_1789814312406_t018i",
+      "created_at": "2026-09-19T10:38:32.418Z"
+    },
+    {
+      "id": "act_1789814312356_u086i",
+      "user_id": "test_driver_1789814312262",
+      "activity_type": "verification_submitted",
+      "title": "Uploaded driver_license",
+      "description": "farai_licence.pdf",
+      "related_id": "doc_1789814312351_1pi8f",
+      "created_at": "2026-09-19T10:38:32.356Z"
+    },
+    {
+      "id": "act_1789814312326_x5ro0",
+      "user_id": "test_driver_1789814312262",
+      "activity_type": "vehicle_created",
+      "title": "Vehicle submitted for review",
+      "description": "Toyota Corolla Quest",
+      "related_id": "veh_1789814312318_va0vb",
+      "created_at": "2026-09-19T10:38:32.326Z"
+    },
+    {
+      "id": "act_1789814312300_gpvyr",
+      "user_id": "test_driver_1789814312262",
+      "activity_type": "profile_created",
+      "title": "Profile created",
+      "description": "Role: driver",
+      "related_id": "test_driver_1789814312262",
+      "created_at": "2026-09-19T10:38:32.300Z"
+    },
+    {
+      "id": "act_1789814312282_csiwk",
+      "user_id": "test_passenger_1789814312262",
+      "activity_type": "profile_created",
+      "title": "Profile created",
+      "description": "Role: passenger",
+      "related_id": "test_passenger_1789814312262",
+      "created_at": "2026-09-19T10:38:32.282Z"
+    }
+  ],
+  "saved_addresses": []
+}

@@ -96,14 +96,52 @@ export function getAppwriteClient() {
   return clientInstance;
 }
 
+import { getSupabase, getAuthJwt } from "./supabase.js";
+
 export function getAppwriteAccount() {
   if (!accountInstance) {
     const rawAccount = new Account(getAppwriteClient());
     rawAccount._originalCreateJWT = rawAccount.createJWT.bind(rawAccount);
+    rawAccount._originalGet = rawAccount.get.bind(rawAccount);
+
     rawAccount.createJWT = async function (forceRefresh = false) {
+      const provider = getStoredValue("transmove_database_provider", "supabase");
+      if (provider === "supabase") {
+        const jwt = await getAuthJwt();
+        if (jwt) return { jwt };
+      }
       const jwt = await getAppwriteJWT(forceRefresh);
       return { jwt };
     };
+
+    rawAccount.get = async function () {
+      const provider = getStoredValue("transmove_database_provider", "supabase");
+      if (provider === "supabase") {
+        try {
+          const supabase = getSupabase();
+          if (supabase) {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+              return {
+                $id: user.id,
+                id: user.id,
+                email: user.email,
+                name: user.user_metadata?.full_name || user.email,
+                phone: user.phone || ""
+              };
+            }
+          }
+        } catch (_) {}
+        const mockUserStr = getStoredValue("transmove_mock_user", null);
+        if (mockUserStr) {
+          try {
+            return JSON.parse(mockUserStr);
+          } catch (_) {}
+        }
+      }
+      return await rawAccount._originalGet();
+    };
+
     accountInstance = rawAccount;
   }
   return accountInstance;
@@ -120,7 +158,16 @@ let storageInstance = null;
 
 export function getAppwriteStorage() {
   if (!storageInstance) {
-    storageInstance = new Storage(getAppwriteClient());
+    const rawStorage = new Storage(getAppwriteClient());
+    rawStorage._originalGetFileView = rawStorage.getFileView.bind(rawStorage);
+    rawStorage.getFileView = function (bucketId, fileId) {
+      const provider = getStoredValue("transmove_file_storage_provider", "google_drive");
+      if (provider === "google_drive" && fileId) {
+        return `/api/files/preview/${encodeURIComponent(fileId)}`;
+      }
+      return rawStorage._originalGetFileView(bucketId, fileId);
+    };
+    storageInstance = rawStorage;
   }
   return storageInstance;
 }

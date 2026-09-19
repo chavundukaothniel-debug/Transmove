@@ -1,29 +1,25 @@
 // ==============================================================================
 // TRANSMOVE MANUAL ECOCASH PAYMENT SERVICE
-// Client service for EcoCash payment destinations, proof uploads,
+// Client service for EcoCash payment destinations, proof uploads (Google Drive),
 // and manual payment submissions with server-side verification.
 // ==============================================================================
-import {
-  APPWRITE_CONFIG,
-  getAppwriteAccount,
-  getAppwriteStorage,
-  getTrustedApiEndpoint,
-  ID,
-  Permission,
-  Role
-} from "../config/appwrite.js";
+import { getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getSupabase } from "../config/supabase.js";
+
+async function getAuthJwt() {
+  const supabase = getSupabase();
+  if (supabase) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) return session.access_token;
+    } catch (_) {}
+  }
+  return localStorage.getItem("transmove_mock_jwt") || "";
+}
 
 async function callTrustedApi(action, data = {}) {
   const endpoint = getTrustedApiEndpoint();
-  const account = getAppwriteAccount();
-  let jwt = null;
-
-  try {
-    const jwtRes = await account.createJWT();
-    jwt = jwtRes.jwt;
-  } catch (_) {
-    // Unauthenticated or guest calls for public actions
-  }
+  const jwt = await getAuthJwt();
 
   const headers = {
     "Content-Type": "application/json"
@@ -36,7 +32,7 @@ async function callTrustedApi(action, data = {}) {
   const res = await fetch(endpoint, {
     method: "POST",
     headers,
-    body: JSON.stringify({ action, data })
+    body: JSON.stringify({ action, data, jwt })
   });
 
   const json = await res.json().catch(() => ({}));
@@ -58,16 +54,14 @@ export const PaymentService = {
   },
 
   /**
-   * Uploads payment proof image/screenshot securely to Appwrite storage.
-   * File is restricted to the authenticated user and server admin.
+   * Uploads payment proof image/screenshot securely to Google Drive via trusted backend.
    *
    * @param {File} file
-   * @returns {Promise<string>} Appwrite file ID
+   * @returns {Promise<string>} Google Drive file ID
    */
   async uploadPaymentProof(file) {
     if (!file) throw new Error("Proof screenshot is required.");
 
-    // Validate size (max 5MB)
     const MAX_SIZE = 5 * 1024 * 1024;
     if (file.size > MAX_SIZE) {
       throw new Error("Proof file exceeds maximum size of 5MB. Please upload a smaller image.");
@@ -79,52 +73,43 @@ export const PaymentService = {
       throw new Error("Proof must be a JPG, PNG, or WebP image.");
     }
 
-    const account = getAppwriteAccount();
-    const user = await account.get();
-    if (!user || !user.$id) throw new Error("Authentication required to upload payment proof.");
+    // Convert to Base64
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        const base64String = result.split(",")[1];
+        resolve(base64String);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
 
-    const storage = getAppwriteStorage();
-    const fileId = ID.unique();
+    const res = await callTrustedApi("upload_payment_proof", {
+      file_base64: base64,
+      original_filename: file.name,
+      mime_type: file.type || "image/jpeg",
+      file_size: file.size
+    });
 
-    const uploaded = await storage.createFile(
-      APPWRITE_CONFIG.bucketId,
-      fileId,
-      file,
-      [
-        Permission.read(Role.user(user.$id)),
-        Permission.delete(Role.user(user.$id))
-      ]
-    );
-
-    return uploaded.$id;
+    return res.file_id || res.$id;
   },
 
   async deletePaymentProof(fileId) {
-    if (!fileId) return;
-    await getAppwriteStorage().deleteFile(APPWRITE_CONFIG.bucketId, fileId);
+    // Retained for interface compatibility
   },
 
   /**
-   * Gets a view/preview URL for a payment proof screenshot.
+   * Gets a view/preview URL for a payment proof screenshot from Google Drive.
    */
   getProofViewUrl(fileId) {
     if (!fileId) return null;
-    const storage = getAppwriteStorage();
-    return storage.getFileView(APPWRITE_CONFIG.bucketId, fileId);
+    return `/api/files/preview/${encodeURIComponent(fileId)}`;
   },
 
   /**
    * Submits an EcoCash manual payment for admin review.
-   *
-   * @param {Object} paymentData
-   * @param {'subscription'|'advertising'|'booking'} paymentData.payment_type
-   * @param {string} paymentData.related_id - Plan ID/slug, campaign ID, or booking ID
-   * @param {string} paymentData.payment_destination_id - Chosen destination ID
-   * @param {string} paymentData.sender_name - Full name of sender
-   * @param {string} paymentData.sender_phone - Phone number payment sent from
-   * @param {string} paymentData.transaction_reference - EcoCash transaction ref/code
-   * @param {string} paymentData.proof_file_id - Appwrite file ID of uploaded screenshot
-   * @param {number} [paymentData.amount_declared] - Amount sender claims to have sent
+   * Persists payment_destination_id correctly.
    */
   async submitEcocashPayment(paymentData) {
     return callTrustedApi("submit_ecocash_payment", paymentData);

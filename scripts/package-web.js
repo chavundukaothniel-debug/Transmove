@@ -54,13 +54,17 @@ if (fs.existsSync(path.join(ROOT_DIR, "src"))) {
   console.log("✓ Copied src/ directory");
 }
 
-// Safety check: ensure no .env or node_modules exist in www
-const forbidden = [".env", ".env.local", ".env.production", "node_modules", "netlify", "server.js"];
+// Safety check: ensure no .env, server modules, or node_modules exist in www
+const forbidden = [
+  ".env", ".env.local", ".env.production", ".env.appwrite.setup",
+  "node_modules", "netlify", "server.js", "server.ps1", "sql", "storage",
+  path.join("src", "server")
+];
 for (const item of forbidden) {
   const checkPath = path.join(WWW_DIR, item);
   if (fs.existsSync(checkPath)) {
     fs.rmSync(checkPath, { recursive: true, force: true });
-    console.warn(`Removed disallowed file/folder: ${item}`);
+    console.log(`✓ Stripped server-only component from APK assets: ${item}`);
   }
 }
 

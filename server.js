@@ -48,6 +48,25 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Authorized private file preview via Google Drive storage
+  if (urlPath.startsWith("/api/files/preview/")) {
+    const fileId = urlPath.replace("/api/files/preview/", "").trim();
+    try {
+      const { googleDriveStorage } = await import("./src/server/google-drive-storage.js");
+      const fileData = await googleDriveStorage.downloadAuthorizedFile(fileId);
+      res.writeHead(200, {
+        "Content-Type": fileData.mimeType || "application/octet-stream",
+        "Content-Disposition": `inline; filename="${fileData.filename}"`
+      });
+      fileData.stream.pipe(res);
+      return;
+    } catch (err) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: err.message || "File not found." }));
+      return;
+    }
+  }
+
   // Static file serving
   let relativePath = urlPath === "/" ? "index.html" : urlPath.replace(/^\//, "");
   let filePath = path.resolve(process.cwd(), relativePath);

@@ -1,0 +1,127 @@
+{
+  "migration_timestamp": "2026-09-19T10:36:31.941Z",
+  "source_appwrite_project": "6aaa6531003d5747b640",
+  "files_migrated_count": 18,
+  "database_state": {
+    "profiles": [],
+    "vehicles": [],
+    "vehicle_photos": [],
+    "verification_documents": [],
+    "driver_presence": [],
+    "service_requests": [],
+    "request_images": [],
+    "bids": [],
+    "bid_negotiations": [],
+    "bookings": [],
+    "booking_events": [],
+    "messages": [],
+    "notifications": [],
+    "reviews": [],
+    "favourites": [],
+    "subscription_plans": [
+      {
+        "id": "plan_flex_pass",
+        "name": "Flex Pass",
+        "slug": "flex-pass",
+        "description": "7 days bidding access for casual operators",
+        "price": 5,
+        "currency": "USD",
+        "duration_days": 7,
+        "active": true,
+        "recommended": false,
+        "display_order": 1,
+        "features": [
+          "Full bidding access for 7 days",
+          "Standard search placement",
+          "Direct chat with customers"
+        ]
+      },
+      {
+        "id": "plan_professional",
+        "name": "TransMove Professional",
+        "slug": "professional",
+        "description": "30 days unlimited bidding and priority matching",
+        "price": 15,
+        "currency": "USD",
+        "duration_days": 30,
+        "active": true,
+        "recommended": true,
+        "display_order": 2,
+        "features": [
+          "Unlimited bidding for 30 days",
+          "Priority matching & 10s notifications",
+          "Direct phone & chat",
+          "Verified provider badge"
+        ]
+      },
+      {
+        "id": "plan_pro_90",
+        "name": "Pro 90",
+        "slug": "pro-90",
+        "description": "Quarterly savings for active fleet operators",
+        "price": 40,
+        "currency": "USD",
+        "duration_days": 90,
+        "active": true,
+        "recommended": false,
+        "display_order": 3,
+        "features": [
+          "Full bidding for 90 days (save $5)",
+          "Featured directory placement",
+          "Priority dispute resolution"
+        ]
+      },
+      {
+        "id": "plan_pro_annual",
+        "name": "Pro Annual",
+        "slug": "pro-annual",
+        "description": "Best annual value with dedicated support",
+        "price": 140,
+        "currency": "USD",
+        "duration_days": 365,
+        "active": true,
+        "recommended": false,
+        "display_order": 4,
+        "features": [
+          "Full bidding for 365 days (save $40)",
+          "Gold Verified Provider badge",
+          "Dedicated support line"
+        ]
+      }
+    ],
+    "subscriptions": [],
+    "payment_destinations": [
+      {
+        "id": "dest_ecocash_merchant_01",
+        "provider": "ecocash",
+        "account_name": "TransMove Logistics PVT LTD (Merchant)",
+        "account_number": "*151*2*2*123456#",
+        "instructions": "Dial *151*2*2*123456*AMOUNT# -> Enter PIN -> Save SMS reference code & upload screenshot.",
+        "active": true,
+        "display_order": 1
+      },
+      {
+        "id": "dest_ecocash_biller_02",
+        "provider": "ecocash",
+        "account_name": "TransMove Operations (Biller Code 78901)",
+        "account_number": "78901",
+        "instructions": "Dial *151*2*1# -> Enter Biller Code 78901 -> Enter Account (Your Phone) -> Enter Amount.",
+        "active": true,
+        "display_order": 2
+      },
+      {
+        "id": "dest_innbucks_03",
+        "provider": "innbucks",
+        "account_name": "TransMove Collections",
+        "account_number": "+263771234567",
+        "instructions": "Send to InnBucks agent/app to +263771234567. Include your TransMove registered phone as reference.",
+        "active": true,
+        "display_order": 3
+      }
+    ],
+    "payments": [],
+    "advertising_campaigns": [],
+    "activity_logs": [],
+    "saved_addresses": []
+  }
+}

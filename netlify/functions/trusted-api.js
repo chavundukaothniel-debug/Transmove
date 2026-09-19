@@ -6,6 +6,7 @@
 // ==============================================================================
 import fs from "fs";
 import path from "path";
+import { supabaseBackendEngine } from "../../src/server/supabase-backend.js";
 
 // Load configuration securely on server
 function getCredentials() {
@@ -226,6 +227,11 @@ async function createNotification(creds, serverHeaders, { userId, type, title, m
  * Handles trusted backend operations.
  */
 export async function executeTrustedOperation({ action, data = {}, vehicle_id, request_id, jwt }) {
+  const provider = (process.env.DATABASE_PROVIDER || "supabase").toLowerCase().trim();
+  if (provider === "supabase") {
+    return await supabaseBackendEngine.execute({ action, data, vehicle_id, request_id, jwt });
+  }
+
   const creds = getCredentials();
   if (!creds.apiKey) {
     throw new Error("Server configuration error: Missing Appwrite API key.");
@@ -6604,7 +6610,8 @@ export async function handler(event, context) {
     }
 
     const { action, data, vehicle_id, request_id } = body;
-    const result = await executeTrustedOperation({ action, data, vehicle_id, request_id, jwt });
+    const effectiveJwt = jwt || body.jwt || "";
+    const result = await executeTrustedOperation({ action, data, vehicle_id, request_id, jwt: effectiveJwt });
 
     return {
       statusCode: 200,

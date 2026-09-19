@@ -9,6 +9,8 @@
 // ==============================================================================
 import { getAppwriteAccount, getAppwriteClient, getTrustedApiEndpoint } from "../config/appwrite.js";
 
+import { getSupabase } from "../config/supabase.js";
+
 // ---------------------------------------------------------------------------
 // INTERNAL: Call the trusted API with a JWT for authentication
 // ---------------------------------------------------------------------------
@@ -18,13 +20,25 @@ async function callTrustedApi(action, data = {}, extraParams = {}) {
 
   let jwt = "";
   try {
-    const account = getAppwriteAccount();
-    if (account) {
-      const jwtRes = await account.createJWT();
-      jwt = jwtRes.jwt || "";
+    const supabase = getSupabase();
+    if (supabase) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.access_token) jwt = session.access_token;
     }
-  } catch (e) {
-    console.warn("BidService: Could not obtain JWT:", e.message);
+  } catch (_) {}
+  if (!jwt) {
+    jwt = localStorage.getItem("transmove_mock_jwt") || "";
+  }
+  if (!jwt) {
+    try {
+      const account = getAppwriteAccount();
+      if (account) {
+        const jwtRes = await account.createJWT();
+        jwt = jwtRes.jwt || "";
+      }
+    } catch (e) {
+      console.warn("BidService: Could not obtain JWT:", e.message);
+    }
   }
 
   const payload = { action, data, ...extraParams };
