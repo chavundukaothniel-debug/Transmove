@@ -2,23 +2,37 @@
 // TRANSMOVE SECURE ADMINISTRATIVE SERVICE
 // Server-side / RLS verified Admin capabilities
 // ==============================================================================
-import { getAppwriteAccount, getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getAuthJwt } from "../config/supabase.js";
 import { AuthService } from "./auth.js";
 
 async function trustedCall(action, data = {}) {
-  const account = getAppwriteAccount();
-  const jwt = (await account.createJWT()).jwt;
+  const jwt = await getAuthJwt();
+
+  if (!jwt) {
+    throw new Error("Authentication required.");
+  }
+
   const response = await fetch(getTrustedApiEndpoint(), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${jwt}`,
-      "X-Appwrite-JWT": jwt
+      Authorization: `Bearer ${jwt}`
     },
-    body: JSON.stringify({ action, data })
+    body: JSON.stringify({
+      action,
+      data
+    })
   });
+
   const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || `Trusted API error (HTTP ${response.status})`);
+
+  if (!response.ok) {
+    throw new Error(
+      result.error || `Trusted API error (HTTP ${response.status})`
+    );
+  }
+
   return result;
 }
 
