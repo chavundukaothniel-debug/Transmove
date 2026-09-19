@@ -38,3 +38,4 @@ storage/
 .env
 .env.*
 !.env.example
+transmove-*.json

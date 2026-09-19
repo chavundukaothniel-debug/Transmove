@@ -15,6 +15,7 @@
 import fs from "fs";
 import path from "path";
 import { Readable } from "stream";
+import { google } from "googleapis";
 
 // Standard TransMove Drive Folder Hierarchy
 export const DRIVE_FOLDERS = {
@@ -39,56 +40,96 @@ class GoogleDriveStorageService {
   }
 
   _init() {
-    try {
-      const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-      let privateKey = process.env.GOOGLE_PRIVATE_KEY;
-      const jsonCreds = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  try {
+    const oauthClientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+    const oauthClientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+    const oauthRefreshToken = process.env.GOOGLE_OAUTH_REFRESH_TOKEN;
 
-      let credentials = null;
-      if (jsonCreds) {
-        try {
-          if (fs.existsSync(jsonCreds)) {
-            credentials = JSON.parse(fs.readFileSync(jsonCreds, "utf8"));
-          } else {
-            credentials = JSON.parse(jsonCreds);
-          }
-        } catch (_) {}
-      }
+    const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+    let privateKey = process.env.GOOGLE_PRIVATE_KEY;
+    const jsonCreds = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
 
-      if (credentials) {
-        this._setupGoogleAuth(credentials.client_email, credentials.private_key);
-      } else if (email && privateKey) {
-        if (privateKey.includes("\\n")) {
-          privateKey = privateKey.replace(/\\n/g, "\n");
+    let credentials = null;
+
+    if (jsonCreds) {
+      try {
+        if (fs.existsSync(jsonCreds)) {
+          credentials = JSON.parse(
+            fs.readFileSync(jsonCreds, "utf8")
+          );
+        } else {
+          credentials = JSON.parse(jsonCreds);
         }
-        this._setupGoogleAuth(email, privateKey);
-      } else {
-        // Local fallback driver
-        this._setupLocalFallback();
-      }
-    } catch (err) {
-      console.warn("[GoogleDriveService] Notice initializing Google Drive:", err.message);
-      this._setupLocalFallback();
+      } catch (_) {}
     }
-  }
 
-  _setupGoogleAuth(email, privateKey) {
-    try {
-      // Dynamic import to avoid crash if googleapis is not yet installed
-      const { google } = require("googleapis");
-      this.authClient = new google.auth.JWT({
-        email,
-        key: privateKey,
-        scopes: ["https://www.googleapis.com/auth/drive"]
-      });
-      this.driveClient = google.drive({ version: "v3", auth: this.authClient });
-      this.isLive = true;
-      console.log("[GoogleDriveService] Initialized with Google Service Account:", email);
-    } catch (err) {
-      console.warn("[GoogleDriveService] googleapis not available yet, using local storage fallback:", err.message);
+    // Prefer OAuth user credentials
+    if (
+      oauthClientId &&
+      oauthClientSecret &&
+      oauthRefreshToken
+    ) {
+      this._setupGoogleOAuth(
+        oauthClientId,
+        oauthClientSecret,
+        oauthRefreshToken
+      );
+    } else if (credentials) {
+      this._setupGoogleAuth(
+        credentials.client_email,
+        credentials.private_key
+      );
+    } else if (email && privateKey) {
+      if (privateKey.includes("\\n")) {
+        privateKey = privateKey.replace(/\\n/g, "\n");
+      }
+
+      this._setupGoogleAuth(email, privateKey);
+    } else {
       this._setupLocalFallback();
     }
+  } catch (err) {
+    console.warn(
+      "[GoogleDriveService] Notice initializing Google Drive:",
+      err.message
+    );
+
+    this._setupLocalFallback();
   }
+}
+  _setupGoogleOAuth(clientId, clientSecret, refreshToken) {
+  try {
+    const oauth2Client = new google.auth.OAuth2(
+      clientId,
+      clientSecret,
+      "https://developers.google.com/oauthplayground"
+    );
+
+    oauth2Client.setCredentials({
+      refresh_token: refreshToken
+    });
+
+    this.authClient = oauth2Client;
+
+    this.driveClient = google.drive({
+      version: "v3",
+      auth: oauth2Client
+    });
+
+    this.isLive = true;
+
+    console.log(
+      "[GoogleDriveService] Initialized with Google OAuth user credentials."
+    );
+  } catch (err) {
+    console.warn(
+      "[GoogleDriveService] Google OAuth initialization failed:",
+      err.message
+    );
+
+    this._setupLocalFallback();
+  }
+}
 
   _setupLocalFallback() {
     this.isLive = false;
