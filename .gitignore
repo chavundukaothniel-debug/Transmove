@@ -34,3 +34,7 @@ supabase/.temp/
 Thumbs.db
 
 reports/
+storage/
+.env
+.env.*
+!.env.example
