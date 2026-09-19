@@ -2,26 +2,23 @@
 // TRANSMOVE SOCIAL MEDIA, WHATSAPP & SHARING SERVICE
 // ==============================================================================
 import { SOCIAL_CONFIG, getConfiguredSocialLinks, getWhatsAppSupportUrl } from "../config/social.js";
-import { getTrustedApiEndpoint, getAppwriteAccount } from "../config/appwrite.js";
+import { getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getAuthJwt } from "../config/supabase.js";
 
 async function callTrustedApi(action, data = {}) {
   const endpoint = getTrustedApiEndpoint();
   let jwt = "";
   try {
-    const account = getAppwriteAccount();
-    if (account) {
-      const jwtRes = await account.createJWT();
-      jwt = jwtRes.jwt || "";
-    }
+    jwt = await getAuthJwt();
   } catch (_) {}
 
   const res = await fetch(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(jwt ? { Authorization: `Bearer ${jwt}`, "X-Appwrite-JWT": jwt } : {})
+      ...(jwt ? { Authorization: `Bearer ${jwt}` } : {})
     },
-    body: JSON.stringify({ action, data })
+    body: JSON.stringify({ action, data, jwt })
   });
 
   const json = await res.json();

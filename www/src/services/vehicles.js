@@ -1,24 +1,29 @@
 // ==============================================================================
 // TRANSMOVE VEHICLE & DOCUMENT MANAGEMENT SERVICE
-// Powered by Appwrite Web SDK (Databases: vehicles, vehicle_photos, verification_documents)
-// & Appwrite Shared Storage Bucket (transmove-files)
-// Supabase remains intact as backup during incremental migration
+// Powered by Supabase Auth & Google Drive Storage via Render Trusted Backend.
+// Appwrite remains only as legacy/archive read bridge.
 // ==============================================================================
-import {
-  getAppwriteAccount,
-  getAppwriteDatabases,
-  getAppwriteStorage,
-  APPWRITE_CONFIG,
-  getTrustedApiEndpoint,
-  ID,
-  Query,
-  Permission,
-  Role
-} from "../config/appwrite.js";
-import { getSupabase } from "../config/supabase.js";
+import { getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getAuthJwt, getSupabase } from "../config/supabase.js";
 import { AuthService } from "./auth.js";
 
 export const VehicleService = {
+  /**
+   * Helper to convert browser File object to Base64 data string.
+   */
+  async fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        const base64String = typeof result === "string" ? result.split(",")[1] : "";
+        resolve(base64String);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  },
+
   /**
    * Validates a file's format and size before uploading.
    * Default: JPG, JPEG, PNG, WEBP, max 5MB.
@@ -31,13 +36,15 @@ export const VehicleService = {
 
     const fileType = file.type?.toLowerCase();
     const fileName = file.name?.toLowerCase() || "";
-    const isTypeValid = allowedTypes.some(type => {
+    const isTypeValid = allowedTypes.some((type) => {
       const ext = type.split("/")[1];
       return (fileType && (fileType === type || fileType.includes(ext))) || fileName.endsWith(`.${ext}`);
     });
-    
+
     if (!isTypeValid) {
-      throw new Error(`Invalid file type (${file.type || "unknown"}). Allowed formats: ${allowedTypes.map(t => t.split('/')[1]?.toUpperCase() || t).join(', ')}.`);
+      throw new Error(
+        `Invalid file type (${file.type || "unknown"}). Allowed formats: ${allowedTypes.map((t) => t.split("/")[1]?.toUpperCase() || t).join(", ")}.`
+      );
     }
 
     const maxSizeBytes = maxSizeMB * 1024 * 1024;
@@ -50,67 +57,49 @@ export const VehicleService = {
   },
 
   /**
-   * Uploads profile picture into Appwrite Storage (transmove-files)
-   * and updates profile_image_id in transmove.profiles.
-   * Gives public read permissions for marketplace visibility, user-restricted update/delete.
+   * Uploads profile picture into Google Drive (TransMove/Profiles)
+   * and updates profile_photo_url & profile_image_id in Supabase profiles.
    */
   async uploadProfilePicture(file) {
-    const account = getAppwriteAccount();
-    const user = await account.get();
+    const user = await AuthService.getCurrentUser();
     if (!user) throw new Error("Authentication required to upload profile photo.");
 
-    // Validate 5MB image limit (no PDF)
     this.validateFile(file, {
       allowedTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp"],
       maxSizeMB: 5
     });
 
-    const storage = getAppwriteStorage();
-    const databases = getAppwriteDatabases();
+    const base64 = await this.fileToBase64(file);
+    const jwt = await getAuthJwt();
+    const endpoint = getTrustedApiEndpoint();
 
-    // 1. Fetch current profile to identify any prior photo for clean replacement
-    const profRes = await databases.listDocuments("transmove", "profiles", [
-      Query.equal("user_id", user.$id),
-      Query.limit(1)
-    ]);
-    const currentProfile = profRes.documents[0] || null;
-    const oldFileId = currentProfile?.profile_image_id;
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(jwt ? { Authorization: `Bearer ${jwt}` } : {})
+      },
+      body: JSON.stringify({
+        action: "upload_profile_picture",
+        jwt,
+        data: {
+          file_base64: base64,
+          original_filename: file.name,
+          mime_type: file.type || "image/jpeg",
+          file_size: file.size
+        }
+      })
+    });
 
-    // 2. Upload new image with public read, owner update/delete
-    const fileId = ID.unique();
-    const uploadedFile = await storage.createFile(
-      APPWRITE_CONFIG.bucketId,
-      fileId,
-      file,
-      [
-        Permission.read(Role.any()),
-        Permission.update(Role.user(user.$id)),
-        Permission.delete(Role.user(user.$id))
-      ]
-    );
-
-    // 3. Update profile row with new profile_image_id via trusted updateProfile
-    if (currentProfile) {
-      await AuthService.updateProfile({
-        profile_image_id: uploadedFile.$id
-      });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || "Failed to upload profile photo via trusted server.");
     }
 
-    // 4. Safely delete old profile photo to avoid orphaned files
-    if (oldFileId && oldFileId !== uploadedFile.$id) {
-      try {
-        await storage.deleteFile(APPWRITE_CONFIG.bucketId, oldFileId);
-      } catch (delErr) {
-        console.warn("Notice: Old profile image cleanup:", delErr.message);
-      }
-    }
+    const result = await res.json();
+    const photoUrl = result.photo_url || `/api/files/preview/${result.file_id}`;
 
-    // 5. Generate view URL
-    const photoUrl = storage.getFileView(APPWRITE_CONFIG.bucketId, uploadedFile.$id);
-
-    // 6. Notify active auth listeners
     AuthService.notifyAuthStateChange("USER_UPDATED", { user });
-
     return photoUrl;
   },
 
@@ -145,46 +134,43 @@ export const VehicleService = {
    */
   _formatVehicle(doc, photoUrls = [], photoDocs = []) {
     if (!doc) return null;
+    const vId = doc.id || doc.$id;
     return {
       ...doc,
-      id: doc.$id,
+      id: vId,
+      $id: vId,
       color: doc.colour || doc.color || "White",
+      colour: doc.colour || doc.color || "White",
       load_capacity_kg: doc.load_capacity || 0,
-      photos: photoUrls,
-      photo_documents: photoDocs
+      photos: photoUrls.length > 0 ? photoUrls : (doc.photos || []),
+      photo_documents: photoDocs.length > 0 ? photoDocs : (doc.photo_documents || [])
     };
   },
 
   /**
-   * Registers a new vehicle with Appwrite Databases (vehicles).
-   * driver_id is bound strictly to the authenticated user ID.
-   * Table row permissions: read/update/delete for authenticated driver only.
+   * Registers a new vehicle with trusted backend.
    */
   async addVehicle(vehicleData) {
-    const account = getAppwriteAccount();
-    const user = await account.get();
+    const user = await AuthService.getCurrentUser();
     if (!user) throw new Error("Authentication required to register a vehicle.");
 
-    // Validate required fields
     if (!vehicleData.make || !vehicleData.make.trim()) throw new Error("Vehicle make is required.");
     if (!vehicleData.model || !vehicleData.model.trim()) throw new Error("Vehicle model is required.");
     if (!vehicleData.registration_number || !vehicleData.registration_number.trim()) {
       throw new Error("Vehicle registration number (plate) is required.");
     }
 
-    const jwtRes = await account.createJWT();
-    const jwt = jwtRes.jwt;
-
+    const jwt = await getAuthJwt();
     const endpoint = getTrustedApiEndpoint();
     const res = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${jwt}`,
-        "X-Appwrite-JWT": jwt
+        ...(jwt ? { Authorization: `Bearer ${jwt}` } : {})
       },
       body: JSON.stringify({
         action: "create_vehicle",
+        jwt,
         data: {
           vehicle_type: vehicleData.vehicle_type || "sedan",
           make: vehicleData.make,
@@ -192,9 +178,9 @@ export const VehicleService = {
           year: vehicleData.year ? parseInt(vehicleData.year, 10) : new Date().getFullYear(),
           colour: vehicleData.colour || vehicleData.color || "White",
           registration_number: vehicleData.registration_number,
-          passenger_capacity: vehicleData.passenger_capacity,
-          load_capacity: vehicleData.load_capacity || vehicleData.load_capacity_kg,
-          service_category: vehicleData.service_category,
+          passenger_capacity: vehicleData.passenger_capacity ? parseInt(vehicleData.passenger_capacity, 10) : 4,
+          load_capacity: vehicleData.load_capacity || vehicleData.load_capacity_kg || 0,
+          service_category: vehicleData.service_category || this.getServiceCategory(vehicleData.vehicle_type),
           description: vehicleData.description || "",
           status: vehicleData.status || "active",
           is_primary: vehicleData.is_primary === true
@@ -213,45 +199,30 @@ export const VehicleService = {
 
   /**
    * Fetches all vehicles belonging to the current authenticated driver.
-   * Hydrates each vehicle with photo URLs from Appwrite Storage.
    */
   async getDriverVehicles() {
-    const account = getAppwriteAccount();
-    let user;
-    try {
-      user = await account.get();
-    } catch (_) {
-      return [];
-    }
+    const user = await AuthService.getCurrentUser();
     if (!user) return [];
 
-    const databases = getAppwriteDatabases();
-    const storage = getAppwriteStorage();
-
+    const jwt = await getAuthJwt();
+    const endpoint = getTrustedApiEndpoint();
     try {
-      const res = await databases.listDocuments("transmove", "vehicles", [
-        Query.equal("driver_id", user.$id),
-        Query.orderDesc("created_at")
-      ]);
-
-      const formattedVehicles = await Promise.all(
-        res.documents.map(async (veh) => {
-          let photoUrls = [];
-          let photoDocs = [];
-          try {
-            const photoRes = await databases.listDocuments("transmove", "vehicle_photos", [
-              Query.equal("vehicle_id", veh.$id)
-            ]);
-            photoDocs = photoRes.documents || [];
-            photoUrls = photoDocs.map(p => storage.getFileView(APPWRITE_CONFIG.bucketId, p.file_id));
-          } catch (pErr) {
-            // Photos table hydration fallback
-          }
-          return this._formatVehicle(veh, photoUrls, photoDocs);
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(jwt ? { Authorization: `Bearer ${jwt}` } : {})
+        },
+        body: JSON.stringify({
+          action: "list_driver_vehicles",
+          jwt
         })
-      );
+      });
 
-      return formattedVehicles;
+      if (!res.ok) return [];
+      const data = await res.json();
+      const vehicles = data.vehicles || [];
+      return vehicles.map((v) => this._formatVehicle(v, v.photos || [], v.photo_documents || []));
     } catch (err) {
       console.warn("Error fetching driver vehicles:", err.message);
       return [];
@@ -259,35 +230,20 @@ export const VehicleService = {
   },
 
   /**
-   * Fetches a single vehicle by document ID.
+   * Fetches a single vehicle by ID.
    */
   async getVehicle(vehicleId) {
-    const databases = getAppwriteDatabases();
-    const storage = getAppwriteStorage();
-
-    const doc = await databases.getDocument("transmove", "vehicles", vehicleId);
-    let photoUrls = [];
-    let photoDocs = [];
-    try {
-      const photoRes = await databases.listDocuments("transmove", "vehicle_photos", [
-        Query.equal("vehicle_id", doc.$id)
-      ]);
-      photoDocs = photoRes.documents || [];
-      photoUrls = photoDocs.map(p => storage.getFileView(APPWRITE_CONFIG.bucketId, p.file_id));
-    } catch (_) {}
-
-    return this._formatVehicle(doc, photoUrls, photoDocs);
+    const vehicles = await this.getDriverVehicles();
+    return vehicles.find((v) => v.id === vehicleId || v.$id === vehicleId) || null;
   },
 
   /**
    * Updates an existing vehicle with verified driver ownership.
    */
   async updateVehicle(vehicleId, updates) {
-    const account = getAppwriteAccount();
-    const user = await account.get();
+    const user = await AuthService.getCurrentUser();
     if (!user) throw new Error("Authentication required.");
 
-    // Handle primary vehicle switch atomically if requested
     if (updates.is_primary === true) {
       await this.setPrimaryVehicle(vehicleId);
       const clone = { ...updates };
@@ -298,20 +254,18 @@ export const VehicleService = {
       updates = clone;
     }
 
-    // Authenticate cryptographically via Appwrite JWT
-    const jwtRes = await account.createJWT();
-    const jwt = jwtRes.jwt;
-
+    const jwt = await getAuthJwt();
     const endpoint = getTrustedApiEndpoint();
     const res = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${jwt}`
+        ...(jwt ? { Authorization: `Bearer ${jwt}` } : {})
       },
       body: JSON.stringify({
         action: "update_vehicle",
         vehicle_id: vehicleId,
+        jwt,
         data: updates
       })
     });
@@ -321,39 +275,38 @@ export const VehicleService = {
       throw new Error(err.error || "Failed to update vehicle via trusted server.");
     }
 
-    return await this.getVehicle(vehicleId);
+    const updated = await res.json();
+    return this._formatVehicle(updated, [], []);
   },
 
   /**
-   * Sets a specific vehicle as the primary vehicle atomically via real Appwrite Database Transaction.
+   * Sets a specific vehicle as the primary vehicle.
    */
   async setPrimaryVehicle(vehicleId) {
-    const account = getAppwriteAccount();
-    const user = await account.get();
+    const user = await AuthService.getCurrentUser();
     if (!user) throw new Error("Authentication required.");
 
-    const jwtRes = await account.createJWT();
-    const jwt = jwtRes.jwt;
-
+    const jwt = await getAuthJwt();
     const endpoint = getTrustedApiEndpoint();
     const res = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${jwt}`
+        ...(jwt ? { Authorization: `Bearer ${jwt}` } : {})
       },
       body: JSON.stringify({
         action: "set_primary_vehicle",
-        vehicle_id: vehicleId
+        vehicle_id: vehicleId,
+        jwt
       })
     });
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(err.error || "Failed to set primary vehicle atomically.");
+      throw new Error(err.error || "Failed to set primary vehicle.");
     }
 
-    return await this.getVehicle(vehicleId);
+    return await res.json();
   },
 
   /**
@@ -366,177 +319,105 @@ export const VehicleService = {
   },
 
   /**
-   * Deletes a vehicle and cleans up associated vehicle photos.
+   * Deletes a vehicle and cleans up associated photos.
    */
   async deleteVehicle(vehicleId) {
-    const account = getAppwriteAccount();
-    const user = await account.get();
+    const user = await AuthService.getCurrentUser();
     if (!user) throw new Error("Authentication required.");
 
-    const databases = getAppwriteDatabases();
-    const storage = getAppwriteStorage();
-
-    // Verify ownership
-    const existing = await databases.getDocument("transmove", "vehicles", vehicleId);
-    if (existing.driver_id !== user.$id) {
-      throw new Error("Unauthorized: You do not own this vehicle.");
-    }
-
-    // Clean up photos
-    try {
-      const photos = await databases.listDocuments("transmove", "vehicle_photos", [
-        Query.equal("vehicle_id", vehicleId)
-      ]);
-      for (const p of photos.documents) {
-        try {
-          await storage.deleteFile(APPWRITE_CONFIG.bucketId, p.file_id);
-          await databases.deleteDocument("transmove", "vehicle_photos", p.$id);
-        } catch (_) {}
-      }
-    } catch (_) {}
-
-    // Delete vehicle document
-    await databases.deleteDocument("transmove", "vehicles", vehicleId);
-    return true;
-  },
-
-  /**
-   * Uploads a vehicle photo to transmove-files and registers a row in vehicle_photos.
-   * Max 5 photos per vehicle. Image formats only (no PDF).
-   */
-  async uploadVehiclePhoto(vehicleId, file, isPrimary = false) {
-    const account = getAppwriteAccount();
-    const user = await account.get();
-    if (!user) throw new Error("Authentication required.");
-
-    const databases = getAppwriteDatabases();
-    const storage = getAppwriteStorage();
-
-    // 1. Verify ownership
-    const vehicle = await databases.getDocument("transmove", "vehicles", vehicleId);
-    if (vehicle.driver_id !== user.$id) {
-      throw new Error("Unauthorized: You do not own this vehicle.");
-    }
-
-    // 2. Enforce maximum 5 photos
-    const existingPhotos = await databases.listDocuments("transmove", "vehicle_photos", [
-      Query.equal("vehicle_id", vehicleId)
-    ]);
-    if (existingPhotos.total >= 5) {
-      throw new Error("Maximum limit of 5 photos per vehicle reached.");
-    }
-
-    // 3. Validate image format (no PDF)
-    this.validateFile(file, {
-      allowedTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp"],
-      maxSizeMB: 5
-    });
-
-    // 4. Upload photo to transmove-files with public read, owner update/delete
-    const fileId = ID.unique();
-    const uploadedFile = await storage.createFile(
-      APPWRITE_CONFIG.bucketId,
-      fileId,
-      file,
-      [
-        Permission.read(Role.any()),
-        Permission.update(Role.user(user.$id)),
-        Permission.delete(Role.user(user.$id))
-      ]
-    );
-
-    // 5. Call trusted API to create vehicle_photos row
-    const jwtRes = await account.createJWT();
-    const jwt = jwtRes.jwt;
-
+    const jwt = await getAuthJwt();
     const endpoint = getTrustedApiEndpoint();
     const res = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${jwt}`,
-        "X-Appwrite-JWT": jwt
+        ...(jwt ? { Authorization: `Bearer ${jwt}` } : {})
+      },
+      body: JSON.stringify({
+        action: "delete_vehicle",
+        vehicle_id: vehicleId,
+        jwt
+      })
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || "Failed to delete vehicle.");
+    }
+
+    return true;
+  },
+
+  /**
+   * Uploads a vehicle photo to Google Drive (TransMove/Vehicles) and registers in vehicle_photos.
+   */
+  async uploadVehiclePhoto(vehicleId, file, isPrimary = false) {
+    const user = await AuthService.getCurrentUser();
+    if (!user) throw new Error("Authentication required.");
+
+    this.validateFile(file, {
+      allowedTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp"],
+      maxSizeMB: 5
+    });
+
+    const base64 = await this.fileToBase64(file);
+    const jwt = await getAuthJwt();
+    const endpoint = getTrustedApiEndpoint();
+
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(jwt ? { Authorization: `Bearer ${jwt}` } : {})
       },
       body: JSON.stringify({
         action: "create_vehicle_photo",
         vehicle_id: vehicleId,
+        jwt,
         data: {
-          file_id: uploadedFile.$id,
+          file_base64: base64,
+          original_filename: file.name,
+          mime_type: file.type || "image/jpeg",
+          file_size: file.size,
           is_primary: isPrimary
         }
       })
     });
 
     if (!res.ok) {
-      // Clean up uploaded file if database record fails
-      await storage.deleteFile(APPWRITE_CONFIG.bucketId, uploadedFile.$id).catch(() => {});
       const err = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error(err.error || "Failed to record vehicle photo on trusted server.");
     }
 
     const photoDoc = await res.json();
-    const viewUrl = storage.getFileView(APPWRITE_CONFIG.bucketId, uploadedFile.$id);
+    const viewUrl = photoDoc.file_url || `/api/files/preview/${photoDoc.drive_file_id}`;
 
     return {
-      photoId: photoDoc.$id,
-      fileId: uploadedFile.$id,
+      photoId: photoDoc.id || photoDoc.$id,
+      fileId: photoDoc.drive_file_id || photoDoc.file_id,
       viewUrl,
       isPrimary: photoDoc.is_primary
     };
   },
 
   /**
-   * Sets a specific photo index as cover photo for a vehicle.
-   */
-  async setVehicleCoverPhoto(vehicleId, photoIndexOrDocId) {
-    const account = getAppwriteAccount();
-    const user = await account.get();
-    if (!user) return;
-
-    const databases = getAppwriteDatabases();
-    const photosRes = await databases.listDocuments("transmove", "vehicle_photos", [
-      Query.equal("vehicle_id", vehicleId)
-    ]);
-
-    let targetDocId = null;
-    if (typeof photoIndexOrDocId === "number") {
-      targetDocId = photosRes.documents[photoIndexOrDocId]?.$id;
-    } else {
-      targetDocId = photoIndexOrDocId;
-    }
-
-    if (!targetDocId) return;
-
-    for (const p of photosRes.documents) {
-      await databases.updateDocument("transmove", "vehicle_photos", p.$id, {
-        is_primary: p.$id === targetDocId
-      });
-    }
-
-    return true;
-  },
-
-  /**
    * Deletes a vehicle photo via trusted API.
    */
   async deleteVehiclePhoto(photoId) {
-    const account = getAppwriteAccount();
-    const user = await account.get();
+    const user = await AuthService.getCurrentUser();
     if (!user) throw new Error("Authentication required.");
 
-    const jwtRes = await account.createJWT();
-    const jwt = jwtRes.jwt;
-
+    const jwt = await getAuthJwt();
     const endpoint = getTrustedApiEndpoint();
     const res = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${jwt}`,
-        "X-Appwrite-JWT": jwt
+        ...(jwt ? { Authorization: `Bearer ${jwt}` } : {})
       },
       body: JSON.stringify({
         action: "delete_vehicle_photo",
+        jwt,
         data: { photo_id: photoId }
       })
     });
@@ -550,16 +431,13 @@ export const VehicleService = {
   },
 
   /**
-   * Uploads a confidential verification document to PRIVATE Appwrite Storage (transmove-files)
+   * Uploads a confidential verification document to Google Drive (TransMove/Verification/Drivers)
    * and creates a record in verification_documents.
-   * File permissions are strictly restricted to Role.user(userId). NEVER Role.any() or Role.users().
    */
   async uploadVerificationDocument(file, documentType, vehicleId = null) {
-    const account = getAppwriteAccount();
-    const user = await account.get();
+    const user = await AuthService.getCurrentUser();
     if (!user) throw new Error("Authentication required for document upload.");
 
-    // Normalize document type
     const typeMap = {
       driver_license: "driver_licence",
       driver_licence: "driver_licence",
@@ -571,53 +449,37 @@ export const VehicleService = {
     };
     const normalizedType = typeMap[documentType] || "other";
 
-    // Validate file (JPG, JPEG, PNG, WEBP, PDF, max 5MB)
     this.validateFile(file, {
       allowedTypes: ["image/jpeg", "image/jpg", "image/png", "image/webp", "application/pdf"],
       maxSizeMB: 5
     });
 
-    const storage = getAppwriteStorage();
-    const databases = getAppwriteDatabases();
-
-    // 1. Upload file with STRICT user-only permissions (read & delete only, no update)
-    const fileId = ID.unique();
-    const uploadedFile = await storage.createFile(
-      APPWRITE_CONFIG.bucketId,
-      fileId,
-      file,
-      [
-        Permission.read(Role.user(user.$id)),
-        Permission.delete(Role.user(user.$id))
-      ]
-    );
-
-    // 2. Call trusted API to create verification_documents row
-    const jwtRes = await account.createJWT();
-    const jwt = jwtRes.jwt;
-
+    const base64 = await this.fileToBase64(file);
+    const jwt = await getAuthJwt();
     const endpoint = getTrustedApiEndpoint();
+
     const res = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${jwt}`,
-        "X-Appwrite-JWT": jwt
+        ...(jwt ? { Authorization: `Bearer ${jwt}` } : {})
       },
       body: JSON.stringify({
         action: "create_verification_document",
         vehicle_id: vehicleId || null,
+        jwt,
         data: {
           document_type: normalizedType,
-          file_id: uploadedFile.$id,
-          vehicle_id: vehicleId || null
+          vehicle_id: vehicleId || null,
+          file_base64: base64,
+          original_filename: file.name,
+          mime_type: file.type || "application/pdf",
+          file_size: file.size
         }
       })
     });
 
     if (!res.ok) {
-      // Clean up uploaded file if database record fails
-      await storage.deleteFile(APPWRITE_CONFIG.bucketId, uploadedFile.$id).catch(() => {});
       const err = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error(err.error || "Failed to record verification document on trusted server.");
     }
@@ -626,10 +488,11 @@ export const VehicleService = {
 
     return {
       document_type: normalizedType,
-      file_id: uploadedFile.$id,
-      id: docRecord.$id,
-      uploaded_at: docRecord.created_at,
-      verification_status: docRecord.verification_status
+      file_id: docRecord.drive_file_id || docRecord.file_id,
+      id: docRecord.id || docRecord.$id,
+      uploaded_at: docRecord.uploaded_at || docRecord.created_at,
+      verification_status: docRecord.verification_status,
+      view_url: docRecord.view_url || `/api/files/preview/${docRecord.drive_file_id || docRecord.file_id}`
     };
   },
 
@@ -637,73 +500,63 @@ export const VehicleService = {
    * Fetches all verification documents belonging to the current authenticated user.
    */
   async getDriverDocuments() {
-    const account = getAppwriteAccount();
-    const user = await account.get();
+    const user = await AuthService.getCurrentUser();
     if (!user) return [];
 
-    const databases = getAppwriteDatabases();
-    const storage = getAppwriteStorage();
+    const jwt = await getAuthJwt();
+    const endpoint = getTrustedApiEndpoint();
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(jwt ? { Authorization: `Bearer ${jwt}` } : {})
+        },
+        body: JSON.stringify({
+          action: "list_driver_documents",
+          jwt
+        })
+      });
 
-    const res = await databases.listDocuments("transmove", "verification_documents", [
-      Query.equal("user_id", user.$id),
-      Query.orderDesc("created_at")
-    ]);
-
-    return res.documents.map(doc => ({
-      ...doc,
-      id: doc.$id,
-      view_url: storage.getFileView(APPWRITE_CONFIG.bucketId, doc.file_id)
-    }));
+      if (!res.ok) return [];
+      const data = await res.json();
+      return (data.documents || []).map((doc) => ({
+        ...doc,
+        id: doc.id || doc.$id,
+        view_url: doc.view_url || `/api/files/preview/${doc.drive_file_id || doc.file_id}`
+      }));
+    } catch (err) {
+      console.warn("Error fetching driver documents:", err.message);
+      return [];
+    }
   },
 
   /**
    * Evaluates driver profile completeness.
-   * Reports missing requirements: photo, phone, active vehicle, verification documents.
    */
   async getDriverProfileCompleteness(driverId = null) {
-    const account = getAppwriteAccount();
-    let user;
-    try {
-      user = await account.get();
-    } catch (_) {
-      return { isComplete: false, missingRequirements: ["Authentication required"], details: {} };
-    }
+    const user = await AuthService.getCurrentUser();
     if (!user) {
       return { isComplete: false, missingRequirements: ["Authentication required"], details: {} };
     }
 
-    const targetUserId = driverId || user.$id;
-    const databases = getAppwriteDatabases();
-
-    // 1. Check profile
-    const profRes = await databases.listDocuments("transmove", "profiles", [
-      Query.equal("user_id", targetUserId),
-      Query.limit(1)
-    ]);
-    const profile = profRes.documents[0] || null;
-
-    // 2. Check vehicles
-    const vehRes = await databases.listDocuments("transmove", "vehicles", [
-      Query.equal("driver_id", targetUserId),
-      Query.equal("status", "active")
-    ]);
-
-    // 3. Check verification documents
-    const docRes = await databases.listDocuments("transmove", "verification_documents", [
-      Query.equal("user_id", targetUserId)
-    ]);
-
-    const hasProfile = Boolean(profile);
-    const hasPhoto = Boolean(profile?.profile_image_id);
-    const hasPhone = Boolean(profile?.phone && profile.phone.trim().length > 5);
-    const hasVehicle = vehRes.total > 0;
-    const hasDocuments = docRes.total > 0;
+    const profile = await AuthService.getCurrentProfile();
+    const vehicles = await this.getDriverVehicles();
+    const docs = await this.getDriverDocuments();
 
     const missingRequirements = [];
-    if (!hasPhoto) missingRequirements.push("Profile Photo");
-    if (!hasPhone) missingRequirements.push("Contact Phone Number");
-    if (!hasVehicle) missingRequirements.push("At least one registered active Vehicle");
-    if (!hasDocuments) missingRequirements.push("Verification Documentation (Driver License or National ID)");
+    if (!profile?.profile_photo_url && !profile?.profile_image_id) {
+      missingRequirements.push("Profile Photo");
+    }
+    if (!profile?.phone && !profile?.phone_number) {
+      missingRequirements.push("Contact Phone Number");
+    }
+    if (vehicles.length === 0) {
+      missingRequirements.push("At least one registered active Vehicle");
+    }
+    if (!docs.some((d) => d.document_type === "driver_licence" || d.document_type === "driver_license" || d.document_type === "national_id")) {
+      missingRequirements.push("Verification Documentation (Driver Licence or National ID)");
+    }
 
     const isComplete = missingRequirements.length === 0;
 
@@ -711,13 +564,13 @@ export const VehicleService = {
       isComplete,
       missingRequirements,
       details: {
-        hasProfile,
-        hasPhoto,
-        hasPhone,
-        hasVehicle,
-        hasDocuments,
-        vehicleCount: vehRes.total,
-        documentCount: docRes.total
+        hasProfile: Boolean(profile),
+        hasPhoto: Boolean(profile?.profile_photo_url || profile?.profile_image_id),
+        hasPhone: Boolean(profile?.phone || profile?.phone_number),
+        hasVehicle: vehicles.length > 0,
+        hasDocuments: docs.length > 0,
+        vehicleCount: vehicles.length,
+        documentCount: docs.length
       }
     };
   }

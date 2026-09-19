@@ -1,23 +1,22 @@
 // ==============================================================================
 // TRANSMOVE REALTIME MESSAGING SERVICE
-// Direct chat between booking participants via Appwrite Trusted API & Realtime
+// Direct chat between booking participants via Trusted API
 // ==============================================================================
-import { getAppwriteAccount, getAppwriteClient, getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getAuthJwt } from "../config/supabase.js";
 
 async function trustedCall(action, data = {}) {
-  const account = getAppwriteAccount();
-  const jwtRes = await account.createJWT();
-  const jwt = jwtRes.jwt;
+  const jwt = await getAuthJwt();
+  if (!jwt) throw new Error("Authentication required.");
 
   const endpoint = getTrustedApiEndpoint();
   const res = await fetch(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${jwt}`,
-      "X-Appwrite-JWT": jwt
+      Authorization: `Bearer ${jwt}`
     },
-    body: JSON.stringify({ action, data })
+    body: JSON.stringify({ action, data, jwt })
   });
 
   const body = await res.json().catch(() => ({}));
@@ -38,7 +37,7 @@ export const MessagingService = {
       const result = await trustedCall("list_booking_messages", { booking_id: bookingId });
       return result.messages || [];
     } catch (err) {
-      console.warn("Appwrite getMessages notice:", err.message);
+      console.warn("getMessages notice:", err.message);
       return [];
     }
   },
@@ -71,46 +70,16 @@ export const MessagingService = {
   },
 
   /**
-   * Subscribes to real-time incoming messages for a booking.
-   * Uses Appwrite Realtime on messages collection with clean unsubscribe.
+   * Subscribes to messages with resilient polling fallback.
    */
   subscribeToMessages(bookingId, callback) {
     if (!bookingId || typeof callback !== "function") return { unsubscribe: () => {} };
 
     let unsubscribed = false;
-    let appwriteUnsub = null;
     let pollTimer = null;
     let lastSeenCreatedAt = new Date().toISOString();
 
-    try {
-      const client = getAppwriteClient();
-      const channel = "databases.transmove.collections.messages.documents";
-
-      appwriteUnsub = client.subscribe(channel, (response) => {
-        if (unsubscribed) return;
-        const payload = response.payload;
-        if (!payload) return;
-
-        const isMatchingBooking =
-          payload.booking_id === bookingId ||
-          payload.conversation_id === `booking_${bookingId}` ||
-          payload.conversation_id === bookingId;
-
-        if (isMatchingBooking) {
-          lastSeenCreatedAt = payload.created_at || new Date().toISOString();
-          const formatted = {
-            ...payload,
-            id: payload.$id,
-            content: payload.message || payload.content
-          };
-          callback(formatted);
-        }
-      });
-    } catch (e) {
-      console.warn("Appwrite Realtime subscription notice:", e.message);
-    }
-
-    // Controlled refresh/polling fallback (every 6s) to ensure resilience
+    // Polling fallback every 4s
     pollTimer = setInterval(async () => {
       if (unsubscribed) return;
       try {
@@ -123,14 +92,11 @@ export const MessagingService = {
           }
         }
       } catch (_) {}
-    }, 6000);
+    }, 4000);
 
     return {
       unsubscribe: () => {
         unsubscribed = true;
-        if (typeof appwriteUnsub === "function") {
-          try { appwriteUnsub(); } catch (_) {}
-        }
         if (pollTimer) {
           clearInterval(pollTimer);
           pollTimer = null;

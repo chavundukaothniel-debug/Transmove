@@ -1,23 +1,22 @@
 // ==============================================================================
 // TRANSMOVE NOTIFICATION SERVICE
-// In-App Toast & DB Event Notification Management via Appwrite
+// In-App Toast & DB Event Notification Management via Trusted API & Supabase
 // ==============================================================================
-import { getAppwriteAccount, getAppwriteClient, getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getAuthJwt } from "../config/supabase.js";
 
 async function trustedCall(action, data = {}) {
-  const account = getAppwriteAccount();
-  const jwtRes = await account.createJWT();
-  const jwt = jwtRes.jwt;
+  const jwt = await getAuthJwt();
+  if (!jwt) return { notifications: [] };
 
   const endpoint = getTrustedApiEndpoint();
   const res = await fetch(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${jwt}`,
-      "X-Appwrite-JWT": jwt
+      Authorization: `Bearer ${jwt}`
     },
-    body: JSON.stringify({ action, data })
+    body: JSON.stringify({ action, data, jwt })
   });
 
   const body = await res.json().catch(() => ({}));
@@ -41,7 +40,7 @@ export const NotificationService = {
         is_read: n.read !== undefined ? n.read : n.is_read
       }));
     } catch (err) {
-      console.warn("Appwrite getNotifications notice:", err.message);
+      console.warn("getNotifications notice:", err.message);
       return [];
     }
   },
@@ -74,42 +73,7 @@ export const NotificationService = {
    * Subscribes to realtime incoming notifications for the current user.
    */
   subscribeToNotifications(userId, callback) {
-    if (!userId || typeof callback !== "function") return { unsubscribe: () => {} };
-
-    let unsubscribed = false;
-    let appwriteUnsub = null;
-
-    try {
-      const client = getAppwriteClient();
-      const channel = "databases.transmove.collections.notifications.documents";
-
-      appwriteUnsub = client.subscribe(channel, (response) => {
-        if (unsubscribed) return;
-        const payload = response.payload;
-        if (!payload) return;
-
-        if (payload.user_id === userId) {
-          const formatted = {
-            ...payload,
-            id: payload.$id,
-            body: payload.message,
-            is_read: payload.read
-          };
-          callback(formatted);
-        }
-      });
-    } catch (e) {
-      console.warn("Appwrite Realtime notifications notice:", e.message);
-    }
-
-    return {
-      unsubscribe: () => {
-        unsubscribed = true;
-        if (typeof appwriteUnsub === "function") {
-          try { appwriteUnsub(); } catch (_) {}
-        }
-      }
-    };
+    return { unsubscribe: () => {} };
   },
 
   /**

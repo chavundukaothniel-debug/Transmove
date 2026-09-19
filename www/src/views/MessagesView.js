@@ -4,16 +4,9 @@
 import { MessagingService } from "../services/messaging.js";
 import { BookingService } from "../services/bids.js";
 import { AuthService } from "../services/auth.js";
-import { getAppwriteStorage, APPWRITE_CONFIG } from "../config/appwrite.js";
-import { renderEmptyState } from "../components/EmptyState.js";
-
 const fileViewUrl = (fileId) => {
   if (!fileId) return "";
-  try {
-    return getAppwriteStorage().getFileView(APPWRITE_CONFIG.bucketId, fileId);
-  } catch (_) {
-    return "";
-  }
+  return `/api/files/preview/${encodeURIComponent(fileId)}`;
 };
 
 const escapeHtml = (value) => {

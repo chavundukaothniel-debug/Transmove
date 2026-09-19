@@ -24,6 +24,7 @@ export const DRIVE_FOLDERS = {
   PAYMENTS_TRIPS: "TransMove/Payments/Trips",
   VERIFICATION_DRIVERS: "TransMove/Verification/Drivers",
   VEHICLES: "TransMove/Vehicles",
+  PROFILES: "TransMove/Profiles",
   RECEIPTS: "TransMove/Receipts",
   EXPORTS: "TransMove/Exports",
   BACKUPS: "TransMove/Backups"

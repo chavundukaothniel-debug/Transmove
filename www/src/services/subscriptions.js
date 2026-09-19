@@ -3,15 +3,14 @@
 // Provider subscription plans, status verification, and EcoCash payment submission.
 // Subscription activation uses manual EcoCash proof + admin verification.
 // ==============================================================================
-import { getAppwriteAccount, getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getAuthJwt } from "../config/supabase.js";
 import { PaymentService } from "./payments.js";
 
 async function trustedCall(action, data = {}) {
-  const account = getAppwriteAccount();
   let jwt = null;
   try {
-    const jwtRes = await account.createJWT();
-    jwt = jwtRes.jwt;
+    jwt = await getAuthJwt();
   } catch (_) {
     // Guest access for public plan listing
   }
@@ -19,13 +18,12 @@ async function trustedCall(action, data = {}) {
   const headers = { "Content-Type": "application/json" };
   if (jwt) {
     headers["Authorization"] = `Bearer ${jwt}`;
-    headers["X-Appwrite-JWT"] = jwt;
   }
 
   const response = await fetch(getTrustedApiEndpoint(), {
     method: "POST",
     headers,
-    body: JSON.stringify({ action, data })
+    body: JSON.stringify({ action, data, jwt })
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || `Trusted API error (HTTP ${response.status})`);

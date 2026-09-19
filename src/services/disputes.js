@@ -1,21 +1,21 @@
 // ==============================================================================
 // TRANSMOVE DISPUTES & USER REPORTING SERVICE
 // ==============================================================================
-import { getTrustedApiEndpoint, getAppwriteAccount } from "../config/appwrite.js";
+import { getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getAuthJwt } from "../config/supabase.js";
 
 async function callTrustedApi(action, data = {}) {
   const endpoint = getTrustedApiEndpoint();
-  const account = getAppwriteAccount();
-  const jwtRes = await account.createJWT();
+  const jwt = await getAuthJwt();
+  if (!jwt) throw new Error("Authentication required.");
 
   const res = await fetch(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${jwtRes.jwt}`,
-      "X-Appwrite-JWT": jwtRes.jwt
+      "Authorization": `Bearer ${jwt}`
     },
-    body: JSON.stringify({ action, data })
+    body: JSON.stringify({ action, data, jwt })
   });
 
   const json = await res.json();

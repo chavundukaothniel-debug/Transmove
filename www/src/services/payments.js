@@ -26,7 +26,6 @@ async function callTrustedApi(action, data = {}) {
   };
   if (jwt) {
     headers["Authorization"] = `Bearer ${jwt}`;
-    headers["X-Appwrite-JWT"] = jwt;
   }
 
   const res = await fetch(endpoint, {

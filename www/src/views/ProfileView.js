@@ -7,7 +7,6 @@ import { AuthService } from "../services/auth.js";
 import { VehicleService } from "../services/vehicles.js";
 import { BookingService } from "../services/bids.js";
 import { ReviewService } from "../services/reviews.js";
-import { getAppwriteStorage, APPWRITE_CONFIG } from "../config/appwrite.js";
 
 const escapeHtmlValue = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -287,13 +286,9 @@ export const ProfileView = {
     // Avatar image or initials
     const avatarPlaceholder = document.getElementById("prof-avatar-placeholder");
     const avatarImg = document.getElementById("prof-avatar-img");
-    let avatarUrl = "";
-    if (this.profile.profile_image_id) {
-      try {
-        avatarUrl = getAppwriteStorage().getFileView(APPWRITE_CONFIG.bucketId, this.profile.profile_image_id);
-      } catch (urlErr) {
-        console.warn("Profile photo URL notice:", urlErr.message);
-      }
+    let avatarUrl = this.profile.profile_photo_url || "";
+    if (!avatarUrl && this.profile.profile_image_id) {
+      avatarUrl = `/api/files/preview/${encodeURIComponent(this.profile.profile_image_id)}`;
     }
     if (avatarUrl) {
       if (avatarPlaceholder) avatarPlaceholder.style.display = "none";

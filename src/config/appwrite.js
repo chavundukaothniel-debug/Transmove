@@ -7,6 +7,10 @@ import { Client, Account, Databases, Storage, ID, Query, Permission, Role } from
 
 const getStoredValue = (key, fallback) => {
   try {
+    if (typeof process !== "undefined" && process.env) {
+      if (key === "transmove_database_provider" && process.env.DATABASE_PROVIDER) return process.env.DATABASE_PROVIDER;
+      if (key === "transmove_file_storage_provider" && process.env.FILE_STORAGE_PROVIDER) return process.env.FILE_STORAGE_PROVIDER;
+    }
     if (typeof window !== "undefined" && window.localStorage) {
       return window.localStorage.getItem(key) || fallback;
     }
@@ -149,7 +153,36 @@ export function getAppwriteAccount() {
 
 export function getAppwriteDatabases() {
   if (!databasesInstance) {
-    databasesInstance = new Databases(getAppwriteClient());
+    const rawDatabases = new Databases(getAppwriteClient());
+    rawDatabases._originalCreateDocument = rawDatabases.createDocument.bind(rawDatabases);
+    rawDatabases._originalUpdateDocument = rawDatabases.updateDocument.bind(rawDatabases);
+    rawDatabases._originalDeleteDocument = rawDatabases.deleteDocument.bind(rawDatabases);
+
+    rawDatabases.createDocument = function () {
+      const provider = getStoredValue("transmove_database_provider", "supabase");
+      if (provider === "supabase") {
+        throw new Error("[SafetyGuard] Appwrite database writes are blocked when DATABASE_PROVIDER=supabase. All writes must route through trusted backend/Supabase.");
+      }
+      return rawDatabases._originalCreateDocument.apply(rawDatabases, arguments);
+    };
+
+    rawDatabases.updateDocument = function () {
+      const provider = getStoredValue("transmove_database_provider", "supabase");
+      if (provider === "supabase") {
+        throw new Error("[SafetyGuard] Appwrite database writes are blocked when DATABASE_PROVIDER=supabase. All writes must route through trusted backend/Supabase.");
+      }
+      return rawDatabases._originalUpdateDocument.apply(rawDatabases, arguments);
+    };
+
+    rawDatabases.deleteDocument = function () {
+      const provider = getStoredValue("transmove_database_provider", "supabase");
+      if (provider === "supabase") {
+        throw new Error("[SafetyGuard] Appwrite database writes are blocked when DATABASE_PROVIDER=supabase. All writes must route through trusted backend/Supabase.");
+      }
+      return rawDatabases._originalDeleteDocument.apply(rawDatabases, arguments);
+    };
+
+    databasesInstance = rawDatabases;
   }
   return databasesInstance;
 }
@@ -159,7 +192,26 @@ let storageInstance = null;
 export function getAppwriteStorage() {
   if (!storageInstance) {
     const rawStorage = new Storage(getAppwriteClient());
+    rawStorage._originalCreateFile = rawStorage.createFile.bind(rawStorage);
+    rawStorage._originalDeleteFile = rawStorage.deleteFile.bind(rawStorage);
     rawStorage._originalGetFileView = rawStorage.getFileView.bind(rawStorage);
+
+    rawStorage.createFile = function () {
+      const provider = getStoredValue("transmove_file_storage_provider", "google_drive");
+      if (provider === "google_drive") {
+        throw new Error("[SafetyGuard] Appwrite Storage uploads are blocked when FILE_STORAGE_PROVIDER=google_drive. Files must be uploaded to Google Drive via trusted backend.");
+      }
+      return rawStorage._originalCreateFile.apply(rawStorage, arguments);
+    };
+
+    rawStorage.deleteFile = function () {
+      const provider = getStoredValue("transmove_file_storage_provider", "google_drive");
+      if (provider === "google_drive") {
+        throw new Error("[SafetyGuard] Appwrite Storage mutations are blocked when FILE_STORAGE_PROVIDER=google_drive.");
+      }
+      return rawStorage._originalDeleteFile.apply(rawStorage, arguments);
+    };
+
     rawStorage.getFileView = function (bucketId, fileId) {
       const provider = getStoredValue("transmove_file_storage_provider", "google_drive");
       if (provider === "google_drive" && fileId) {

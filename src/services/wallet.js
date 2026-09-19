@@ -2,19 +2,18 @@
 // TRANSMOVE WALLET & LEDGER SERVICE
 // Balance, Earnings, Withdrawals & Ledger Audit
 // ==============================================================================
-import { getAppwriteAccount, getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getAuthJwt } from "../config/supabase.js";
 
 async function trustedCall(action, data = {}) {
-  const account = getAppwriteAccount();
-  const jwt = (await account.createJWT()).jwt;
+  const jwt = await getAuthJwt();
+  const headers = { "Content-Type": "application/json" };
+  if (jwt) headers["Authorization"] = `Bearer ${jwt}`;
+
   const response = await fetch(getTrustedApiEndpoint(), {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${jwt}`,
-      "X-Appwrite-JWT": jwt
-    },
-    body: JSON.stringify({ action, data })
+    headers,
+    body: JSON.stringify({ action, data, jwt })
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || `Trusted API error (HTTP ${response.status})`);

@@ -50,9 +50,55 @@ const server = http.createServer(async (req, res) => {
 
   // Authorized private file preview via Google Drive storage
   if (urlPath.startsWith("/api/files/preview/")) {
-    const fileId = urlPath.replace("/api/files/preview/", "").trim();
+    const parsedUrl = new URL(req.url, `http://localhost:${PORT}`);
+    const fileId = parsedUrl.pathname.replace("/api/files/preview/", "").trim();
+    const token = (req.headers.authorization ? req.headers.authorization.replace(/^Bearer\s+/i, "").trim() : null) ||
+      parsedUrl.searchParams.get("token") ||
+      parsedUrl.searchParams.get("jwt");
+
     try {
+      const { supabaseBackendEngine } = await import("./src/server/supabase-backend.js");
       const { googleDriveStorage } = await import("./src/server/google-drive-storage.js");
+
+      // Check if file is a sensitive verification document or payment proof
+      const isVerifDoc = (supabaseBackendEngine.db?.verification_documents || []).some(
+        (d) => (d.drive_file_id || d.file_id || d.id) === fileId
+      );
+      const isPaymentProof = (supabaseBackendEngine.db?.payments || []).some(
+        (p) => (p.proof_file_id || p.id) === fileId
+      );
+
+      if (isVerifDoc || isPaymentProof) {
+        if (!token) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Authentication required to view confidential document." }));
+          return;
+        }
+
+        let caller = null;
+        try {
+          caller = await supabaseBackendEngine.authenticateUser(token);
+        } catch (_) {
+          res.writeHead(401, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Invalid authentication token." }));
+          return;
+        }
+
+        const profile = await supabaseBackendEngine.getCallerProfile(caller.id);
+        const isAdmin = profile?.role === "admin";
+        const isOwner = (supabaseBackendEngine.db?.verification_documents || []).some(
+          (d) => (d.drive_file_id || d.file_id || d.id) === fileId && (d.user_id === caller.id || d.user_id === caller.$id)
+        ) || (supabaseBackendEngine.db?.payments || []).some(
+          (p) => (p.proof_file_id || p.id) === fileId && (p.user_id === caller.id || p.user_id === caller.$id)
+        );
+
+        if (!isAdmin && !isOwner) {
+          res.writeHead(403, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "Forbidden: You do not have permission to view this document." }));
+          return;
+        }
+      }
+
       const fileData = await googleDriveStorage.downloadAuthorizedFile(fileId);
       res.writeHead(200, {
         "Content-Type": fileData.mimeType || "application/octet-stream",
@@ -96,4 +142,8 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => {
   console.log(`TransMove Server running at http://localhost:${PORT}`);
+  console.log("Database provider: supabase");
+  console.log("File storage provider: google_drive");
+  console.log(`Supabase: ${process.env.SUPABASE_URL ? "configured" : "not configured"}`);
+  console.log(`Google Drive OAuth: ${process.env.GOOGLE_OAUTH_REFRESH_TOKEN || process.env.GOOGLE_SERVICE_ACCOUNT_JSON ? "configured" : "not configured"}`);
 });

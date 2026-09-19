@@ -4,25 +4,24 @@
 // Online/offline status is derived strictly server-side (timeout: 3 minutes)
 // NO manual toggle exists or is added.
 // ==============================================================================
-import { getAppwriteAccount, getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getAuthJwt } from "../config/supabase.js";
 
 let heartbeatInterval = null;
 let focusHandler = null;
 
 async function trustedCall(action, data = {}) {
-  const account = getAppwriteAccount();
-  const jwtRes = await account.createJWT();
-  const jwt = jwtRes.jwt;
+  const jwt = await getAuthJwt();
+  if (!jwt) return {};
 
   const endpoint = getTrustedApiEndpoint();
   const res = await fetch(endpoint, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${jwt}`,
-      "X-Appwrite-JWT": jwt
+      Authorization: `Bearer ${jwt}`
     },
-    body: JSON.stringify({ action, data })
+    body: JSON.stringify({ action, data, jwt })
   });
 
   const body = await res.json().catch(() => ({}));
@@ -66,7 +65,7 @@ export const PresenceService = {
   },
 
   /**
-   * Sends a heartbeat update to Appwrite driver_presence collection.
+   * Sends a heartbeat update to driver_presence.
    */
   async sendHeartbeat(userId) {
     if (!userId) return;

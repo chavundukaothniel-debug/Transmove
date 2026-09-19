@@ -1,22 +1,39 @@
 // ==============================================================================
 // TRANSMOVE RIDE & TRANSPORT REQUEST SERVICE
-// Powered by Appwrite Databases (service_requests, request_images) & Trusted API
-// Passenger/driver request flow is Appwrite-only. Legacy Supabase modules are
-// intentionally not consulted by this service.
+// Powered by Supabase Backend & Google Drive Storage via Trusted API
+// Zero client-side Appwrite writes.
 // ==============================================================================
-import {
-  getAppwriteAccount,
-  getAppwriteClient,
-  getAppwriteDatabases,
-  getAppwriteStorage,
-  APPWRITE_CONFIG,
-  getTrustedApiEndpoint,
-  clearAppwriteJWTCache,
-  ID,
-  Query,
-  Permission,
-  Role
-} from "../config/appwrite.js";
+import { getTrustedApiEndpoint, getAppwriteDatabases, Query } from "../config/appwrite.js";
+import { getAuthJwt } from "../config/supabase.js";
+import { AuthService } from "./auth.js";
+
+async function trustedCall(action, data = {}, extra = {}) {
+  const jwt = await getAuthJwt();
+  if (!jwt) throw new Error("Authentication required.");
+
+  const endpoint = getTrustedApiEndpoint();
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${jwt}`
+    },
+    body: JSON.stringify({
+      action,
+      data,
+      jwt,
+      ...extra
+    })
+  });
+
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(json.error || `Trusted API error (HTTP ${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
+  return json;
+}
 
 export const RequestService = {
   /**
@@ -54,7 +71,7 @@ export const RequestService = {
       customer_id: doc.passenger_id || doc.customer_id,
       status: doc.status || "open_for_bids",
       images: images,
-      image_urls: images.map(i => i.view_url || i.url).filter(Boolean),
+      image_urls: images.map(i => i.view_url || i.url || i.file_url).filter(Boolean),
       created_at: doc.created_at,
       updated_at: doc.updated_at
     };
@@ -94,93 +111,46 @@ export const RequestService = {
    * Includes idempotency token protection against duplicate submissions and controlled 429 retry.
    */
   async createRequest(requestData) {
-    const account = getAppwriteAccount();
-    const user = await account.get();
+    const user = await AuthService.getCurrentUser();
     if (!user) throw new Error("You must be logged in to create a request.");
 
     const submissionId =
       requestData.submission_id ||
       requestData.idempotency_key ||
-      `req_${Date.now()}_${ID.unique()}`;
+      `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
-    const endpoint = getTrustedApiEndpoint();
     const delays = [1000, 2000, 4000];
     const maxAttempts = 3;
     let lastError = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const jwtRes = await account.createJWT();
-        const jwt = jwtRes.jwt;
-
-        const res = await fetch(endpoint, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${jwt}`,
-            "X-Appwrite-JWT": jwt
-          },
-          body: JSON.stringify({
-            action: "create_service_request",
-            data: {
-              submission_id: submissionId,
-              service_type: requestData.service_type || requestData.request_type || "ride",
-              pickup_location: requestData.pickup_location || requestData.pickup_address,
-              pickup_latitude: requestData.pickup_latitude ?? requestData.pickup_lat ?? null,
-              pickup_longitude: requestData.pickup_longitude ?? requestData.pickup_lng ?? null,
-              destination: requestData.destination || requestData.destination_address,
-              destination_latitude: requestData.destination_latitude ?? requestData.destination_lat ?? null,
-              destination_longitude: requestData.destination_longitude ?? requestData.destination_lng ?? null,
-              request_date: requestData.request_date || null,
-              preferred_time: requestData.preferred_time || "",
-              passenger_count: requestData.passenger_count || null,
-              goods_type: requestData.goods_type || requestData.cargo_type || "",
-              details: requestData.details || requestData.load_description || requestData.notes || "",
-              budget: requestData.budget !== undefined ? requestData.budget : requestData.suggested_price
-            }
-          })
+        const doc = await trustedCall("create_service_request", {
+          submission_id: submissionId,
+          service_type: requestData.service_type || requestData.request_type || "ride",
+          pickup_location: requestData.pickup_location || requestData.pickup_address,
+          pickup_latitude: requestData.pickup_latitude ?? requestData.pickup_lat ?? null,
+          pickup_longitude: requestData.pickup_longitude ?? requestData.pickup_lng ?? null,
+          destination: requestData.destination || requestData.destination_address,
+          destination_latitude: requestData.destination_latitude ?? requestData.destination_lat ?? null,
+          destination_longitude: requestData.destination_longitude ?? requestData.destination_lng ?? null,
+          request_date: requestData.request_date || null,
+          preferred_time: requestData.preferred_time || "",
+          passenger_count: requestData.passenger_count || null,
+          goods_type: requestData.goods_type || requestData.cargo_type || "",
+          details: requestData.details || requestData.load_description || requestData.notes || "",
+          budget: requestData.budget !== undefined ? requestData.budget : requestData.suggested_price
         });
 
-        if (res.status === 429) {
-          const retryAfterHeader = res.headers.get("Retry-After");
-          let waitMs = delays[attempt - 1] || 4000;
-          if (retryAfterHeader) {
-            const parsed = parseInt(retryAfterHeader, 10);
-            if (!isNaN(parsed) && parsed > 0) {
-              waitMs = Math.min(parsed * 1000, 10000);
-            }
-          }
-          if (attempt < maxAttempts) {
-            console.warn(`[createRequest] Rate limited (429). Retrying with idempotency key ${submissionId} in ${waitMs}ms (attempt ${attempt}/${maxAttempts})...`);
-            await new Promise((resolve) => setTimeout(resolve, waitMs));
-            continue;
-          }
-          const errData = await res.json().catch(() => ({ error: "Rate limit for the current endpoint has been exceeded." }));
-          throw new Error(errData.error || "Rate limit for the current endpoint has been exceeded.");
-        }
-
-        if (res.status === 401 && attempt < maxAttempts) {
-          clearAppwriteJWTCache();
-          await account.createJWT(true).catch(() => {});
-          continue;
-        }
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: res.statusText }));
-          throw new Error(err.error || "Failed to create service request via trusted server.");
-        }
-
-        const doc = await res.json();
         return this._formatRequest(doc);
       } catch (err) {
         lastError = err;
         const isRateLimit = err?.code === 429 ||
           err?.message?.toLowerCase().includes("rate limit") ||
-          err?.type === "general_rate_limit_exceeded";
+          err?.status === 429;
 
         if (isRateLimit && attempt < maxAttempts) {
           const waitMs = delays[attempt - 1] || 4000;
-          console.warn(`[createRequest] 429 rate limit encountered (${err.message}). Retrying with idempotency in ${waitMs}ms (attempt ${attempt}/${maxAttempts})...`);
           await new Promise((resolve) => setTimeout(resolve, waitMs));
           continue;
         }
@@ -196,40 +166,28 @@ export const RequestService = {
    */
   async getCustomerRequests() {
     try {
-      const account = getAppwriteAccount();
-      const user = await account.get().catch(() => null);
+      const user = await AuthService.getCurrentUser();
       if (!user) return [];
 
-      // 1. Try trusted API first (server-side authenticated with user's JWT)
       try {
-        const jwtRes = await account.createJWT();
-        const endpoint = getTrustedApiEndpoint();
-        const res = await fetch(endpoint, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${jwtRes.jwt}`,
-            "X-Appwrite-JWT": jwtRes.jwt
-          },
-          body: JSON.stringify({ action: "list_passenger_requests" })
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const reqs = data.requests || data.documents || [];
-          if (Array.isArray(reqs)) {
-            return reqs.map(doc => this._formatRequest(doc));
-          }
+        const data = await trustedCall("list_passenger_requests", {});
+        const reqs = data.requests || data.documents || [];
+        if (Array.isArray(reqs)) {
+          return reqs.map(doc => this._formatRequest(doc));
         }
       } catch (_) {}
 
-      // 2. Direct Appwrite SDK query as fallback
-      const databases = getAppwriteDatabases();
-      const res = await databases.listDocuments("transmove", "service_requests", [
-        Query.equal("passenger_id", user.$id),
-        Query.orderDesc("created_at")
-      ]);
+      // Direct Appwrite SDK query as legacy read fallback only
+      try {
+        const databases = getAppwriteDatabases();
+        const res = await databases.listDocuments("transmove", "service_requests", [
+          Query.equal("passenger_id", user.$id || user.id),
+          Query.orderDesc("created_at")
+        ]);
+        return (res.documents || []).map(doc => this._formatRequest(doc));
+      } catch (_) {}
 
-      return (res.documents || []).map(doc => this._formatRequest(doc));
+      return [];
     } catch (err) {
       console.warn("Notice: Fetching customer requests:", err.message);
       return [];
@@ -249,29 +207,10 @@ export const RequestService = {
    */
   async getAvailableRequestsForDrivers() {
     try {
-      const account = getAppwriteAccount();
-      const user = await account.get().catch(() => null);
+      const user = await AuthService.getCurrentUser();
       if (!user) return [];
 
-      const jwtRes = await account.createJWT();
-      const endpoint = getTrustedApiEndpoint();
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${jwtRes.jwt}`,
-          "X-Appwrite-JWT": jwtRes.jwt
-        },
-        body: JSON.stringify({
-          action: "list_available_requests"
-        })
-      });
-
-      if (!res.ok) {
-        return [];
-      }
-
-      const data = await res.json();
+      const data = await trustedCall("list_available_requests", {});
       return (data.requests || []).map(doc => this._formatRequest(doc));
     } catch (err) {
       console.warn("Notice: Fetching available requests for driver:", err.message);
@@ -283,35 +222,13 @@ export const RequestService = {
    * Retrieves full request details including photos, verifying ownership or driver eligibility.
    */
   async getRequestDetails(requestId) {
-    const account = getAppwriteAccount();
-    const user = await account.get();
+    const user = await AuthService.getCurrentUser();
     if (!user) throw new Error("Authentication required.");
 
-    const jwtRes = await account.createJWT();
-    const endpoint = getTrustedApiEndpoint();
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${jwtRes.jwt}`,
-        "X-Appwrite-JWT": jwtRes.jwt
-      },
-      body: JSON.stringify({
-        action: "get_service_request_details",
-        request_id: requestId
-      })
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(err.error || "Failed to load request details.");
-    }
-
-    const data = await res.json();
-    const storage = getAppwriteStorage();
+    const data = await trustedCall("get_service_request_details", {}, { request_id: requestId });
     const hydratedImages = (data.images || []).map(img => ({
       ...img,
-      view_url: storage.getFileView(APPWRITE_CONFIG.bucketId, img.file_id)
+      view_url: img.view_url || img.file_url || `/api/files/preview/${img.drive_file_id || img.file_id}`
     }));
 
     return this._formatRequest(data, hydratedImages);
@@ -321,32 +238,10 @@ export const RequestService = {
    * Updates an existing request owned by the current user.
    */
   async updateRequest(requestId, updates) {
-    const account = getAppwriteAccount();
-    const user = await account.get();
+    const user = await AuthService.getCurrentUser();
     if (!user) throw new Error("Authentication required.");
 
-    const jwtRes = await account.createJWT();
-    const endpoint = getTrustedApiEndpoint();
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${jwtRes.jwt}`,
-        "X-Appwrite-JWT": jwtRes.jwt
-      },
-      body: JSON.stringify({
-        action: "update_service_request",
-        request_id: requestId,
-        data: updates
-      })
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(err.error || "Failed to update service request.");
-    }
-
-    const data = await res.json();
+    const data = await trustedCall("update_service_request", updates, { request_id: requestId });
     return this._formatRequest(data);
   },
 
@@ -354,41 +249,18 @@ export const RequestService = {
    * Cancels an open request safely without hard deletion.
    */
   async cancelRequest(requestId, reason = "Cancelled by user") {
-    const account = getAppwriteAccount();
-    const user = await account.get();
+    const user = await AuthService.getCurrentUser();
     if (!user) throw new Error("Authentication required.");
 
-    const jwtRes = await account.createJWT();
-    const endpoint = getTrustedApiEndpoint();
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${jwtRes.jwt}`,
-        "X-Appwrite-JWT": jwtRes.jwt
-      },
-      body: JSON.stringify({
-        action: "cancel_service_request",
-        request_id: requestId,
-        data: { reason }
-      })
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(err.error || "Failed to cancel service request.");
-    }
-
-    const data = await res.json();
+    const data = await trustedCall("cancel_service_request", { reason }, { request_id: requestId });
     return this._formatRequest(data);
   },
 
   /**
-   * Uploads an image for a service request to private storage and registers the record.
+   * Uploads an image for a service request to Google Drive storage and registers the record.
    */
   async uploadRequestImage(requestId, file) {
-    const account = getAppwriteAccount();
-    const user = await account.get();
+    const user = await AuthService.getCurrentUser();
     if (!user) throw new Error("Authentication required to upload request image.");
 
     this.validateFile(file, {
@@ -396,78 +268,39 @@ export const RequestService = {
       maxSizeMB: 5
     });
 
-    const storage = getAppwriteStorage();
-    const fileId = ID.unique();
-    const uploadedFile = await storage.createFile(
-      APPWRITE_CONFIG.bucketId,
-      fileId,
-      file,
-      [
-        Permission.read(Role.user(user.$id)),
-        Permission.delete(Role.user(user.$id))
-      ]
-    );
-
-    const jwtRes = await account.createJWT();
-    const endpoint = getTrustedApiEndpoint();
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${jwtRes.jwt}`,
-        "X-Appwrite-JWT": jwtRes.jwt
-      },
-      body: JSON.stringify({
-        action: "create_request_image",
-        request_id: requestId,
-        data: {
-          file_id: uploadedFile.$id
-        }
-      })
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        const base64String = result.split(",")[1];
+        resolve(base64String);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
     });
 
-    if (!res.ok) {
-      await storage.deleteFile(APPWRITE_CONFIG.bucketId, uploadedFile.$id).catch(() => {});
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(err.error || "Failed to record request image on trusted server.");
-    }
+    const doc = await trustedCall("create_request_image", {
+      file_base64: base64,
+      original_filename: file.name || "request_item.jpg",
+      mime_type: file.type || "image/jpeg"
+    }, { request_id: requestId });
 
-    const doc = await res.json();
-    const viewUrl = storage.getFileView(APPWRITE_CONFIG.bucketId, uploadedFile.$id);
+    const fileId = doc.drive_file_id || doc.file_id || doc.id;
+    const viewUrl = doc.file_url || `/api/files/preview/${fileId}`;
 
     return {
       ...doc,
-      id: doc.$id,
-      file_id: uploadedFile.$id,
+      id: doc.id || doc.$id,
+      file_id: fileId,
       view_url: viewUrl
     };
   },
 
   /**
-   * Realtime subscriptions: Passenger can subscribe to changes on their own requests.
+   * Realtime subscriptions fallback polling.
    */
   subscribeToRequests(callback) {
-    if (typeof callback !== "function") return { unsubscribe: () => {} };
-    let stopped = false;
-    let unsubscribe = null;
-    try {
-      unsubscribe = getAppwriteClient().subscribe(
-        "databases.transmove.collections.service_requests.documents",
-        (event) => {
-          if (!stopped && event?.payload) callback(this._formatRequest(event.payload), event);
-        }
-      );
-    } catch (error) {
-      console.warn("Request realtime unavailable; polling remains active:", error.message);
-    }
-    return {
-      unsubscribe: () => {
-        stopped = true;
-        if (typeof unsubscribe === "function") {
-          try { unsubscribe(); } catch (_) {}
-        }
-      }
-    };
+    return { unsubscribe: () => {} };
   },
 
   /**
@@ -475,20 +308,19 @@ export const RequestService = {
    */
   async getCompatibleOnlineProvidersCount(serviceType = "ride") {
     try {
-      const account = getAppwriteAccount();
-      const jwtRes = await account.createJWT().catch(() => null);
-      const jwt = jwtRes?.jwt || "";
+      const jwt = await getAuthJwt();
       const endpoint = getTrustedApiEndpoint();
 
       const res = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(jwt ? { Authorization: `Bearer ${jwt}`, "X-Appwrite-JWT": jwt } : {})
+          ...(jwt ? { Authorization: `Bearer ${jwt}` } : {})
         },
         body: JSON.stringify({
           action: "count_compatible_online_providers",
-          data: { service_type: serviceType }
+          data: { service_type: serviceType },
+          jwt
         })
       });
 

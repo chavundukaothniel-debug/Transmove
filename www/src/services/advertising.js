@@ -1,39 +1,24 @@
 // ==============================================================================
-// TRANSMOVE ADVERTISING SERVICE (APPWRITE & ECOCASH)
+// TRANSMOVE ADVERTISING SERVICE (SUPABASE & GOOGLE DRIVE & ECOCASH)
 // Rate cards, cost calculator, campaign creation, and EcoCash payment flow.
-// Fully migrated to Appwrite and trusted API.
+// Fully migrated to Supabase Auth and Google Drive file storage via trusted API.
 // ==============================================================================
-import {
-  APPWRITE_CONFIG,
-  getAppwriteAccount,
-  getAppwriteStorage,
-  getTrustedApiEndpoint,
-  ID,
-  Permission,
-  Role
-} from "../config/appwrite.js";
+import { getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getAuthJwt } from "../config/supabase.js";
 import { PaymentService } from "./payments.js";
 
 async function trustedCall(action, data = {}) {
-  const account = getAppwriteAccount();
-  let jwt = null;
-  try {
-    const jwtRes = await account.createJWT();
-    jwt = jwtRes.jwt;
-  } catch (_) {
-    // Guest calls for public calculator / rate cards
-  }
+  let jwt = await getAuthJwt();
 
   const headers = { "Content-Type": "application/json" };
   if (jwt) {
     headers["Authorization"] = `Bearer ${jwt}`;
-    headers["X-Appwrite-JWT"] = jwt;
   }
 
   const response = await fetch(getTrustedApiEndpoint(), {
     method: "POST",
     headers,
-    body: JSON.stringify({ action, data })
+    body: JSON.stringify({ action, data, jwt })
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || `Advertising API error (HTTP ${response.status})`);
@@ -61,9 +46,9 @@ export const AdvertisingService = {
     const result = await trustedCall("list_active_popup_ads", {});
     return (result.campaigns || []).map((campaign) => ({
       ...campaign,
-      image_url: campaign.image_file_id
-        ? String(getAppwriteStorage().getFileView(APPWRITE_CONFIG.bucketId, campaign.image_file_id))
-        : ""
+      image_url: campaign.image_url || (campaign.image_file_id
+        ? `/api/files/preview/${encodeURIComponent(campaign.image_file_id)}`
+        : "")
     }));
   },
 
@@ -82,27 +67,31 @@ export const AdvertisingService = {
   },
 
   /**
-   * Uploads an ad banner/creative image to Appwrite storage.
+   * Uploads an ad banner/creative image to Google Drive storage via trusted backend.
    */
   async uploadAdImage(file) {
     if (!file) throw new Error("No image file provided.");
-    const account = getAppwriteAccount();
-    const user = await account.get();
-    if (!user || !user.$id) throw new Error("Login required to upload campaign creative.");
 
-    const storage = getAppwriteStorage();
-    const fileId = ID.unique();
+    // Convert file to Base64
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        const base64String = result.split(",")[1];
+        resolve(base64String);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
 
-    const uploaded = await storage.createFile(
-      APPWRITE_CONFIG.bucketId,
-      fileId,
-      file,
-      [
-        Permission.read(Role.any()), // Ads are public once active
-        Permission.delete(Role.user(user.$id))
-      ]
-    );
-    return uploaded.$id;
+    const res = await trustedCall("upload_ad_asset", {
+      file_base64: base64,
+      original_filename: file.name || "campaign_asset.jpg",
+      mime_type: file.type || "image/jpeg",
+      file_size: file.size || 0
+    });
+
+    return res.file_id || res.$id;
   },
 
   /**

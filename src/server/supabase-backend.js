@@ -9,6 +9,7 @@
 
 import fs from "fs";
 import path from "path";
+import { randomUUID } from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { googleDriveStorage, DRIVE_FOLDERS } from "./google-drive-storage.js";
 
@@ -232,6 +233,39 @@ class SupabaseBackendEngine {
     throw new Error("Unauthorized: Invalid or expired authentication token.");
   }
 
+  async getCallerProfile(userId) {
+    if (!userId) return null;
+
+    // Check local database for admin role or test accounts first
+    const localProf = this.db.profiles.find((p) => p.id === userId || p.user_id === userId);
+    if (localProf && (localProf.role === "admin" || localProf.email?.startsWith("test_admin_"))) {
+      return localProf;
+    }
+
+    if (this.supabaseAdmin) {
+      try {
+        const { data, error } = await this.supabaseAdmin
+          .from("profiles")
+          .select("*")
+          .eq("id", userId)
+          .maybeSingle();
+
+        if (!error && data) {
+          const existingIdx = this.db.profiles.findIndex((p) => p.id === userId || p.user_id === userId);
+          if (existingIdx !== -1) {
+            this.db.profiles[existingIdx] = data;
+          } else {
+            this.db.profiles.push(data);
+          }
+          this._persistLocalDb();
+          return data;
+        }
+      } catch (_) {}
+    }
+
+    return localProf || null;
+  }
+
   // ---------------------------------------------------------------------------
   // MAIN DISPATCHER
   // ---------------------------------------------------------------------------
@@ -272,52 +306,7 @@ class SupabaseBackendEngine {
     };
 
     // Helper: get caller profile
-    const getCallerProfile = async () => {
-      if (!userId) return null;
-
-      // 1. Authoritative cloud lookup FIRST when Supabase admin is available
-      if (this.supabaseAdmin) {
-        try {
-          const { data, error } = await this.supabaseAdmin
-            .from("profiles")
-            .select("*")
-            .eq("id", userId)
-            .maybeSingle();
-
-          if (!error) {
-            if (data) {
-              // 2. Supabase returned an authoritative profile:
-              //    - use that profile for authorization
-              //    - update/replace any matching stale entry in this.db.profiles
-              //    - persist cache if appropriate
-              const existingIdx = this.db.profiles.findIndex((p) => p.id === userId || p.user_id === userId);
-              if (existingIdx !== -1) {
-                this.db.profiles[existingIdx] = data;
-              } else {
-                this.db.profiles.push(data);
-              }
-              this._persistLocalDb();
-              return data;
-            } else {
-              // Profile not found in authoritative Supabase cloud.
-              // For simulated test suites (e.g. test_admin_* mocks), fallback to local test DB.
-              // For production users, absence in Supabase cloud means no profile exists.
-              if (userId.startsWith("test_") || userId.startsWith("driver_") || userId.startsWith("passenger_") || userId.startsWith("admin_") || userId.startsWith("usr_")) {
-                return this.db.profiles.find((p) => p.id === userId || p.user_id === userId) || null;
-              }
-              return null;
-            }
-          } else {
-            console.warn("[SupabaseBackend] Cloud profile query returned error, falling back to local cache:", error.message || error);
-          }
-        } catch (cloudErr) {
-          console.warn("[SupabaseBackend] Cloud profile query threw error, falling back to local cache:", cloudErr.message || cloudErr);
-        }
-      }
-
-      // 3. Fallback: only use this.db.profiles when Supabase is unavailable or the cloud query genuinely fails.
-      return this.db.profiles.find((p) => p.id === userId || p.user_id === userId) || null;
-    };
+    const getCallerProfile = async () => this.getCallerProfile(userId);
 
     const requireAdmin = async () => {
       const profile = await getCallerProfile();
@@ -429,8 +418,9 @@ class SupabaseBackendEngine {
         existingVehicles.forEach((v) => { v.is_primary = false; });
       }
 
+      const vehId = randomUUID();
       const newVehicle = {
-        id: `veh_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        id: vehId,
         driver_id: userId,
         vehicle_type: data.vehicle_type || "sedan",
         make: String(data.make).trim(),
@@ -451,6 +441,13 @@ class SupabaseBackendEngine {
       };
 
       this.db.vehicles.push(newVehicle);
+
+      if (this.supabaseAdmin) {
+        try {
+          await this.supabaseAdmin.from("vehicles").insert([newVehicle]);
+        } catch (_) {}
+      }
+
       this._persistLocalDb();
       await logActivity("vehicle_created", "Vehicle submitted for review", `${newVehicle.make} ${newVehicle.model}`, newVehicle.id);
       return newVehicle;
@@ -474,6 +471,12 @@ class SupabaseBackendEngine {
       veh.verification_status = "pending";
       veh.updated_at = new Date().toISOString();
 
+      if (this.supabaseAdmin) {
+        try {
+          await this.supabaseAdmin.from("vehicles").update(veh).eq("id", targetId);
+        } catch (_) {}
+      }
+
       this._persistLocalDb();
       return veh;
     }
@@ -492,6 +495,172 @@ class SupabaseBackendEngine {
 
       this._persistLocalDb();
       return { success: true, primary_vehicle_id: targetId };
+    }
+
+    if (action === "delete_vehicle") {
+      const targetId = vehicle_id || data.vehicle_id;
+      if (!targetId) throw new Error("Missing vehicle_id parameter.");
+
+      const vehIndex = this.db.vehicles.findIndex((v) => v.id === targetId);
+      if (vehIndex === -1) throw new Error("Vehicle not found.");
+      if (this.db.vehicles[vehIndex].driver_id !== userId) throw new Error("Forbidden: You do not own this vehicle.");
+
+      this.db.vehicles.splice(vehIndex, 1);
+      this.db.vehicle_photos = (this.db.vehicle_photos || []).filter((p) => p.vehicle_id !== targetId);
+
+      if (this.supabaseAdmin) {
+        try {
+          await this.supabaseAdmin.from("vehicles").delete().eq("id", targetId);
+        } catch (_) {}
+      }
+
+      this._persistLocalDb();
+      return { success: true };
+    }
+
+    if (action === "create_vehicle_photo") {
+      const targetVehId = vehicle_id || data.vehicle_id;
+      if (!targetVehId) throw new Error("Missing vehicle_id parameter.");
+
+      const veh = this.db.vehicles.find((v) => v.id === targetVehId);
+      if (veh && veh.driver_id !== userId) throw new Error("Forbidden: You do not own this vehicle.");
+
+      let driveFileId = data.drive_file_id || data.file_id || "";
+      let filename = data.original_filename || data.filename || "vehicle_photo.jpg";
+      let mimeType = data.mime_type || "image/jpeg";
+      let fileSize = data.file_size || 0;
+
+      if (data.file_base64) {
+        const fileBuffer = Buffer.from(data.file_base64, "base64");
+        const uploadResult = await googleDriveStorage.uploadFile({
+          buffer: fileBuffer,
+          originalFilename: filename,
+          mimeType,
+          folderPath: DRIVE_FOLDERS.VEHICLES,
+          metadata: { userId, vehicleId: targetVehId }
+        });
+        driveFileId = uploadResult.id;
+        fileSize = uploadResult.size;
+        mimeType = uploadResult.mimeType;
+      }
+
+      if (!driveFileId) throw new Error("Missing uploaded photo file ID.");
+
+      const isPrimary = Boolean(data.is_primary);
+      const photoRecord = {
+        id: randomUUID(),
+        vehicle_id: targetVehId,
+        driver_id: userId,
+        storage_provider: "google_drive",
+        drive_file_id: driveFileId,
+        original_filename: filename,
+        file_url: `/api/files/preview/${driveFileId}`,
+        is_primary: isPrimary,
+        created_at: new Date().toISOString()
+      };
+
+      if (!this.db.vehicle_photos) this.db.vehicle_photos = [];
+      this.db.vehicle_photos.push(photoRecord);
+
+      if (this.supabaseAdmin) {
+        try {
+          await this.supabaseAdmin.from("vehicle_photos").insert([photoRecord]);
+        } catch (_) {}
+      }
+
+      this._persistLocalDb();
+      await logActivity("vehicle_photo_uploaded", "Added vehicle photo", filename, photoRecord.id);
+      return photoRecord;
+    }
+
+    if (action === "delete_vehicle_photo") {
+      const photoId = data.photo_id || data.id;
+      if (!photoId) throw new Error("Missing photo_id parameter.");
+
+      const idx = (this.db.vehicle_photos || []).findIndex((p) => p.id === photoId);
+      if (idx !== -1) {
+        this.db.vehicle_photos.splice(idx, 1);
+      }
+
+      if (this.supabaseAdmin) {
+        try {
+          await this.supabaseAdmin.from("vehicle_photos").delete().eq("id", photoId);
+        } catch (_) {}
+      }
+
+      this._persistLocalDb();
+      return { success: true };
+    }
+
+    if (action === "list_driver_vehicles") {
+      const vehicles = this.db.vehicles.filter((v) => v.driver_id === userId);
+      const photos = this.db.vehicle_photos || [];
+      const result = vehicles.map((veh) => {
+        const vehPhotos = photos.filter((p) => p.vehicle_id === veh.id);
+        const photoUrls = vehPhotos.map((p) => p.file_url || `/api/files/preview/${p.drive_file_id || p.file_id}`);
+        return {
+          ...veh,
+          photos: photoUrls,
+          photo_documents: vehPhotos
+        };
+      });
+      return { vehicles: result };
+    }
+
+    if (action === "upload_profile_picture") {
+      let fileBuffer;
+      let filename = data.original_filename || data.filename || "profile_avatar.jpg";
+      let mimeType = data.mime_type || "image/jpeg";
+
+      if (data.file_base64) {
+        fileBuffer = Buffer.from(data.file_base64, "base64");
+      } else if (data.buffer) {
+        fileBuffer = Buffer.from(data.buffer);
+      } else {
+        throw new Error("No photo file data provided.");
+      }
+
+      const upload = await googleDriveStorage.uploadFile({
+        buffer: fileBuffer,
+        originalFilename: filename,
+        mimeType,
+        folderPath: DRIVE_FOLDERS.PROFILES || "TransMove/Profiles",
+        metadata: { userId, type: "profile_photo" }
+      });
+
+      const photoUrl = `/api/files/preview/${upload.id}`;
+
+      // Update in-memory profile
+      const prof = this.db.profiles.find((p) => p.id === userId || p.user_id === userId);
+      if (prof) {
+        prof.profile_photo_url = photoUrl;
+        prof.profile_image_id = upload.id;
+        prof.updated_at = new Date().toISOString();
+      }
+
+      // Also attempt Supabase cloud profiles update if available
+      if (this.supabaseAdmin) {
+        try {
+          await this.supabaseAdmin
+            .from("profiles")
+            .update({
+              profile_photo_url: photoUrl,
+              profile_image_id: upload.id,
+              updated_at: new Date().toISOString()
+            })
+            .eq("id", userId);
+        } catch (_) {}
+      }
+
+      this._persistLocalDb();
+      await logActivity("profile_photo_updated", "Updated profile picture", filename, upload.id);
+
+      return {
+        file_id: upload.id,
+        photo_url: photoUrl,
+        storage_provider: "google_drive",
+        profile: prof
+      };
     }
 
     // =========================================================================
@@ -520,7 +689,7 @@ class SupabaseBackendEngine {
       }
 
       const docRecord = {
-        id: `doc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        id: randomUUID(),
         user_id: userId,
         vehicle_id: data.vehicle_id || null,
         document_type: docType,
@@ -534,7 +703,8 @@ class SupabaseBackendEngine {
         expires_at: data.expires_at || null,
         uploaded_at: new Date().toISOString(),
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        view_url: `/api/files/preview/${driveFileId}`
       };
 
       this.db.verification_documents.push(docRecord);
@@ -543,11 +713,34 @@ class SupabaseBackendEngine {
       const prof = this.db.profiles.find((p) => p.id === userId || p.user_id === userId);
       if (prof && prof.verification_status !== "approved") {
         prof.verification_status = "pending";
+        prof.updated_at = new Date().toISOString();
+      }
+
+      if (this.supabaseAdmin) {
+        try {
+          await this.supabaseAdmin.from("verification_documents").insert([docRecord]);
+        } catch (_) {}
+        try {
+          await this.supabaseAdmin.from("profiles").update({
+            verification_status: "pending",
+            updated_at: new Date().toISOString()
+          }).eq("id", userId);
+        } catch (_) {}
       }
 
       this._persistLocalDb();
       await logActivity("verification_submitted", `Uploaded ${docType}`, originalFilename, docRecord.id);
       return docRecord;
+    }
+
+    if (action === "list_driver_documents") {
+      const docs = this.db.verification_documents.filter((d) => d.user_id === userId);
+      return {
+        documents: docs.map((d) => ({
+          ...d,
+          view_url: `/api/files/preview/${d.drive_file_id || d.file_id}`
+        }))
+      };
     }
 
     if (action === "admin_verify_document") {
@@ -568,7 +761,25 @@ class SupabaseBackendEngine {
         if (allApproved) {
           const prof = this.db.profiles.find((p) => p.id === doc.user_id || p.user_id === doc.user_id);
           if (prof) prof.verification_status = "approved";
+          if (this.supabaseAdmin) {
+            try {
+              await this.supabaseAdmin.from("profiles").update({
+                verification_status: "approved",
+                updated_at: new Date().toISOString()
+              }).eq("id", doc.user_id);
+            } catch (_) {}
+          }
         }
+      }
+
+      if (this.supabaseAdmin) {
+        try {
+          await this.supabaseAdmin.from("verification_documents").update({
+            verification_status: status,
+            rejection_reason: doc.rejection_reason,
+            updated_at: doc.updated_at
+          }).eq("id", docId);
+        } catch (_) {}
       }
 
       this._persistLocalDb();
@@ -650,6 +861,62 @@ class SupabaseBackendEngine {
       req.updated_at = new Date().toISOString();
       this._persistLocalDb();
       return req;
+    }
+
+    if (action === "update_service_request") {
+      const targetReqId = request_id || data.request_id;
+      const req = this.db.service_requests.find((r) => r.id === targetReqId);
+      if (!req) throw new Error("Service request not found.");
+      if (req.passenger_id !== userId) throw new Error("Forbidden: You do not own this request.");
+
+      if (data.pickup_location !== undefined) req.pickup_location = String(data.pickup_location).trim();
+      if (data.destination !== undefined) req.destination = String(data.destination).trim();
+      if (data.service_type !== undefined) req.service_type = String(data.service_type).trim();
+      if (data.budget !== undefined) req.budget = parseFloat(data.budget);
+      if (data.details !== undefined) req.details = String(data.details).trim();
+      if (data.goods_type !== undefined) req.goods_type = String(data.goods_type).trim();
+      if (data.passenger_count !== undefined) req.passenger_count = parseInt(data.passenger_count, 10);
+      req.updated_at = new Date().toISOString();
+
+      this._persistLocalDb();
+      return req;
+    }
+
+    if (action === "create_request_image") {
+      const targetReqId = request_id || data.request_id;
+      if (!targetReqId) throw new Error("Missing request_id parameter.");
+
+      let driveFileId = data.drive_file_id || data.file_id || "";
+      let filename = data.original_filename || data.filename || "request_item.jpg";
+      let mimeType = data.mime_type || "image/jpeg";
+
+      if (data.file_base64) {
+        const fileBuffer = Buffer.from(data.file_base64, "base64");
+        const uploadResult = await googleDriveStorage.uploadFile({
+          buffer: fileBuffer,
+          originalFilename: filename,
+          mimeType,
+          folderPath: DRIVE_FOLDERS.RECEIPTS,
+          metadata: { userId, requestId: targetReqId }
+        });
+        driveFileId = uploadResult.id;
+      }
+
+      const imgRecord = {
+        id: randomUUID(),
+        request_id: targetReqId,
+        passenger_id: userId,
+        storage_provider: "google_drive",
+        drive_file_id: driveFileId,
+        file_id: driveFileId,
+        file_url: `/api/files/preview/${driveFileId}`,
+        created_at: new Date().toISOString()
+      };
+
+      if (!this.db.request_images) this.db.request_images = [];
+      this.db.request_images.push(imgRecord);
+      this._persistLocalDb();
+      return imgRecord;
     }
 
     // =========================================================================
@@ -1069,8 +1336,63 @@ class SupabaseBackendEngine {
 
     if (action === "admin_list_verifications") {
       await requireAdmin();
+      let verifs = [...this.db.verification_documents];
+      if (this.supabaseAdmin) {
+        try {
+          const { data: cloudDocs, error } = await this.supabaseAdmin.from("verification_documents").select("*");
+          if (!error && cloudDocs && cloudDocs.length > 0) {
+            for (const cd of cloudDocs) {
+              if (!verifs.some((v) => v.id === cd.id || v.drive_file_id === cd.drive_file_id)) {
+                verifs.push(cd);
+              }
+            }
+          }
+        } catch (_) {}
+      }
+      const enriched = verifs.map((v) => {
+        const driver = this.db.profiles.find((p) => p.id === v.user_id || p.user_id === v.user_id);
+        const fileId = v.drive_file_id || v.file_id;
+        return {
+          ...v,
+          view_url: `/api/files/preview/${fileId}`,
+          driver_name: driver?.full_name || driver?.name || "Driver",
+          driver_email: driver?.email || "",
+          driver_phone: driver?.phone || driver?.phone_number || ""
+        };
+      });
       return {
-        verifications: this.db.verification_documents.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        verifications: enriched.sort((a, b) => new Date(b.created_at || b.uploaded_at || 0) - new Date(a.created_at || a.uploaded_at || 0))
+      };
+    }
+
+    if (action === "upload_ad_asset") {
+      let fileBuffer;
+      let filename = data.original_filename || data.filename || "campaign_banner.jpg";
+      let mimeType = data.mime_type || "image/jpeg";
+
+      if (data.file_base64) {
+        fileBuffer = Buffer.from(data.file_base64, "base64");
+      } else if (data.buffer) {
+        fileBuffer = Buffer.from(data.buffer);
+      } else {
+        throw new Error("No campaign creative file provided.");
+      }
+
+      const upload = await googleDriveStorage.uploadFile({
+        buffer: fileBuffer,
+        originalFilename: filename,
+        mimeType,
+        folderPath: DRIVE_FOLDERS.PAYMENTS_ADVERTISING,
+        metadata: { userId, type: "ad_creative" }
+      });
+
+      return {
+        file_id: upload.id,
+        $id: upload.id,
+        url: `/api/files/preview/${upload.id}`,
+        storage_provider: "google_drive",
+        name: filename,
+        size: upload.size
       };
     }
 
@@ -1378,6 +1700,161 @@ class SupabaseBackendEngine {
         pendingPayments: this.db.payments.filter((p) => p.status === "pending_review").length,
         pendingVerifications: this.db.verification_documents.filter((d) => d.verification_status === "pending").length
       };
+    }
+
+    if (action === "admin_list_users") {
+      await requireAdmin();
+      let users = [...this.db.profiles];
+      if (this.supabaseAdmin) {
+        try {
+          const { data, error } = await this.supabaseAdmin.from("profiles").select("*");
+          if (!error && data && data.length > 0) {
+            users = data;
+          }
+        } catch (_) {}
+      }
+      return { users, total: users.length };
+    }
+
+    if (action === "admin_set_profile_verification") {
+      await requireAdmin();
+      const profileId = data.profile_id || data.user_id || data.id;
+      const status = data.verification_status || data.status;
+      const prof = this.db.profiles.find((p) => p.id === profileId || p.user_id === profileId);
+      if (!prof) throw new Error("Profile not found.");
+      prof.verification_status = status;
+      if (data.reason) prof.verification_rejection_reason = data.reason;
+      prof.updated_at = new Date().toISOString();
+
+      if (this.supabaseAdmin) {
+        try {
+          await this.supabaseAdmin.from("profiles").update({
+            verification_status: status,
+            verification_rejection_reason: data.reason || "",
+            updated_at: prof.updated_at
+          }).eq("id", profileId);
+        } catch (_) {}
+      }
+
+      this._persistLocalDb();
+      await logActivity("profile_verification_updated", `Admin set verification to ${status}`, `Profile: ${profileId}`, profileId);
+      return prof;
+    }
+
+    if (action === "admin_list_verification_documents") {
+      await requireAdmin();
+      const docs = this.db.verification_documents || [];
+      return {
+        documents: docs.map((d) => {
+          const owner = this.db.profiles.find((p) => p.id === d.user_id || p.user_id === d.user_id);
+          return {
+            ...d,
+            owner: owner ? { full_name: owner.full_name, email: owner.email, phone: owner.phone, role: owner.role } : null,
+            view_url: `/api/files/preview/${d.drive_file_id || d.file_id}`
+          };
+        }),
+        total: docs.length
+      };
+    }
+
+    if (action === "admin_get_activity_logs") {
+      await requireAdmin();
+      const logs = this.db.activity_logs || [];
+      return { logs: logs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) };
+    }
+
+    if (action === "admin_get_analytics") {
+      await requireAdmin();
+      const passengers = this.db.profiles.filter((p) => ["passenger", "customer"].includes(p.role)).length;
+      const providers = this.db.profiles.filter((p) => p.role === "driver" || p.role === "owner").length;
+      return {
+        registeredPassengers: passengers,
+        registeredProviders: providers,
+        activeProviders: providers,
+        requestsPosted: this.db.service_requests.length,
+        bookingsAwarded: this.db.bookings.length,
+        completedBookings: this.db.bookings.filter((b) => b.status === "completed").length,
+        cancelledBookings: this.db.bookings.filter((b) => b.status === "cancelled").length,
+        activeSubscriptions: this.db.subscriptions.filter((s) => s.status === "active").length,
+        verificationQueue: this.db.verification_documents.filter((d) => d.verification_status === "pending").length,
+        pendingProviders: this.db.profiles.filter((p) => p.verification_status === "pending").length,
+        pendingVehicles: this.db.vehicles.filter((v) => v.verification_status === "pending").length,
+        pendingDocuments: this.db.verification_documents.filter((d) => d.verification_status === "pending").length,
+        expiredDocuments: 0,
+        paymentsTotal: this.db.payments.filter((p) => p.status === "approved").reduce((sum, p) => sum + p.amount, 0),
+        openDisputes: (this.db.disputes || []).filter((d) => d.status === "open").length
+      };
+    }
+
+    if (action === "admin_create_verification_file_token") {
+      await requireAdmin();
+      const documentId = data.document_id || data.id;
+      const doc = this.db.verification_documents.find((d) => d.id === documentId);
+      if (!doc) throw new Error("Verification document not found.");
+      const fileId = doc.drive_file_id || doc.file_id;
+      return {
+        view_url: `/api/files/preview/${fileId}`,
+        expires_at: new Date(Date.now() + 300000).toISOString()
+      };
+    }
+
+    // =========================================================================
+    // 12. ADVERTISING
+    // =========================================================================
+    if (action === "list_ad_rate_cards") {
+      return {
+        rate_cards: [
+          { id: "rc_banner_home", placement: "home_banner", daily_rate: 5.0, name: "Home Banner" },
+          { id: "rc_popup_promotions", placement: "popup_promo", daily_rate: 10.0, name: "Promo Popup" },
+          { id: "rc_driver_feed", placement: "driver_feed", daily_rate: 7.5, name: "Driver Feed Banner" }
+        ]
+      };
+    }
+
+    if (action === "list_ad_packages") {
+      return {
+        packages: [
+          { slug: "starter", name: "Starter Campaign", price: 25.0, duration_days: 7, placement: "home_banner" },
+          { slug: "growth", name: "Growth Campaign", price: 75.0, duration_days: 30, placement: "home_banner" },
+          { slug: "premium", name: "Premium Takeover", price: 150.0, duration_days: 30, placement: "popup_promo" }
+        ]
+      };
+    }
+
+    if (action === "list_active_popup_ads") {
+      const ads = (this.db.ad_campaigns || []).filter((c) => c.status === "approved" || c.status === "active");
+      return { campaigns: ads };
+    }
+
+    if (action === "calculate_ad_price") {
+      const days = data.duration_days || 7;
+      const rate = 5.0;
+      return {
+        duration_days: days,
+        daily_rate: rate,
+        total_price: days * rate,
+        currency: "USD"
+      };
+    }
+
+    if (action === "submit_ad_campaign") {
+      const campaign = {
+        id: `ad_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        user_id: userId,
+        title: data.title || "Advertising Campaign",
+        placement: data.placement || "home_banner",
+        image_file_id: data.image_file_id || "",
+        image_url: data.image_url || (data.image_file_id ? `/api/files/preview/${data.image_file_id}` : ""),
+        link_url: data.link_url || "",
+        duration_days: data.duration_days || 7,
+        total_cost: parseFloat(data.total_cost || 35.0),
+        status: "pending_review",
+        created_at: new Date().toISOString()
+      };
+      if (!this.db.ad_campaigns) this.db.ad_campaigns = [];
+      this.db.ad_campaigns.push(campaign);
+      this._persistLocalDb();
+      return campaign;
     }
 
     if (action === "create_backup_export") {

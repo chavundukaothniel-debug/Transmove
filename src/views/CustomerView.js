@@ -8,7 +8,6 @@ import { LocationService } from "../services/location.js";
 import { NotificationService } from "../services/notifications.js";
 import { AuthService } from "../services/auth.js";
 import { WalletService } from "../services/wallet.js";
-import { getAppwriteStorage, APPWRITE_CONFIG } from "../config/appwrite.js";
 import { renderEmptyState } from "../components/EmptyState.js";
 import { ReviewService } from "../services/reviews.js";
 import { FavouritesService } from "../services/favourites.js";
@@ -48,11 +47,7 @@ const ACTIVE_BOOKING_STATUSES = ["confirmed", "driver_arriving", "arrived", "in_
 
 const fileViewUrl = (fileId) => {
   if (!fileId) return "";
-  try {
-    return getAppwriteStorage().getFileView(APPWRITE_CONFIG.bucketId, fileId);
-  } catch (_) {
-    return "";
-  }
+  return `/api/files/preview/${encodeURIComponent(fileId)}`;
 };
 
 const escapeHtml = (value) => {
