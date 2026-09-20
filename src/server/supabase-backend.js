@@ -40,6 +40,14 @@ export function isVehicleCompatibleWithRequest(vehicleCategory, requestServiceTy
   return allowed.includes(vCat) || vCat === "general_transport";
 }
 
+const isUuid = (value) => typeof value === "string" &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
+const positiveNumber = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
 // Initial seed data for payment destinations & subscription plans
 export const DEFAULT_PAYMENT_DESTINATIONS = [
   {
@@ -297,6 +305,119 @@ class SupabaseBackendEngine {
     }
 
     return b;
+  }
+
+  async _hydrateBid(bid) {
+    if (!bid) return null;
+    const b = { ...bid };
+    b.id = b.id || b.$id;
+    b.$id = b.id;
+    const useSupabase = Boolean(this.isLive && this.supabaseAdmin && isUuid(b.request_id));
+
+    let latestNeg = null;
+    if (useSupabase) {
+      const { data: negs, error: negError } = await this.supabaseAdmin
+        .from("bid_negotiations")
+        .select("*")
+        .eq("bid_id", b.id)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (negError) throw new Error(`Failed to hydrate bid negotiation: ${negError.message}`);
+      latestNeg = negs?.[0] || null;
+    } else {
+      latestNeg = (this.db.bid_negotiations || [])
+        .filter((n) => n.bid_id === b.id)
+        .sort((a, b2) => new Date(b2.created_at) - new Date(a.created_at))[0] || null;
+    }
+
+    if (latestNeg) {
+      b.counter_amount = positiveNumber(latestNeg.counter_amount);
+      b.negotiation_status = latestNeg.status === "accepted"
+        ? "accepted"
+        : (latestNeg.sender_role === "driver" ? "countered_by_driver" : "countered_by_passenger");
+    }
+
+    b.amount = positiveNumber(b.counter_amount) || positiveNumber(b.amount) || positiveNumber(b.proposed_price) || 0;
+    const eta = Number.parseInt(b.estimated_arrival_minutes ?? b.estimated_arrival_mins ?? b.arrival_minutes ?? b.eta, 10);
+    b.arrival_minutes = Number.isFinite(eta) && eta > 0 ? eta : 15;
+    b.estimated_arrival_minutes = b.arrival_minutes;
+    b.estimated_arrival_mins = b.arrival_minutes;
+
+    if (useSupabase) {
+      const { data: profile, error: profileError } = await this.supabaseAdmin
+        .from("profiles")
+        .select("id, full_name, phone, profile_image_id, profile_photo_url, rating_avg, rating_count, verification_status")
+        .eq("id", b.driver_id)
+        .maybeSingle();
+      if (profileError) throw new Error(`Failed to hydrate driver profile: ${profileError.message}`);
+      b.driver = profile ? {
+        ...profile,
+        rating: Number(profile.rating_avg || 0),
+        review_count: Number(profile.rating_count || 0),
+        is_verified: profile.verification_status === "approved"
+      } : null;
+
+      let vehicle = null;
+      if (b.vehicle_id) {
+        const { data, error } = await this.supabaseAdmin
+          .from("vehicles")
+          .select("id, driver_id, make, model, year, colour, registration_number, vehicle_type, service_category, verification_status, is_primary")
+          .eq("id", b.vehicle_id)
+          .eq("driver_id", b.driver_id)
+          .maybeSingle();
+        if (error) throw new Error(`Failed to hydrate bid vehicle: ${error.message}`);
+        vehicle = data;
+      }
+      if (!vehicle) {
+        const { data, error } = await this.supabaseAdmin
+          .from("vehicles")
+          .select("id, driver_id, make, model, year, colour, registration_number, vehicle_type, service_category, verification_status, is_primary")
+          .eq("driver_id", b.driver_id)
+          .in("verification_status", ["approved", "verified"])
+          .order("is_primary", { ascending: false })
+          .limit(1);
+        if (error) throw new Error(`Failed to resolve bid vehicle: ${error.message}`);
+        vehicle = data?.[0] || null;
+      }
+      b.vehicle = vehicle;
+    } else {
+      const localProfile = (this.db.profiles || []).find((p) => p.id === b.driver_id || p.user_id === b.driver_id);
+      b.driver = localProfile ? {
+        ...localProfile,
+        rating: Number(localProfile.rating_avg || localProfile.rating || 0),
+        review_count: Number(localProfile.rating_count || localProfile.review_count || 0),
+        is_verified: localProfile.verification_status === "approved" || localProfile.is_verified === true
+      } : (b.driver || null);
+      const localVehicles = (this.db.vehicles || []).filter((v) => v.driver_id === b.driver_id);
+      b.vehicle = localVehicles.find((v) => v.id === b.vehicle_id) ||
+        localVehicles.find((v) => v.is_primary) || localVehicles[0] || b.vehicle || null;
+    }
+
+    if (b.vehicle) b.vehicle.plate_number = b.vehicle.registration_number || b.vehicle.plate_number || "";
+    return b;
+  }
+
+  async _loadBidRecord(bidId) {
+    if (!bidId) return null;
+    if (this.isLive && this.supabaseAdmin && isUuid(bidId)) {
+      const { data, error } = await this.supabaseAdmin.from("bids").select("*").eq("id", bidId).maybeSingle();
+      if (error) throw new Error(`Failed to load bid from Supabase: ${error.message}`);
+      if (data) return { record: data, authoritative: true };
+    }
+    const local = (this.db.bids || []).find((b) => b.id === bidId || b.$id === bidId);
+    if (local && (!this.isLive || !isUuid(local.request_id))) return { record: local, authoritative: false };
+    return null;
+  }
+
+  async _loadRequestRecord(requestId) {
+    if (!requestId) return null;
+    if (this.isLive && this.supabaseAdmin && isUuid(requestId)) {
+      const { data, error } = await this.supabaseAdmin.from("service_requests").select("*").eq("id", requestId).maybeSingle();
+      if (error) throw new Error(`Failed to load service request from Supabase: ${error.message}`);
+      return data ? { record: data, authoritative: true } : null;
+    }
+    const local = (this.db.service_requests || []).find((r) => r.id === requestId || r.$id === requestId);
+    return local ? { record: local, authoritative: false } : null;
   }
 
   async authenticateUser(jwt) {
@@ -1413,8 +1534,10 @@ class SupabaseBackendEngine {
       const targetReqId = request_id || data.request_id;
       if (!targetReqId) throw new Error("Missing request_id parameter.");
 
-      const req = this.db.service_requests.find((r) => r.id === targetReqId);
-      if (!req) throw new Error("Service request not found.");
+      const loadedRequest = await this._loadRequestRecord(targetReqId);
+      if (!loadedRequest) throw new Error("Service request not found.");
+      const req = loadedRequest.record;
+      const authoritative = loadedRequest.authoritative;
       if (req.passenger_id === userId) throw new Error("Drivers cannot bid on their own requests.");
 
       // Enforce 5 Free Awarded Bookings Rule
@@ -1429,78 +1552,227 @@ class SupabaseBackendEngine {
         throw err;
       }
 
-      const driverVehicles = this.db.vehicles.filter((v) => v.driver_id === userId);
-      const vehicleId = data.vehicle_id || driverVehicles.find((v) => v.is_primary)?.id || driverVehicles[0]?.id || null;
-
-      const existingBid = this.db.bids.find((b) => b.request_id === targetReqId && b.driver_id === userId);
-      if (existingBid) {
-        existingBid.amount = parseFloat(data.amount);
-        existingBid.estimated_arrival_minutes = data.estimated_arrival_minutes || 10;
-        existingBid.message = data.message || "";
-        existingBid.status = "pending";
-        existingBid.updated_at = new Date().toISOString();
-        this._persistLocalDb();
-        return existingBid;
+      const rawPrice = data.proposed_price !== undefined && data.proposed_price !== null
+        ? data.proposed_price
+        : (data.amount !== undefined && data.amount !== null ? data.amount : data.price);
+      const price = positiveNumber(rawPrice);
+      if (!price) {
+        throw new Error("Proposed price must be a positive number.");
       }
 
-      const newBid = {
-        id: `bid_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        request_id: targetReqId,
-        driver_id: userId,
-        vehicle_id: vehicleId,
-        amount: parseFloat(data.amount),
-        estimated_arrival_minutes: data.estimated_arrival_minutes || 10,
-        message: data.message || "",
-        status: "pending",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      };
+      const parsedEta = Number.parseInt(data.estimated_arrival_mins ?? data.estimated_arrival_minutes ?? data.arrival_minutes ?? data.eta, 10);
+      const eta = Number.isFinite(parsedEta) && parsedEta > 0 ? parsedEta : 15;
 
-      this.db.bids.push(newBid);
-      req.status = "offers_received";
-      req.updated_at = new Date().toISOString();
+      let vehicleId = data.vehicle_id || null;
+      if (authoritative) {
+        let vehicle = null;
+        if (vehicleId) {
+          const { data: explicitVehicle, error: vehicleError } = await this.supabaseAdmin
+            .from("vehicles")
+            .select("id, driver_id, status, verification_status, is_primary")
+            .eq("id", vehicleId)
+            .eq("driver_id", userId)
+            .eq("status", "active")
+            .in("verification_status", ["approved", "verified"])
+            .maybeSingle();
+          if (vehicleError) throw new Error(`Failed to validate bid vehicle: ${vehicleError.message}`);
+          vehicle = explicitVehicle;
+        } else {
+          const { data: approvedVehicles, error: vehicleError } = await this.supabaseAdmin
+            .from("vehicles")
+            .select("id, driver_id, status, verification_status, is_primary")
+            .eq("driver_id", userId)
+            .eq("status", "active")
+            .in("verification_status", ["approved", "verified"])
+            .order("is_primary", { ascending: false })
+            .limit(1);
+          if (vehicleError) throw new Error(`Failed to resolve approved bid vehicle: ${vehicleError.message}`);
+          vehicle = approvedVehicles?.[0] || null;
+        }
+        if (!vehicle) throw new Error("An active approved vehicle owned by the driver is required to place an offer.");
+        vehicleId = vehicle.id;
+      } else if (!vehicleId) {
+        const driverVehicles = (this.db.vehicles || []).filter((v) => v.driver_id === userId);
+        vehicleId = driverVehicles.find((v) => v.is_primary)?.id || driverVehicles[0]?.id || null;
+      }
+
+      const nowIso = new Date().toISOString();
+      let bidRecord = null;
+
+      if (authoritative) {
+        const { data: existingBids, error: existingError } = await this.supabaseAdmin
+          .from("bids")
+          .select("*")
+          .eq("request_id", targetReqId)
+          .eq("driver_id", userId)
+          .limit(1);
+        if (existingError) throw new Error(`Failed to check existing offer: ${existingError.message}`);
+
+        if (existingBids?.length) {
+          const { data: updatedBid, error: updateError } = await this.supabaseAdmin
+            .from("bids")
+            .update({
+              amount: price,
+              estimated_arrival_minutes: eta,
+              message: data.message || "",
+              vehicle_id: vehicleId,
+              status: "pending",
+              updated_at: nowIso
+            })
+            .eq("id", existingBids[0].id)
+            .select()
+            .single();
+          if (updateError) throw new Error(`Failed to update offer: ${updateError.message}`);
+          bidRecord = updatedBid;
+        } else {
+          const { data: insertedBid, error: insertError } = await this.supabaseAdmin
+            .from("bids")
+            .insert({
+              id: randomUUID(),
+              request_id: targetReqId,
+              driver_id: userId,
+              vehicle_id: vehicleId,
+              amount: price,
+              estimated_arrival_minutes: eta,
+              message: data.message || "",
+              status: "pending",
+              created_at: nowIso,
+              updated_at: nowIso
+            })
+            .select()
+            .single();
+          if (insertError) throw new Error(`Failed to create offer: ${insertError.message}`);
+          bidRecord = insertedBid;
+        }
+
+        const { error: requestUpdateError } = await this.supabaseAdmin
+          .from("service_requests")
+          .update({ status: "offers_received", updated_at: nowIso })
+          .eq("id", targetReqId);
+        if (requestUpdateError) throw new Error(`Failed to mark request as having offers: ${requestUpdateError.message}`);
+      }
+
+      if (!authoritative) {
+        const existingBid = (this.db.bids || []).find((b) => b.request_id === targetReqId && b.driver_id === userId);
+        if (existingBid) {
+          existingBid.amount = price;
+          existingBid.estimated_arrival_minutes = eta;
+          existingBid.message = data.message || "";
+          existingBid.vehicle_id = vehicleId;
+          existingBid.status = "pending";
+          existingBid.updated_at = nowIso;
+          bidRecord = existingBid;
+        } else {
+          bidRecord = {
+            id: randomUUID(),
+            request_id: targetReqId,
+            driver_id: userId,
+            vehicle_id: vehicleId,
+            amount: price,
+            estimated_arrival_minutes: eta,
+            message: data.message || "",
+            status: "pending",
+            created_at: nowIso,
+            updated_at: nowIso
+          };
+          if (!this.db.bids) this.db.bids = [];
+          this.db.bids.push(bidRecord);
+        }
+      } else {
+        const idx = (this.db.bids || []).findIndex((b) => b.id === bidRecord.id || (b.request_id === targetReqId && b.driver_id === userId));
+        if (idx >= 0) this.db.bids[idx] = { ...this.db.bids[idx], ...bidRecord };
+        else {
+          if (!this.db.bids) this.db.bids = [];
+          this.db.bids.push(bidRecord);
+        }
+      }
+
+      let localRequest = (this.db.service_requests || []).find((r) => r.id === targetReqId);
+      if (!localRequest) {
+        localRequest = { ...req };
+        this.db.service_requests.push(localRequest);
+      }
+      localRequest.status = "offers_received";
+      localRequest.updated_at = nowIso;
 
       // Create notification for passenger
+      if (!this.db.notifications) this.db.notifications = [];
       this.db.notifications.push({
         id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         user_id: req.passenger_id,
         type: "new_offer",
         title: "New Driver Offer Received",
-        message: `A driver submitted an offer of $${newBid.amount.toFixed(2)} for your trip.`,
-        related_id: newBid.id,
+        message: `A driver submitted an offer of $${price.toFixed(2)} for your trip.`,
+        related_id: bidRecord.id,
         read: false,
-        created_at: new Date().toISOString()
+        created_at: nowIso
       });
 
       this._persistLocalDb();
-      return newBid;
+      const hydrated = await this._hydrateBid(bidRecord);
+      return hydrated;
     }
 
     if (action === "counter_bid") {
       const bidId = data.bid_id;
-      const counterAmount = parseFloat(data.counter_amount);
-      const bid = this.db.bids.find((b) => b.id === bidId);
-      if (!bid) throw new Error("Bid not found.");
+      const counterAmount = positiveNumber(data.counter_amount);
+      if (!counterAmount) {
+        throw new Error("Counter amount must be a positive number.");
+      }
 
-      const isPassenger = userId !== bid.driver_id;
-      bid.status = isPassenger ? "countered_by_passenger" : "countered_by_driver";
-      bid.amount = counterAmount;
-      bid.updated_at = new Date().toISOString();
+      const loadedBid = await this._loadBidRecord(bidId);
+      if (!loadedBid) throw new Error("Bid not found.");
+      let bid = loadedBid.record;
+      const requestResult = await this._loadRequestRecord(bid.request_id);
+      if (!requestResult) throw new Error("Service request not found.");
+      const request = requestResult.record;
+      if (userId !== bid.driver_id && userId !== request.passenger_id) {
+        throw new Error("Forbidden: You are not a participant in this offer.");
+      }
 
+      const isPassenger = userId === request.passenger_id;
+      const newStatus = isPassenger ? "countered_by_passenger" : "countered_by_driver";
+      const now = new Date().toISOString();
       const negotiation = {
-        id: `neg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        id: randomUUID(),
         bid_id: bidId,
         sender_id: userId,
         sender_role: isPassenger ? "passenger" : "driver",
         counter_amount: counterAmount,
         message: data.message || "",
         status: "active",
-        created_at: new Date().toISOString()
+        created_at: now
       };
+
+      if (loadedBid.authoritative) {
+        const { data: updatedBid, error: bidError } = await this.supabaseAdmin
+            .from("bids")
+            .update({ amount: counterAmount, status: newStatus, updated_at: now })
+            .eq("id", bidId)
+            .select()
+            .single();
+        if (bidError) throw new Error(`Failed to update counter offer: ${bidError.message}`);
+        const { error: negotiationError } = await this.supabaseAdmin.from("bid_negotiations").insert(negotiation);
+        if (negotiationError) throw new Error(`Failed to record counter offer: ${negotiationError.message}`);
+        bid = updatedBid;
+      } else {
+        bid.status = newStatus;
+        bid.amount = counterAmount;
+        bid.updated_at = now;
+      }
+
+      bid.counter_amount = counterAmount;
+      bid.negotiation_status = newStatus;
+      const localBidIndex = (this.db.bids || []).findIndex((entry) => entry.id === bidId);
+      if (localBidIndex >= 0) this.db.bids[localBidIndex] = { ...this.db.bids[localBidIndex], ...bid };
+      else this.db.bids.push({ ...bid });
+
+      if (!this.db.bid_negotiations) this.db.bid_negotiations = [];
       this.db.bid_negotiations.push(negotiation);
 
-      const targetNotifyUser = isPassenger ? bid.driver_id : (this.db.service_requests.find((r) => r.id === bid.request_id)?.passenger_id);
+      const targetNotifyUser = isPassenger ? bid.driver_id : request.passenger_id;
       if (targetNotifyUser) {
+        if (!this.db.notifications) this.db.notifications = [];
         this.db.notifications.push({
           id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
           user_id: targetNotifyUser,
@@ -1509,30 +1781,98 @@ class SupabaseBackendEngine {
           message: `New counter offer of $${counterAmount.toFixed(2)} received.`,
           related_id: bidId,
           read: false,
-          created_at: new Date().toISOString()
+          created_at: now
         });
       }
 
       this._persistLocalDb();
-      return { bid, negotiation };
+      const hydratedBid = await this._hydrateBid(bid);
+      return { bid: hydratedBid, negotiation };
     }
 
     if (action === "accept_counter_offer") {
       const bidId = data.bid_id;
-      const bid = this.db.bids.find((b) => b.id === bidId);
-      if (!bid) throw new Error("Bid not found.");
+      const loadedBid = await this._loadBidRecord(bidId);
+      if (!loadedBid) throw new Error("Bid not found.");
+      let bid = loadedBid.record;
+      const requestResult = await this._loadRequestRecord(bid.request_id);
+      if (!requestResult) throw new Error("Service request not found.");
+      const request = requestResult.record;
+      if (userId !== bid.driver_id && userId !== request.passenger_id) {
+        throw new Error("Forbidden: You are not a participant in this offer.");
+      }
 
-      bid.status = "pending"; // Back to acceptable pending state with updated price
-      bid.updated_at = new Date().toISOString();
+      let latestNegotiation = null;
+      if (loadedBid.authoritative) {
+        const { data: negotiations, error } = await this.supabaseAdmin
+          .from("bid_negotiations")
+          .select("*")
+          .eq("bid_id", bidId)
+          .eq("status", "active")
+          .order("created_at", { ascending: false })
+          .limit(1);
+        if (error) throw new Error(`Failed to load counter offer: ${error.message}`);
+        latestNegotiation = negotiations?.[0] || null;
+      } else {
+        latestNegotiation = (this.db.bid_negotiations || [])
+          .filter((n) => n.bid_id === bidId && n.status === "active")
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] || null;
+      }
+      if (!latestNegotiation) throw new Error("No active counter offer was found.");
+      if (latestNegotiation.sender_id === userId) throw new Error("The counter offer must be accepted by the other party.");
+
+      const now = new Date().toISOString();
+      if (loadedBid.authoritative) {
+        const { data: updatedBid, error: bidError } = await this.supabaseAdmin
+          .from("bids")
+          .update({ status: "pending", updated_at: now })
+          .eq("id", bidId)
+          .select()
+          .single();
+        if (bidError) throw new Error(`Failed to accept counter offer: ${bidError.message}`);
+        const { error: negotiationError } = await this.supabaseAdmin
+          .from("bid_negotiations")
+          .update({ status: "accepted" })
+          .eq("id", latestNegotiation.id);
+        if (negotiationError) throw new Error(`Failed to finalize counter offer: ${negotiationError.message}`);
+        bid = updatedBid;
+      }
+      bid.status = "pending";
+      bid.counter_amount = positiveNumber(latestNegotiation.counter_amount);
+      bid.negotiation_status = "accepted";
+      bid.updated_at = now;
+      latestNegotiation.status = "accepted";
+      const localBidIndex = (this.db.bids || []).findIndex((entry) => entry.id === bidId);
+      if (localBidIndex >= 0) this.db.bids[localBidIndex] = { ...this.db.bids[localBidIndex], ...bid };
+      else this.db.bids.push({ ...bid });
       this._persistLocalDb();
-      return bid;
+      const hydratedBid = await this._hydrateBid(bid);
+      return hydratedBid;
     }
 
     if (action === "withdraw_bid") {
       const bidId = data.bid_id;
-      const bid = this.db.bids.find((b) => b.id === bidId && b.driver_id === userId);
-      if (!bid) throw new Error("Bid not found or forbidden.");
+      const loadedBid = await this._loadBidRecord(bidId);
+      if (!loadedBid || loadedBid.record.driver_id !== userId) throw new Error("Bid not found or forbidden.");
+      let bid = loadedBid.record;
+
+      const now = new Date().toISOString();
+      if (loadedBid.authoritative) {
+        const { data: updatedBid, error } = await this.supabaseAdmin
+          .from("bids")
+          .update({ status: "withdrawn", updated_at: now })
+          .eq("id", bidId)
+          .eq("driver_id", userId)
+          .select()
+          .single();
+        if (error) throw new Error(`Failed to withdraw offer: ${error.message}`);
+        bid = updatedBid;
+      }
       bid.status = "withdrawn";
+      bid.updated_at = now;
+      const localBidIndex = (this.db.bids || []).findIndex((entry) => entry.id === bidId);
+      if (localBidIndex >= 0) this.db.bids[localBidIndex] = { ...this.db.bids[localBidIndex], ...bid };
+      else this.db.bids.push({ ...bid });
       this._persistLocalDb();
       return bid;
     }
@@ -1544,119 +1884,97 @@ class SupabaseBackendEngine {
       const bidId = data.bid_id;
       if (!bidId) throw new Error("bid_id is required to accept a bid.");
 
-      let bid = (this.db.bids || []).find((b) => b.id === bidId);
-      if (!bid && this.isLive && this.supabaseAdmin) {
-        try {
-          const { data: sbBid } = await this.supabaseAdmin.from("bids").select("*").eq("id", bidId).single();
-          if (sbBid) bid = sbBid;
-        } catch (_) {}
-      }
-      if (!bid) throw new Error("Bid not found.");
-
-      let req = (this.db.service_requests || []).find((r) => r.id === bid.request_id);
-      if (!req && this.isLive && this.supabaseAdmin) {
-        try {
-          const { data: sbReq } = await this.supabaseAdmin.from("service_requests").select("*").eq("id", bid.request_id).single();
-          if (sbReq) req = sbReq;
-        } catch (_) {}
-      }
-      if (!req) throw new Error("Request not found.");
+      const loadedBid = await this._loadBidRecord(bidId);
+      if (!loadedBid) throw new Error("Bid not found.");
+      const bid = loadedBid.record;
+      const loadedRequest = await this._loadRequestRecord(bid.request_id);
+      if (!loadedRequest) throw new Error("Request not found.");
+      const req = loadedRequest.record;
+      const authoritative = loadedBid.authoritative && loadedRequest.authoritative;
       if (req.passenger_id !== userId) throw new Error("Forbidden: You do not own this request.");
 
       // Enforce single active booking for this request
-      const existingLocal = (this.db.bookings || []).find((b) => b.request_id === req.id && b.status !== "cancelled");
-      if (existingLocal) {
+      if (authoritative) {
+        const { data: existingBookings, error: bookingLookupError } = await this.supabaseAdmin
+          .from("bookings")
+          .select("id, status")
+          .eq("request_id", req.id)
+          .neq("status", "cancelled");
+        if (bookingLookupError) throw new Error(`Failed to check existing booking: ${bookingLookupError.message}`);
+        if (existingBookings?.length) throw new Error("A booking already exists for this request.");
+      } else if ((this.db.bookings || []).some((booking) => booking.request_id === req.id && booking.status !== "cancelled")) {
         throw new Error("A booking already exists for this request.");
       }
-      if (this.isLive && this.supabaseAdmin) {
-        try {
-          const { data: sbBookings } = await this.supabaseAdmin
-            .from("bookings")
-            .select("id, status")
-            .eq("request_id", req.id)
-            .neq("status", "cancelled");
-          if (sbBookings && sbBookings.length > 0) {
-            throw new Error("A booking already exists for this request.");
-          }
-        } catch (err) {
-          if (err.message && err.message.includes("already exists")) throw err;
-        }
+
+      let latestNegotiation = null;
+      if (authoritative) {
+        const { data: negotiations, error: negotiationError } = await this.supabaseAdmin
+          .from("bid_negotiations")
+          .select("counter_amount, status, created_at")
+          .eq("bid_id", bid.id)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        if (negotiationError) throw new Error(`Failed to load agreed offer amount: ${negotiationError.message}`);
+        latestNegotiation = negotiations?.[0] || null;
+      } else {
+        latestNegotiation = (this.db.bid_negotiations || [])
+          .filter((negotiation) => negotiation.bid_id === bid.id)
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0] || null;
       }
 
-      // Authoritative agreed fare calculation
-      let finalPrice = null;
-      if (data.agreed_fare !== undefined && data.agreed_fare !== null) {
-        finalPrice = parseFloat(data.agreed_fare);
-      } else if (bid.counter_amount !== undefined && bid.counter_amount !== null && !isNaN(parseFloat(bid.counter_amount))) {
-        finalPrice = parseFloat(bid.counter_amount);
-      } else if (bid.amount !== undefined && bid.amount !== null && !isNaN(parseFloat(bid.amount))) {
-        finalPrice = parseFloat(bid.amount);
-      } else if (bid.proposed_price !== undefined && bid.proposed_price !== null && !isNaN(parseFloat(bid.proposed_price))) {
-        finalPrice = parseFloat(bid.proposed_price);
-      }
-      if (finalPrice === null || isNaN(finalPrice) || finalPrice <= 0) {
+      const finalPrice = positiveNumber(latestNegotiation?.counter_amount) || positiveNumber(bid.amount) || positiveNumber(bid.proposed_price);
+      if (!finalPrice) {
         throw new Error("Invalid agreed fare. Fare must be a positive number.");
       }
 
-      // Generate 4-digit verification PIN server-side
       const tripPin = Math.floor(1000 + Math.random() * 9000).toString();
-
-      // Hydrate driver details
       let driverProfile = null;
-      if (this.isLive && this.supabaseAdmin) {
-        try {
-          const { data: prof } = await this.supabaseAdmin
-            .from("profiles")
-            .select("id, full_name, phone, profile_image_id, profile_photo_url, rating_avg, rating_count, verification_status")
-            .eq("id", bid.driver_id)
-            .single();
-          if (prof) driverProfile = prof;
-        } catch (_) {}
-      }
-      if (!driverProfile) {
-        driverProfile = (this.db.profiles || []).find((p) => p.id === bid.driver_id || p.user_id === bid.driver_id) || {
-          id: bid.driver_id,
-          full_name: "Assigned Driver"
-        };
-      }
-
-      // Hydrate vehicle details
       let vehicleRecord = null;
-      const targetVehId = bid.vehicle_id;
-      if (targetVehId && this.isLive && this.supabaseAdmin) {
-        try {
-          const { data: veh } = await this.supabaseAdmin
+      if (authoritative) {
+        const { data: profile, error: profileError } = await this.supabaseAdmin
+          .from("profiles")
+          .select("id, full_name, phone, profile_image_id, profile_photo_url, rating_avg, rating_count, verification_status")
+          .eq("id", bid.driver_id)
+          .maybeSingle();
+        if (profileError) throw new Error(`Failed to load accepted driver: ${profileError.message}`);
+        driverProfile = profile;
+
+        if (bid.vehicle_id) {
+          const { data: vehicle, error: vehicleError } = await this.supabaseAdmin
             .from("vehicles")
-            .select("id, make, model, year, colour, registration_number, verification_status")
-            .eq("id", targetVehId)
-            .single();
-          if (veh) vehicleRecord = veh;
-        } catch (_) {}
-      }
-      if (!vehicleRecord && this.isLive && this.supabaseAdmin) {
-        try {
-          const { data: pVeh } = await this.supabaseAdmin
-            .from("vehicles")
-            .select("id, make, model, year, colour, registration_number, verification_status")
+            .select("id, driver_id, make, model, year, colour, registration_number, verification_status")
+            .eq("id", bid.vehicle_id)
             .eq("driver_id", bid.driver_id)
-            .eq("is_primary", true)
+            .maybeSingle();
+          if (vehicleError) throw new Error(`Failed to load accepted vehicle: ${vehicleError.message}`);
+          vehicleRecord = vehicle;
+        }
+        if (!vehicleRecord) {
+          const { data: vehicles, error: vehicleError } = await this.supabaseAdmin
+            .from("vehicles")
+            .select("id, driver_id, make, model, year, colour, registration_number, verification_status")
+            .eq("driver_id", bid.driver_id)
+            .in("verification_status", ["approved", "verified"])
+            .order("is_primary", { ascending: false })
             .limit(1);
-          if (pVeh && pVeh.length > 0) vehicleRecord = pVeh[0];
-        } catch (_) {}
-      }
-      if (!vehicleRecord) {
-        vehicleRecord = (this.db.vehicles || []).find((v) => v.id === targetVehId || (v.driver_id === bid.driver_id && v.is_primary)) || null;
+          if (vehicleError) throw new Error(`Failed to resolve accepted vehicle: ${vehicleError.message}`);
+          vehicleRecord = vehicles?.[0] || null;
+        }
+      } else {
+        driverProfile = (this.db.profiles || []).find((profile) => profile.id === bid.driver_id || profile.user_id === bid.driver_id) || null;
+        vehicleRecord = (this.db.vehicles || []).find((vehicle) =>
+          vehicle.id === bid.vehicle_id || (vehicle.driver_id === bid.driver_id && vehicle.is_primary)
+        ) || null;
       }
 
       const now = new Date().toISOString();
-      let bookingId = `book_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-
       const bookingInsert = {
+        id: randomUUID(),
         request_id: req.id,
         passenger_id: userId,
         driver_id: bid.driver_id,
         vehicle_id: vehicleRecord?.id || bid.vehicle_id || null,
-        accepted_bid_id: bid.id,
+        accepted_bid_id: isUuid(bid.id) ? bid.id : null,
         amount: finalPrice,
         status: "confirmed",
         trip_pin: tripPin,
@@ -1667,50 +1985,62 @@ class SupabaseBackendEngine {
         updated_at: now
       };
 
-      if (this.isLive && this.supabaseAdmin) {
-        try {
-          const { data: inserted, error: bErr } = await this.supabaseAdmin
-            .from("bookings")
-            .insert(bookingInsert)
-            .select()
-            .single();
-          if (!bErr && inserted) {
-            bookingId = inserted.id;
-          } else if (bErr) {
-            console.warn("[SupabaseBackend] bookings insert notice (permission/schema):", bErr.message);
-          }
-        } catch (e) {
-          console.warn("[SupabaseBackend] bookings insert exception:", e.message);
-        }
+      let persistedBooking = bookingInsert;
+      if (authoritative) {
+        const { data: insertedBooking, error: bookingError } = await this.supabaseAdmin
+          .from("bookings")
+          .insert(bookingInsert)
+          .select()
+          .single();
+        if (bookingError) throw new Error(`Failed to create booking: ${bookingError.message}`);
+        persistedBooking = insertedBooking;
 
-        // Update service_requests status
-        try {
-          await this.supabaseAdmin.from("service_requests").update({ status: "accepted", updated_at: now }).eq("id", req.id);
-        } catch (_) {}
+        const { error: requestUpdateError } = await this.supabaseAdmin
+          .from("service_requests")
+          .update({ status: "accepted", updated_at: now })
+          .eq("id", req.id);
+        if (requestUpdateError) throw new Error(`Failed to accept service request: ${requestUpdateError.message}`);
 
-        // Update bids statuses
-        try {
-          await this.supabaseAdmin.from("bids").update({ status: "accepted", updated_at: now }).eq("id", bid.id);
-          await this.supabaseAdmin.from("bids").update({ status: "rejected", updated_at: now }).eq("request_id", req.id).neq("id", bid.id);
-        } catch (_) {}
+        const { error: acceptedBidError } = await this.supabaseAdmin
+          .from("bids")
+          .update({ status: "accepted", updated_at: now })
+          .eq("id", bid.id);
+        if (acceptedBidError) throw new Error(`Failed to mark offer accepted: ${acceptedBidError.message}`);
+        const { error: rejectedBidsError } = await this.supabaseAdmin
+          .from("bids")
+          .update({ status: "rejected", updated_at: now })
+          .eq("request_id", req.id)
+          .neq("id", bid.id);
+        if (rejectedBidsError) throw new Error(`Failed to close remaining offers: ${rejectedBidsError.message}`);
       }
 
       const newBooking = {
-        id: bookingId,
-        ...bookingInsert,
+        ...persistedBooking,
         driver: driverProfile,
         vehicle: vehicleRecord,
         request: req
       };
 
       if (!this.db.bookings) this.db.bookings = [];
-      this.db.bookings.push(newBooking);
+      const localBookingIndex = this.db.bookings.findIndex((booking) => booking.id === newBooking.id);
+      if (localBookingIndex >= 0) this.db.bookings[localBookingIndex] = newBooking;
+      else this.db.bookings.push(newBooking);
 
-      req.status = "accepted";
-      req.updated_at = now;
+      let localRequest = (this.db.service_requests || []).find((request) => request.id === req.id);
+      if (!localRequest) {
+        localRequest = { ...req };
+        this.db.service_requests.push(localRequest);
+      }
+      localRequest.status = "accepted";
+      localRequest.updated_at = now;
 
-      bid.status = "accepted";
-      bid.updated_at = now;
+      const localBid = (this.db.bids || []).find((entry) => entry.id === bid.id);
+      if (localBid) {
+        localBid.status = "accepted";
+        localBid.updated_at = now;
+      } else {
+        this.db.bids.push({ ...bid, status: "accepted", updated_at: now });
+      }
 
       (this.db.bids || []).filter((b) => b.request_id === req.id && b.id !== bid.id).forEach((b) => {
         b.status = "rejected";
@@ -2077,13 +2407,50 @@ class SupabaseBackendEngine {
 
     if (action === "list_bids_for_request") {
       const targetReqId = request_id || data.request_id;
-      const bids = this.db.bids.filter((b) => b.request_id === targetReqId);
-      return { bids: bids.sort((a, b) => a.amount - b.amount) };
+      if (!targetReqId) throw new Error("request_id is required.");
+
+      let bids = [];
+      const useSupabase = Boolean(this.isLive && this.supabaseAdmin && isUuid(targetReqId));
+      if (useSupabase) {
+        const loadedRequest = await this._loadRequestRecord(targetReqId);
+        if (!loadedRequest) throw new Error("Service request not found.");
+        if (loadedRequest.record.passenger_id !== userId) throw new Error("Forbidden: You do not own this request.");
+        const { data: supabaseBids, error } = await this.supabaseAdmin
+          .from("bids")
+          .select("*")
+          .eq("request_id", targetReqId)
+          .neq("status", "withdrawn")
+          .order("created_at", { ascending: false });
+        if (error) throw new Error(`Failed to list offers from Supabase: ${error.message}`);
+        bids = supabaseBids || [];
+      } else {
+        const localRequest = (this.db.service_requests || []).find((request) => request.id === targetReqId);
+        if (localRequest && localRequest.passenger_id !== userId) throw new Error("Forbidden: You do not own this request.");
+        bids = (this.db.bids || []).filter((b) => b.request_id === targetReqId && b.status !== "withdrawn");
+      }
+
+      const hydratedBids = await Promise.all(bids.map((b) => this._hydrateBid(b)));
+      const sorted = hydratedBids.sort((a, b) => (a.amount || 0) - (b.amount || 0));
+      return { bids: sorted, total: sorted.length };
     }
 
     if (action === "list_driver_bids") {
-      const bids = this.db.bids.filter((b) => b.driver_id === userId);
-      return { bids: bids.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) };
+      let bids = [];
+      if (this.isLive && this.supabaseAdmin) {
+        const { data: supabaseBids, error } = await this.supabaseAdmin
+          .from("bids")
+          .select("*")
+          .eq("driver_id", userId)
+          .order("created_at", { ascending: false });
+        if (error) throw new Error(`Failed to list driver offers from Supabase: ${error.message}`);
+        bids = supabaseBids || [];
+      } else {
+        bids = (this.db.bids || []).filter((b) => b.driver_id === userId);
+      }
+
+      const hydratedBids = await Promise.all(bids.map((b) => this._hydrateBid(b)));
+      const sorted = hydratedBids.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      return { bids: sorted, total: sorted.length };
     }
 
     if (action === "admin_list_verifications") {

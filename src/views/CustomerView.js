@@ -49,6 +49,20 @@ const fileViewUrl = (fileId) => {
   return `/api/files/preview/${encodeURIComponent(fileId)}`;
 };
 
+const profileImageUrl = (profile) => {
+  const value = profile?.profile_image_id || profile?.profile_photo_url || "";
+  if (!value) return "";
+  return /^(?:https?:|data:|blob:|\/)/i.test(value) ? value : fileViewUrl(value);
+};
+
+const actionableBidAmount = (bid) => {
+  for (const value of [bid?.counter_amount, bid?.amount, bid?.proposed_price]) {
+    const amount = Number(value);
+    if (Number.isFinite(amount) && amount > 0) return amount;
+  }
+  return null;
+};
+
 const escapeHtml = (value) => {
   if (value === null || value === undefined) return "";
   return String(value)
@@ -1344,16 +1358,17 @@ export const CustomerView = {
   renderSmartOfferList(bids) {
     return `<div class="smart-offer-list">${(bids || []).map((bid) => {
       const bidId = bid.id || bid.$id;
-      const name = bid.driver?.full_name || "Driver";
-      const avatar = fileViewUrl(bid.driver?.profile_image_id);
-      const rating = Number(bid.driver?.rating || 0);
+      const name = bid.driver?.full_name || "Driver details unavailable";
+      const avatar = profileImageUrl(bid.driver);
+      const rating = Number(bid.driver?.rating || bid.driver?.rating_avg || 0);
       const vehicle = [bid.vehicle?.make, bid.vehicle?.model].filter(Boolean).join(" ");
       const registration = bid.vehicle?.registration_number || bid.vehicle?.plate_number || "";
       const trips = Number(bid.driver?.completed_trips || bid.driver?.trip_count || 0);
       const verified = bid.driver?.verification_status === "approved" || bid.driver?.is_verified === true;
-      const eta = bid.estimated_arrival_minutes || bid.estimated_arrival_mins;
-      const amount = Number(bid.negotiation_status === "countered_by_driver" ? bid.counter_amount : bid.amount || 0);
-      const amountFormatted = Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+      const eta = bid.estimated_arrival_minutes || bid.estimated_arrival_mins || bid.arrival_minutes;
+      const amount = actionableBidAmount(bid);
+      const isPositiveAmount = amount !== null;
+      const amountFormatted = isPositiveAmount ? (Number.isInteger(amount) ? String(amount) : amount.toFixed(2)) : null;
 
       return `
         <article class="smart-sheet-driver-card" data-bid-id="${escapeHtml(bidId)}">
@@ -1372,7 +1387,10 @@ export const CustomerView = {
           <div class="smart-sheet-offer-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; background: var(--bg-subtle); padding: 0.75rem 1rem; border-radius: 10px; margin: 0.85rem 0;">
             <div>
               <div style="font-size: 0.78rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Offer</div>
-              <div style="font-size: 1.6rem; font-weight: 900; color: #059669; margin-top: 0.15rem;">$${amountFormatted}</div>
+              ${isPositiveAmount
+                ? `<div style="font-size: 1.6rem; font-weight: 900; color: #059669; margin-top: 0.15rem;">$${amountFormatted}</div>`
+                : `<div style="font-size: 1.15rem; font-weight: 800; color: #dc2626; margin-top: 0.15rem;">Offer unavailable</div>`
+              }
             </div>
             ${eta ? `
               <div>
@@ -1386,8 +1404,11 @@ export const CustomerView = {
 
           <div style="display: flex; gap: 0.5rem; margin-top: 0.85rem;">
             <button type="button" class="btn btn-outline smart-view-driver" style="flex: 1; padding: 0.65rem 0.45rem; font-weight: 700; border-radius: 8px;">View profile</button>
-            <button type="button" class="btn btn-outline smart-counter-offer" style="flex: 1; padding: 0.65rem 1rem; font-weight: 700; border-radius: 8px;">Counter</button>
-            <button type="button" class="btn btn-primary smart-accept-offer" style="flex: 1.3; padding: 0.65rem 1rem; font-weight: 800; border-radius: 8px;">Accept $${amountFormatted}</button>
+            <button type="button" class="btn btn-outline smart-counter-offer" style="flex: 1; padding: 0.65rem 1rem; font-weight: 700; border-radius: 8px;" ${!isPositiveAmount ? "disabled" : ""}>Counter</button>
+            ${isPositiveAmount
+              ? `<button type="button" class="btn btn-primary smart-accept-offer" style="flex: 1.3; padding: 0.65rem 1rem; font-weight: 800; border-radius: 8px;">Accept $${amountFormatted}</button>`
+              : `<button type="button" class="btn btn-primary smart-accept-offer" style="flex: 1.3; padding: 0.65rem 1rem; font-weight: 800; border-radius: 8px; opacity: 0.6; cursor: not-allowed;" disabled>Offer unavailable</button>`
+            }
           </div>
         </article>
       `;
@@ -1400,13 +1421,19 @@ export const CustomerView = {
       const bid = bidMap.get(card.dataset.bidId);
       if (!bid) return;
       card.querySelector(".smart-counter-offer")?.addEventListener("click", () => {
-        this.openPassengerCounterModal(card.dataset.bidId, bid.counter_amount || bid.amount, bid);
+        this.openPassengerCounterModal(card.dataset.bidId, actionableBidAmount(bid), bid);
       });
       card.querySelector(".smart-view-driver")?.addEventListener("click", () => {
         this.showDriverProfilePeek(bid);
       });
       card.querySelector(".smart-accept-offer")?.addEventListener("click", async (event) => {
         const button = event.currentTarget;
+        const currentAmount = actionableBidAmount(bid);
+        if (currentAmount === null) {
+          const errorBox = backdrop.querySelector(".smart-popup-error");
+          if (errorBox) { errorBox.textContent = "Cannot accept an invalid or $0 offer."; errorBox.hidden = false; }
+          return;
+        }
         button.disabled = true;
         button.textContent = "Accepting…";
         try {
@@ -1419,22 +1446,45 @@ export const CustomerView = {
           const errorBox = backdrop.querySelector(".smart-popup-error");
           if (errorBox) { errorBox.textContent = error.message; errorBox.hidden = false; }
           button.disabled = false;
-          button.textContent = `Accept $${Number(bid.counter_amount || bid.amount || 0).toFixed(2)}`;
+          const fmt = Number.isInteger(currentAmount) ? String(currentAmount) : currentAmount.toFixed(2);
+          button.textContent = `Accept $${fmt}`;
         }
       });
     });
   },
 
   showDriverProfilePeek(bid) {
-    const name = bid.driver?.full_name || "Driver";
-    const avatar = fileViewUrl(bid.driver?.profile_image_id);
-    const rating = Number(bid.driver?.rating || 0);
+    const name = bid.driver?.full_name || "Driver details unavailable";
+    const avatar = profileImageUrl(bid.driver);
+    const rating = Number(bid.driver?.rating || bid.driver?.rating_avg || 0);
     const vehicle = [bid.vehicle?.make, bid.vehicle?.model, bid.vehicle?.year].filter(Boolean).join(" ");
+    const registration = bid.vehicle?.registration_number || bid.vehicle?.plate_number || "";
+    const trips = Number(bid.driver?.completed_trips || bid.driver?.trip_count || 0);
+    const isVerified = bid.driver?.verification_status === "approved" || bid.driver?.is_verified === true;
     SmartPopup.update({
       state: "driver_profile",
       eyebrow: "Driver profile",
       title: name,
-      html: `<div class="smart-profile-peek"><div class="smart-popup-profile"><div class="smart-popup-avatar">${avatar ? `<img src="${escapeHtml(avatar)}" alt="${escapeHtml(name)}">` : escapeHtml(name.charAt(0))}</div><div><strong>${escapeHtml(name)}</strong>${rating > 0 ? `<span class="icon-label icon-label--inline">${icon("star", 15, { className: "is-filled" })}<span>${rating.toFixed(1)}${bid.driver?.review_count ? ` • ${Number(bid.driver.review_count)} reviews` : ""}</span></span>` : ""}${Number.isFinite(Number(bid.driver?.completed_trips)) ? `<span>${Number(bid.driver.completed_trips)} completed trips</span>` : ""}</div></div>${bid.driver?.verification_status === "approved" ? `<span class="smart-profile-verified icon-label">${icon("badge-check", 16)}<span>Verified driver</span></span>` : ""}<div class="smart-popup-detail-grid">${vehicle ? `<span>Vehicle</span><strong>${escapeHtml(vehicle)}</strong>` : ""}${bid.vehicle?.registration_number ? `<span>Registration</span><strong>${escapeHtml(bid.vehicle.registration_number)}</strong>` : ""}</div></div>`,
+      html: `
+        <div class="smart-profile-peek">
+          <div class="smart-popup-profile">
+            <div class="smart-popup-avatar">
+              ${avatar ? `<img src="${escapeHtml(avatar)}" alt="${escapeHtml(name)}">` : escapeHtml(name.charAt(0))}
+            </div>
+            <div>
+              <strong style="font-size: 1.05rem; display: block; color: var(--text-main);">${escapeHtml(name)}</strong>
+              ${rating > 0 ? `<span class="icon-label icon-label--inline" style="color: #f59e0b; font-weight: 700; font-size: 0.85rem;">${icon("star", 15, { className: "is-filled" })}<span>${rating.toFixed(1)}${bid.driver?.review_count ? ` • ${Number(bid.driver.review_count)} reviews` : ""}</span></span>` : ""}
+              ${trips > 0 ? `<span class="smart-driver-trips">${trips} completed trips</span>` : ""}
+            </div>
+          </div>
+          ${isVerified ? `<span class="smart-profile-verified icon-label" style="margin-top: 0.5rem;">${icon("badge-check", 16)}<span>Verified driver</span></span>` : ""}
+          <div class="smart-popup-detail-grid" style="margin-top: 0.75rem;">
+            ${vehicle ? `<span>Vehicle</span><strong>${escapeHtml(vehicle)}</strong>` : "<span>Vehicle</span><span style='color: var(--text-muted);'>Not specified</span>"}
+            ${registration ? `<span>Registration</span><strong>${escapeHtml(registration)}</strong>` : ""}
+            ${bid.vehicle?.vehicle_type ? `<span>Type</span><strong>${escapeHtml(bid.vehicle.vehicle_type)}</strong>` : ""}
+          </div>
+        </div>
+      `,
       actions: [{ label: "Back to offers", primary: true, close: false, onClick: () => { this.showQuotationPopup(bid, bid.negotiation_status === "countered_by_driver", { force: true }); return false; } }]
     });
   },
@@ -1446,7 +1496,7 @@ export const CustomerView = {
     const vehicleParts = [booking.vehicle?.make, booking.vehicle?.model].filter(Boolean);
     const vehicleName = vehicleParts.length > 0 ? vehicleParts.join(" ") : (booking.vehicle ? "Verified Vehicle" : "Vehicle Assigned");
     const regNumber = booking.vehicle?.registration_number?.trim() || "";
-    const avatarUrl = fileViewUrl(booking.driver?.profile_image_id || booking.driver?.profile_photo_url);
+    const avatarUrl = profileImageUrl(booking.driver);
     const requestId = booking.request_id || booking.request?.id || booking.request?.$id || id;
     const rawFare = booking.amount !== undefined && booking.amount !== null ? booking.amount : (booking.final_price || 0);
     const amount = Number(rawFare);
@@ -1775,17 +1825,19 @@ export const CustomerView = {
   },
 
   renderQuotationCardHtml(bid, req) {
-    const driverName = bid.driver?.full_name || "Verified Driver";
-    const avatarUrl = fileViewUrl(bid.driver?.profile_image_id);
+    const driverName = bid.driver?.full_name || "Driver details unavailable";
+    const avatarUrl = profileImageUrl(bid.driver);
     const vehicleSummary = bid.vehicle
       ? [bid.vehicle.make, bid.vehicle.model, bid.vehicle.year].filter(Boolean).join(" ")
       : "";
-    const isVerified = bid.driver?.verification_status === "approved";
-    const isPending = bid.status === "pending";
-    const driverRating = Number(bid.driver?.rating || 0);
-    const etaMinutes = bid.estimated_arrival_minutes || bid.estimated_arrival_mins || 15;
+    const isVerified = bid.driver?.verification_status === "approved" || bid.driver?.is_verified === true;
+    const isPending = ["pending", "countered_by_passenger", "countered_by_driver"].includes(bid.status);
+    const driverRating = Number(bid.driver?.rating || bid.driver?.rating_avg || 0);
+    const etaMinutes = bid.estimated_arrival_minutes || bid.estimated_arrival_mins || bid.arrival_minutes || 15;
     const bidId = bid.$id || bid.id;
-    const bidAmount = Number.parseFloat(bid.amount || 0).toFixed(2);
+    const numAmt = actionableBidAmount(bid);
+    const hasValidAmt = numAmt !== null;
+    const bidAmount = hasValidAmt ? (Number.isInteger(numAmt) ? String(numAmt) : numAmt.toFixed(2)) : "--";
 
     return `
     <div class="bid-card quote-driver-row" data-bid-id="${escapeHtml(bidId)}" style="margin-bottom: 0.85rem; padding: 1rem 1.15rem; border: 1.5px solid var(--border-light, #e2e8f0); border-radius: 10px; background: var(--bg-surface, #ffffff); box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
@@ -1807,23 +1859,29 @@ export const CustomerView = {
 
       <div class="quote-actions" style="margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px solid var(--border-light, #f1f5f9); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.6rem;">
         <div class="bid-price" style="font-size: 1.35rem; font-weight: 900; color: #059669;">
-          $${bidAmount}
+          ${hasValidAmt ? `$${bidAmount}` : `<span style="font-size: 1rem; font-weight: 800; color: #dc2626;">Offer unavailable</span>`}
         </div>
         <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
           ${isPending ? `
-            ${bid.negotiation_status === "countered_by_passenger" ? `
+            ${bid.negotiation_status === "countered_by_passenger" && hasValidAmt ? `
               <span style="font-size: 0.8rem; color: #1e40af; font-weight: 600;">Counter pending ($${Number.parseFloat(bid.counter_amount || 0).toFixed(2)})</span>
-            ` : bid.negotiation_status === "countered_by_driver" ? `
-              <button type="button" class="btn btn-primary btn-sm btn-accept-driver-counter" data-bid-id="${escapeHtml(bidId)}" style="background: #16a34a; font-weight: 700; padding: 0.4rem 0.85rem;">
-                Accept $${Number.parseFloat(bid.counter_amount || 0).toFixed(2)}
+            ` : bid.negotiation_status === "countered_by_driver" && hasValidAmt ? `
+              <button type="button" class="btn btn-primary btn-sm btn-accept-driver-counter" data-bid-id="${escapeHtml(bidId)}" data-current-amount="${escapeHtml(numAmt)}" style="background: #16a34a; font-weight: 700; padding: 0.4rem 0.85rem;">
+                Accept $${numAmt.toFixed(2)}
               </button>
             ` : ""}
-            <button type="button" class="btn btn-outline btn-sm btn-counter-offer" data-bid-id="${escapeHtml(bidId)}" data-current-amount="${escapeHtml(bid.counter_amount || bid.amount)}" style="padding: 0.4rem 0.85rem; font-weight: 700;">
+            <button type="button" class="btn btn-outline btn-sm btn-counter-offer" data-bid-id="${escapeHtml(bidId)}" data-current-amount="${escapeHtml(numAmt || "")}" style="padding: 0.4rem 0.85rem; font-weight: 700;" ${!hasValidAmt ? "disabled" : ""}>
               COUNTER OFFER
             </button>
-            <button type="button" class="btn btn-primary btn-sm btn-accept-offer" data-bid-id="${escapeHtml(bidId)}" style="font-weight: 700; background: #2563eb; color: #ffffff; padding: 0.4rem 0.95rem;">
-              ACCEPT QUOTE
-            </button>
+            ${hasValidAmt ? `
+              <button type="button" class="btn btn-primary btn-sm btn-accept-offer" data-bid-id="${escapeHtml(bidId)}" data-current-amount="${escapeHtml(numAmt)}" style="font-weight: 700; background: #2563eb; color: #ffffff; padding: 0.4rem 0.95rem;">
+                ACCEPT QUOTE
+              </button>
+            ` : `
+              <button type="button" class="btn btn-primary btn-sm btn-accept-offer" data-bid-id="${escapeHtml(bidId)}" style="font-weight: 700; background: #94a3b8; color: #ffffff; padding: 0.4rem 0.95rem; cursor: not-allowed;" disabled>
+                UNAVAILABLE
+              </button>
+            `}
           ` : `
             <span class="badge ${bid.status === "accepted" ? "badge-success" : "badge-neutral"}">${escapeHtml(String(bid.status || "").toUpperCase())}</span>
           `}
@@ -1891,6 +1949,11 @@ export const CustomerView = {
         const bidId = e.currentTarget.getAttribute("data-bid-id");
         if (!bidId) return;
         const actionBtn = e.currentTarget;
+        const currentAmount = Number(actionBtn.getAttribute("data-current-amount"));
+        if (!Number.isFinite(currentAmount) || currentAmount <= 0) {
+          alert("Cannot accept an invalid or $0 offer.");
+          return;
+        }
         actionBtn.disabled = true;
         actionBtn.innerText = "Accepting...";
         try {
@@ -1927,6 +1990,11 @@ export const CustomerView = {
       button.addEventListener("click", async (event) => {
         const bidId = event.currentTarget.getAttribute("data-bid-id");
         if (!bidId) return;
+        const currentAmount = Number(event.currentTarget.getAttribute("data-current-amount"));
+        if (!Number.isFinite(currentAmount) || currentAmount <= 0) {
+          alert("Cannot accept an invalid or $0 offer.");
+          return;
+        }
         if (!confirm("Accept this driver quotation? (This locks the driver for this request and closes other quotes)")) return;
 
         const acceptButton = event.currentTarget;
@@ -2013,8 +2081,13 @@ export const CustomerView = {
   openPassengerCounterModal(bidId, currentAmount, suppliedBid = null) {
     const bid = suppliedBid || [...this.latestBidsByRequest.values()].flat().find((item) => (item.id || item.$id) === bidId) || { id: bidId, amount: currentAmount };
     const requestId = bid.request_id || bid.request?.id || bid.request?.$id || bidId;
-    const driverAsked = Number(currentAmount || 12);
-    const initialCounter = Math.max(1, driverAsked - 1);
+    const rawDriverAsked = actionableBidAmount(bid) ?? Number(currentAmount);
+    if (!Number.isFinite(rawDriverAsked) || rawDriverAsked <= 0) {
+      alert("Cannot counter an invalid or missing offer.");
+      return;
+    }
+    const driverAsked = rawDriverAsked;
+    const initialCounter = driverAsked;
     const askedFormatted = Number.isInteger(driverAsked) ? String(driverAsked) : driverAsked.toFixed(2);
     const counterFormatted = Number.isInteger(initialCounter) ? String(initialCounter) : initialCounter.toFixed(2);
 
