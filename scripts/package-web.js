@@ -6,6 +6,15 @@ const WWW_DIR = path.join(ROOT_DIR, "www");
 
 console.log("Packaging TransMove frontend for Android Capacitor...");
 
+const lucideSource = path.join(ROOT_DIR, "node_modules", "lucide", "dist", "umd", "lucide.min.js");
+const lucideTarget = path.join(ROOT_DIR, "assets", "js", "vendor", "lucide.min.js");
+if (!fs.existsSync(lucideSource)) {
+  throw new Error("Lucide is not installed. Run npm install before packaging the web app.");
+}
+fs.mkdirSync(path.dirname(lucideTarget), { recursive: true });
+fs.copyFileSync(lucideSource, lucideTarget);
+console.log("✓ Bundled Lucide icons locally");
+
 // Ensure clean www directory
 if (fs.existsSync(WWW_DIR)) {
   fs.rmSync(WWW_DIR, { recursive: true, force: true });

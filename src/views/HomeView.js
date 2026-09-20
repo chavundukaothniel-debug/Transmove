@@ -6,6 +6,7 @@
 import { LocationService } from "../services/location.js";
 import { EquipmentService } from "../services/equipment.js";
 import { renderEmptyState } from "../components/EmptyState.js";
+import { icon } from "../components/Icon.js";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -27,12 +28,10 @@ export const HomeView = {
 
           <div style="display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;">
             <a href="#customer" class="btn btn-primary btn-lg home-passenger-cta" style="display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 700; padding: 0.85rem 1.75rem; border-radius: var(--radius-md);">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>
-              Request a Ride or Cargo
+              ${icon("car-front", 20)}<span>Request a Ride or Cargo</span>
             </a>
             <a href="#register" class="btn btn-outline btn-lg" style="display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 700; padding: 0.85rem 1.75rem; border-radius: var(--radius-md);">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></svg>
-              Register as Driver / Owner
+              ${icon("user-round-plus", 20)}<span>Register as Driver / Owner</span>
             </a>
           </div>
         </section>
@@ -40,7 +39,7 @@ export const HomeView = {
         <!-- Instant Route & Fare Estimator -->
         <div class="card" style="max-width: 860px; margin: 0 auto 3rem auto; background: var(--bg-surface); border: 1px solid var(--border-light); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: 1.75rem;">
           <div class="card-header" style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-light); padding-bottom: 0.75rem; margin-bottom: 1.25rem;">
-            <h3 class="card-title" style="font-size: 1.15rem; font-weight: 800; color: var(--text-main); margin: 0;">⚡ Quick Fare &amp; Route Estimator</h3>
+          <h3 class="card-title icon-label" style="font-size: 1.15rem; font-weight: 800; color: var(--text-main); margin: 0;">${icon("route", 20)}<span>Quick Fare &amp; Route Estimator</span></h3>
             <span class="badge badge-info" style="font-weight: 600;">TransMove Bidding</span>
           </div>
 
@@ -50,7 +49,7 @@ export const HomeView = {
               <div style="display: flex; gap: 0.5rem;">
                 <input type="text" id="quick-pickup" class="form-input" placeholder="Enter pickup address or landmark" />
                 <button id="btn-quick-gps" class="btn btn-outline btn-sm" title="Use current GPS location" style="white-space: nowrap;">
-                  📍 GPS
+              ${icon("locate-fixed", 17)}<span>GPS</span>
                 </button>
               </div>
             </div>
@@ -88,7 +87,7 @@ export const HomeView = {
         <div class="grid-3" style="margin-bottom: 3.5rem;">
           <div class="card" style="background: var(--bg-surface); border: 1px solid var(--border-light); border-radius: var(--radius-lg); padding: 1.5rem; transition: transform 0.15s ease;">
             <div style="width: 48px; height: 48px; border-radius: var(--radius-md); background: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center; margin-bottom: 1rem;">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>
+              ${icon("car-front", 24)}
             </div>
             <h3 style="font-size: 1.2rem; font-weight: 800; color: var(--text-main); margin-bottom: 0.5rem;">Passenger Rides</h3>
             <p style="color: var(--text-muted); font-size: 0.925rem; line-height: 1.55;">
@@ -98,7 +97,7 @@ export const HomeView = {
 
           <div class="card" style="background: var(--bg-surface); border: 1px solid var(--border-light); border-radius: var(--radius-lg); padding: 1.5rem; transition: transform 0.15s ease;">
             <div style="width: 48px; height: 48px; border-radius: var(--radius-md); background: var(--secondary-light); color: var(--secondary); display: flex; align-items: center; justify-content: center; margin-bottom: 1rem;">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+              ${icon("truck", 24)}
             </div>
             <h3 style="font-size: 1.2rem; font-weight: 800; color: var(--text-main); margin-bottom: 0.5rem;">Cargo &amp; Freight Logistics</h3>
             <p style="color: var(--text-muted); font-size: 0.925rem; line-height: 1.55;">
@@ -108,7 +107,7 @@ export const HomeView = {
 
           <div class="card" style="background: var(--bg-surface); border: 1px solid var(--border-light); border-radius: var(--radius-lg); padding: 1.5rem; transition: transform 0.15s ease;">
             <div style="width: 48px; height: 48px; border-radius: var(--radius-md); background: var(--accent-amber-light); color: var(--accent-amber); display: flex; align-items: center; justify-content: center; margin-bottom: 1rem;">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="17.5" cy="17.5" r="4.5"/><circle cx="4.5" cy="19.5" r="2.5"/><path d="M8 19v-4.5a2 2 0 0 1 2-2h4l2-4h4v6.5"/></svg>
+              ${icon("tractor", 24)}
             </div>
             <h3 style="font-size: 1.2rem; font-weight: 800; color: var(--text-main); margin-bottom: 0.5rem;">Heavy Machinery Hire</h3>
             <p style="color: var(--text-muted); font-size: 0.925rem; line-height: 1.55;">
@@ -120,7 +119,7 @@ export const HomeView = {
         <!-- Featured Machinery Feed -->
         <div class="card" style="background: var(--bg-surface); border: 1px solid var(--border-light); border-radius: var(--radius-lg); padding: 1.5rem;">
           <div class="card-header" style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-light); padding-bottom: 0.75rem; margin-bottom: 1.25rem;">
-            <h3 class="card-title" style="font-size: 1.2rem; font-weight: 800; color: var(--text-main); margin: 0;">🚜 Machinery &amp; Equipment Marketplace</h3>
+          <h3 class="card-title icon-label" style="font-size: 1.2rem; font-weight: 800; color: var(--text-main); margin: 0;">${icon("tractor", 21)}<span>Machinery &amp; Equipment Marketplace</span></h3>
             <a href="#equipment" class="btn btn-outline btn-sm">View All Equipment</a>
           </div>
 
@@ -142,24 +141,24 @@ export const HomeView = {
         const heroSec = document.querySelector(".hero-section");
         if (heroSec && !document.getElementById("home-welcome-banner")) {
           const roleMap = {
-            driver: { label: "Driver", target: "#driver", icon: "🚗", action: "Open Driver Cockpit" },
-            customer: { label: "Passenger", target: "#customer", icon: "🚙", action: "Open Passenger Dashboard" },
-            passenger: { label: "Passenger", target: "#customer", icon: "🚙", action: "Open Passenger Dashboard" },
-            cargo_owner: { label: "Cargo Owner", target: "#cargo-owner", icon: "📦", action: "Open Cargo Dashboard" },
-            logistics: { label: "Logistics Provider", target: "#logistics", icon: "🚛", action: "Open Logistics Dashboard" },
-            logistics_provider: { label: "Logistics Provider", target: "#logistics", icon: "🚛", action: "Open Logistics Dashboard" },
-            vehicle_owner: { label: "Vehicle Owner", target: "#vehicle-owner", icon: "🚘", action: "Open Vehicle Dashboard" },
-            machinery_owner: { label: "Machinery Owner", target: "#machinery-owner", icon: "🚜", action: "Open Machinery Dashboard" },
-            machinery_hirer: { label: "Machinery Hirer", target: "#machinery-hirer", icon: "🔍", action: "Open Hirer Dashboard" },
-            business: { label: "Business", target: "#business", icon: "🏢", action: "Open Business Dashboard" },
-            advertiser: { label: "Advertiser", target: "#advertise", icon: "📢", action: "Open Ad Dashboard" },
-            admin: { label: "Administrator", target: "#admin", icon: "⚡", action: "Open Admin Dashboard" }
+            driver: { label: "Driver", target: "#driver", icon: "car-front", action: "Open Driver Cockpit" },
+            customer: { label: "Passenger", target: "#customer", icon: "car-taxi-front", action: "Open Passenger Dashboard" },
+            passenger: { label: "Passenger", target: "#customer", icon: "car-taxi-front", action: "Open Passenger Dashboard" },
+            cargo_owner: { label: "Cargo Owner", target: "#cargo-owner", icon: "package", action: "Open Cargo Dashboard" },
+            logistics: { label: "Logistics Provider", target: "#logistics", icon: "truck", action: "Open Logistics Dashboard" },
+            logistics_provider: { label: "Logistics Provider", target: "#logistics", icon: "truck", action: "Open Logistics Dashboard" },
+            vehicle_owner: { label: "Vehicle Owner", target: "#vehicle-owner", icon: "car-front", action: "Open Vehicle Dashboard" },
+            machinery_owner: { label: "Machinery Owner", target: "#machinery-owner", icon: "tractor", action: "Open Machinery Dashboard" },
+            machinery_hirer: { label: "Machinery Hirer", target: "#machinery-hirer", icon: "search", action: "Open Hirer Dashboard" },
+            business: { label: "Business", target: "#business", icon: "building-2", action: "Open Business Dashboard" },
+            advertiser: { label: "Advertiser", target: "#advertise", icon: "megaphone", action: "Open Ad Dashboard" },
+            admin: { label: "Administrator", target: "#admin", icon: "shield-check", action: "Open Admin Dashboard" }
           };
 
           const roleInfo = roleMap[profile.role] || {
             label: profile.role || "User",
             target: "#profile",
-            icon: "👤",
+            icon: "user-round",
             action: "Open Dashboard"
           };
 
@@ -169,11 +168,11 @@ export const HomeView = {
           banner.style.cssText = "max-width: 640px; margin: 0 auto 1.5rem auto; padding: 1rem 1.25rem; background: var(--bg-surface); border: 1.5px solid var(--primary); display: flex; align-items: center; justify-content: space-between; border-radius: var(--radius-lg); box-shadow: var(--shadow-sm);";
           banner.innerHTML = `
             <div>
-              <div style="font-weight: 800; color: var(--text-main); font-size: 0.95rem;">👋 Welcome back, ${escapeHtml(profile.full_name?.split(" ")[0] || "User")}!</div>
+              <div class="icon-label" style="font-weight: 800; color: var(--text-main); font-size: 0.95rem;">${icon("hand", 18)}<span>Welcome back, ${escapeHtml(profile.full_name?.split(" ")[0] || "User")}!</span></div>
               <div style="font-size: 0.825rem; color: var(--text-muted); margin-top: 0.15rem;">You are currently logged in as <strong>${escapeHtml(roleInfo.label)}</strong>.</div>
             </div>
             <a href="${roleInfo.target}" class="btn btn-primary btn-sm" style="font-weight: 800; white-space: nowrap; display: inline-flex; align-items: center; gap: 0.4rem;">
-              ${roleInfo.icon} ${roleInfo.action}
+              ${icon(roleInfo.icon, 17)}<span>${roleInfo.action}</span>
             </a>
           `;
           heroSec.insertBefore(banner, heroSec.firstChild);
@@ -193,10 +192,10 @@ export const HomeView = {
         const coords = await LocationService.getCurrentPosition();
         const address = await LocationService.reverseGeocode(coords.lat, coords.lng);
         if (input) input.value = address;
-        btn.innerText = "✓ Found";
+        btn.innerHTML = `${icon("check", 17)}<span>Found</span>`;
       } catch (err) {
         console.warn("GPS location notice:", err.message);
-        btn.innerText = "📍 GPS";
+        btn.innerHTML = `${icon("locate-fixed", 17)}<span>GPS</span>`;
         if (input && !input.value) {
           input.placeholder = "Enter pickup address manually";
           input.focus();

@@ -17,29 +17,28 @@ import { ReceiptService } from "../services/receipts.js";
 import { SocialService } from "../services/social.js";
 import { SmartPopup } from "../components/SmartPopup.js";
 import { AdvertisingService } from "../services/advertising.js";
+import { icon } from "../components/Icon.js";
 
 const passengerIcon = (name, size = 20) => {
-  const paths = {
-    plus: '<path d="M12 5v14M5 12h14"/>',
-    bus: '<path d="M6 17h12M7 17v2M17 17v2M5 14V6.8C5 5.25 6.25 4 7.8 4h8.4C17.75 4 19 5.25 19 6.8V14M5 10h14M8 14h.01M16 14h.01"/>',
-    check: '<path d="M20 6 9 17l-5-5"/>',
-    wallet: '<path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H19v14H6.5A2.5 2.5 0 0 1 4 16.5v-9Z"/><path d="M4 8h15M15 12h4"/>',
-    heart: '<path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8Z"/>',
-    users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
-    package: '<path d="m16.5 9.4-9-5.2M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="M3.3 7 12 12l8.7-5M12 22V12"/>',
-    calendar: '<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
-    shield: '<path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3v8Z"/><circle cx="12" cy="11" r="2"/>',
-    search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
-    pin: '<path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',
-    chevron: '<path d="m9 18 6-6-6-6"/>',
-    chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
-    home: '<path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10M9 20v-6h6v6"/>',
-    briefcase: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18"/>',
-    building: '<path d="M4 21V3h12v18M16 9h4v12M8 7h4M8 11h4M8 15h4M8 19h4"/>',
-    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
+  const aliases = {
+    bus: "bus-front",
+    wallet: "wallet-cards",
+    users: "users-round",
+    calendar: "calendar-days",
+    shield: "shield-check",
+    pin: "map-pin",
+    chevron: "chevron-right",
+    chat: "message-circle",
+    home: "house",
+    briefcase: "briefcase-business",
+    building: "building-2"
   };
+  return icon(aliases[name] || name || "bus-front", size, { className: "passenger-icon" });
+};
 
-  return `<svg class="passenger-icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.bus}</svg>`;
+const ratingIcons = (rating, size = 16) => {
+  const value = Math.max(0, Math.min(5, Number(rating) || 0));
+  return `<span class="rating-icons" aria-label="${value} out of 5 stars">${Array.from({ length: 5 }, (_, index) => icon("star", size, { className: index < value ? "is-filled" : "" })).join("")}</span>`;
 };
 
 const OPEN_REQUEST_STATUSES = ["open_for_bids", "bids_received"];
@@ -148,7 +147,7 @@ export const CustomerView = {
           <section class="passenger-overview-card" aria-labelledby="passenger-welcome-title">
             <div class="passenger-welcome-row">
               <div>
-                <h2 id="passenger-welcome-title" class="passenger-welcome-title">Hello, ${firstName} <span aria-hidden="true">👋</span></h2>
+            <h2 id="passenger-welcome-title" class="passenger-welcome-title">Hello, ${firstName} ${icon("hand", 24)}</h2>
                 <p class="passenger-welcome-sub">Where are you going today?</p>
               </div>
               <button id="btn-quick-request-service" class="btn passenger-primary-button" type="button">
@@ -341,9 +340,9 @@ export const CustomerView = {
                   <div id="saved-pickup-chips" style="display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.4rem;"></div>
                   <div style="display: flex; gap: 0.5rem;">
                     <input type="text" id="req-pickup" class="form-input" placeholder="Enter pickup location or click map" autocomplete="off" required />
-                    <button type="button" id="btn-clear-pickup" class="btn btn-outline btn-sm" title="Clear Pickup" style="display: none; padding: 0 0.6rem;">✕</button>
+                    <button type="button" id="btn-clear-pickup" class="btn btn-outline btn-sm icon-button" title="Clear pickup" aria-label="Clear pickup" style="display: none;">${icon("x", 17)}</button>
                     <button type="button" id="btn-cust-gps" class="btn btn-outline btn-sm" title="Auto-detect current GPS">
-                      📍 GPS
+              ${icon("locate-fixed", 17)}<span>GPS</span>
                     </button>
                   </div>
                   <div id="pickup-suggestions" class="address-suggestions-dropdown" style="display: none;"></div>
@@ -355,7 +354,7 @@ export const CustomerView = {
                   <div id="saved-dest-chips" style="display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.4rem;"></div>
                   <div style="display: flex; gap: 0.5rem;">
                     <input type="text" id="req-dest" class="form-input" placeholder="Enter drop-off destination or click map" autocomplete="off" required />
-                    <button type="button" id="btn-clear-dest" class="btn btn-outline btn-sm" title="Clear Destination" style="display: none; padding: 0 0.6rem;">✕</button>
+                    <button type="button" id="btn-clear-dest" class="btn btn-outline btn-sm icon-button" title="Clear destination" aria-label="Clear destination" style="display: none;">${icon("x", 17)}</button>
                   </div>
                   <div id="dest-suggestions" class="address-suggestions-dropdown" style="display: none;"></div>
                 </div>
@@ -432,16 +431,16 @@ export const CustomerView = {
             <div class="card passenger-map-card" style="display: flex; flex-direction: column;">
               <div class="card-header" style="flex-wrap: wrap; gap: 0.5rem;">
                 <div>
-                  <h3 class="card-title">🗺️ Interactive Route Map</h3>
+              <h3 class="card-title icon-label">${icon("map", 20)}<span>Interactive Route Map</span></h3>
                   <div id="map-selection-banner" style="font-size: 0.8rem; color: var(--primary); font-weight: 600; margin-top: 0.2rem;">
                     Select pickup or destination using controls or enter address
                   </div>
                 </div>
                 <!-- Map Action Controls -->
                 <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
-                  <button type="button" id="map-btn-gps" class="btn btn-outline btn-sm" title="Use current GPS location">📍 Use My Location</button>
-                  <button type="button" id="map-btn-pickup" class="btn btn-outline btn-sm">📍 Select Pickup</button>
-                  <button type="button" id="map-btn-dest" class="btn btn-outline btn-sm">🔴 Select Destination</button>
+                <button type="button" id="map-btn-gps" class="btn btn-outline btn-sm" title="Use current GPS location">${icon("locate-fixed", 16)}<span>Use My Location</span></button>
+                <button type="button" id="map-btn-pickup" class="btn btn-outline btn-sm">${icon("map-pin", 16)}<span>Select Pickup</span></button>
+                <button type="button" id="map-btn-dest" class="btn btn-outline btn-sm">${icon("flag", 16)}<span>Select Destination</span></button>
                   <button type="button" id="map-btn-reset" class="btn btn-outline btn-sm" title="Reset Locations">↻ Reset</button>
                 </div>
               </div>
@@ -449,9 +448,9 @@ export const CustomerView = {
               <div id="customer-map" class="map-container" style="height: 420px; width: 100%; border-radius: var(--radius-md); overflow: hidden; position: relative;"></div>
 
               <div style="margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
-                <span>🟢 Green Marker: Pickup</span>
-                <span>🔴 Red Marker: Destination</span>
-                <span>🛣️ Solid Line: Route</span>
+                <span class="icon-label icon-label--inline">${icon("map-pin", 15)}<span>Green Marker: Pickup</span></span>
+                <span class="icon-label icon-label--inline">${icon("flag", 15)}<span>Red Marker: Destination</span></span>
+                <span class="icon-label icon-label--inline">${icon("route", 15)}<span>Solid Line: Route</span></span>
               </div>
             </div>
           </div>
@@ -718,10 +717,10 @@ export const CustomerView = {
       try {
         const coords = await LocationService.getCurrentPosition();
         await this.setPickup(coords.lat, coords.lng);
-        if (btn) btn.innerText = "✓ Found";
+        if (btn) btn.innerHTML = `${icon("check", 17)}<span>Found</span>`;
       } catch (err) {
         NotificationService.showToast("GPS Notice", err.message, "info");
-        if (btn) btn.innerText = "📍 GPS";
+      if (btn) btn.innerHTML = `${icon("locate-fixed", 17)}<span>GPS</span>`;
       } finally {
         if (btn) btn.disabled = false;
       }
@@ -1212,7 +1211,7 @@ export const CustomerView = {
             banner.style.background = "#ecfdf5";
             banner.style.borderColor = "#a7f3d0";
             banner.style.color = "#065f46";
-            banner.innerHTML = `🎉 <strong>${pendingBids.length} Quotation${pendingBids.length === 1 ? "" : "s"} Received!</strong> Drivers are ready for your review.`;
+          banner.innerHTML = `${icon("party-popper", 18)} <strong>${pendingBids.length} Quotation${pendingBids.length === 1 ? "" : "s"} Received!</strong> Drivers are ready for your review.`;
           }
           if (viewButton && countSpan) {
             countSpan.textContent = String(pendingBids.length);
@@ -1363,8 +1362,8 @@ export const CustomerView = {
               ${avatar ? `<img src="${escapeHtml(avatar)}" alt="${escapeHtml(name)}">` : escapeHtml(name.charAt(0))}
             </div>
             <div>
-              <strong style="font-size: 1.05rem; display: block; color: var(--text-main);">${escapeHtml(name)} ${verified ? '<span class="smart-driver-verified" title="Verified driver">✓</span>' : ""}</strong>
-              ${rating > 0 ? `<span style="color: #f59e0b; font-weight: 700; font-size: 0.85rem;">★ ${rating.toFixed(1)}${bid.driver?.review_count ? ` (${Number(bid.driver.review_count)})` : ""}</span>` : ""}
+              <strong style="font-size: 1.05rem; display: block; color: var(--text-main);">${escapeHtml(name)} ${verified ? `<span class="smart-driver-verified" title="Verified driver">${icon("badge-check", 16)}</span>` : ""}</strong>
+              ${rating > 0 ? `<span class="icon-label icon-label--inline" style="color: #f59e0b; font-weight: 700; font-size: 0.85rem;">${icon("star", 15, { className: "is-filled" })}<span>${rating.toFixed(1)}${bid.driver?.review_count ? ` (${Number(bid.driver.review_count)})` : ""}</span></span>` : ""}
               ${trips ? `<span class="smart-driver-trips">${trips} trips</span>` : ""}
               ${vehicle ? `<span style="color: var(--text-muted); font-size: 0.85rem; display: block;">${escapeHtml(vehicle)}${registration ? ` • ${escapeHtml(registration)}` : ""}</span>` : ""}
             </div>
@@ -1435,20 +1434,25 @@ export const CustomerView = {
       state: "driver_profile",
       eyebrow: "Driver profile",
       title: name,
-      html: `<div class="smart-profile-peek"><div class="smart-popup-profile"><div class="smart-popup-avatar">${avatar ? `<img src="${escapeHtml(avatar)}" alt="${escapeHtml(name)}">` : escapeHtml(name.charAt(0))}</div><div><strong>${escapeHtml(name)}</strong>${rating > 0 ? `<span>★ ${rating.toFixed(1)}${bid.driver?.review_count ? ` • ${Number(bid.driver.review_count)} reviews` : ""}</span>` : ""}${Number.isFinite(Number(bid.driver?.completed_trips)) ? `<span>${Number(bid.driver.completed_trips)} completed trips</span>` : ""}</div></div>${bid.driver?.verification_status === "approved" ? `<span class="smart-profile-verified">✓ Verified driver</span>` : ""}<div class="smart-popup-detail-grid">${vehicle ? `<span>Vehicle</span><strong>${escapeHtml(vehicle)}</strong>` : ""}${bid.vehicle?.registration_number ? `<span>Registration</span><strong>${escapeHtml(bid.vehicle.registration_number)}</strong>` : ""}</div></div>`,
+      html: `<div class="smart-profile-peek"><div class="smart-popup-profile"><div class="smart-popup-avatar">${avatar ? `<img src="${escapeHtml(avatar)}" alt="${escapeHtml(name)}">` : escapeHtml(name.charAt(0))}</div><div><strong>${escapeHtml(name)}</strong>${rating > 0 ? `<span class="icon-label icon-label--inline">${icon("star", 15, { className: "is-filled" })}<span>${rating.toFixed(1)}${bid.driver?.review_count ? ` • ${Number(bid.driver.review_count)} reviews` : ""}</span></span>` : ""}${Number.isFinite(Number(bid.driver?.completed_trips)) ? `<span>${Number(bid.driver.completed_trips)} completed trips</span>` : ""}</div></div>${bid.driver?.verification_status === "approved" ? `<span class="smart-profile-verified icon-label">${icon("badge-check", 16)}<span>Verified driver</span></span>` : ""}<div class="smart-popup-detail-grid">${vehicle ? `<span>Vehicle</span><strong>${escapeHtml(vehicle)}</strong>` : ""}${bid.vehicle?.registration_number ? `<span>Registration</span><strong>${escapeHtml(bid.vehicle.registration_number)}</strong>` : ""}</div></div>`,
       actions: [{ label: "Back to offers", primary: true, close: false, onClick: () => { this.showQuotationPopup(bid, bid.negotiation_status === "countered_by_driver", { force: true }); return false; } }]
     });
   },
 
   showDriverConfirmedPopup(booking, { force = false } = {}) {
+    if (!booking) return;
     const id = booking.id || booking.$id;
-    const driverName = booking.driver?.full_name || "Tendai M.";
-    const vehicleName = booking.vehicle ? [booking.vehicle.make, booking.vehicle.model].filter(Boolean).join(" ") : "Toyota Aqua";
-    const regNumber = booking.vehicle?.registration_number || "ABC 1234";
-    const avatarUrl = fileViewUrl(booking.driver?.profile_image_id);
+    const driverName = booking.driver?.full_name?.trim() || "Assigned Driver";
+    const vehicleParts = [booking.vehicle?.make, booking.vehicle?.model].filter(Boolean);
+    const vehicleName = vehicleParts.length > 0 ? vehicleParts.join(" ") : (booking.vehicle ? "Verified Vehicle" : "Vehicle Assigned");
+    const regNumber = booking.vehicle?.registration_number?.trim() || "";
+    const avatarUrl = fileViewUrl(booking.driver?.profile_image_id || booking.driver?.profile_photo_url);
     const requestId = booking.request_id || booking.request?.id || booking.request?.$id || id;
-    const amount = Number(booking.amount || 0);
-    const amountFormatted = Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+    const rawFare = booking.amount !== undefined && booking.amount !== null ? booking.amount : (booking.final_price || 0);
+    const amount = Number(rawFare);
+    const amountFormatted = Number.isFinite(amount) && amount > 0
+      ? (Number.isInteger(amount) ? String(amount) : amount.toFixed(2))
+      : "--";
 
     const options = {
       userId: this.getPopupUserId(),
@@ -1456,14 +1460,14 @@ export const CustomerView = {
       flowKey: `passenger-request:${requestId}`,
       state: "driver_confirmed",
       eyebrow: "Booking confirmed",
-      title: "✓ Driver confirmed",
+      title: "Driver confirmed",
       minimizable: true,
       pillText: `${driverName} • Confirmed`,
       html: `
         <div class="smart-sheet-status-box" style="text-align: left;">
           <div style="display: flex; align-items: center; gap: 0.65rem; margin-bottom: 0.75rem;">
-            <div class="smart-sheet-success-badge" style="margin: 0; width: 32px; height: 32px; font-size: 1.1rem;">✓</div>
-            <h3 class="smart-sheet-status-heading" style="margin: 0; font-size: 1.25rem;">✓ Driver confirmed</h3>
+            <div class="smart-sheet-success-badge" style="margin: 0; width: 32px; height: 32px; font-size: 1.1rem;">${icon("check", 18)}</div>
+            <h3 class="smart-sheet-status-heading icon-label" style="margin: 0; font-size: 1.25rem;">${icon("circle-check", 20)}<span>Driver confirmed</span></h3>
           </div>
 
           <div class="smart-sheet-driver-card" style="margin: 0.75rem 0;">
@@ -1474,14 +1478,14 @@ export const CustomerView = {
               <div>
                 <strong style="font-size: 1.05rem; display: block; color: var(--text-main);">${escapeHtml(driverName)}</strong>
                 <span style="color: var(--text-muted); font-size: 0.88rem; display: block;">${escapeHtml(vehicleName)}</span>
-                <span style="color: var(--text-muted); font-size: 0.82rem; font-weight: 700;">${escapeHtml(regNumber)}</span>
+                ${regNumber ? `<span style="color: var(--text-muted); font-size: 0.82rem; font-weight: 700;">${escapeHtml(regNumber)}</span>` : ""}
               </div>
             </div>
           </div>
 
           <div class="smart-sheet-status-price-card" style="margin: 0.75rem 0;">
             <div style="font-size: 0.82rem; color: var(--text-muted); font-weight: 700;">Agreed fare</div>
-            <div style="font-size: 2.2rem; font-weight: 900; color: #059669; margin-top: 0.2rem;">$${amountFormatted}</div>
+            <div style="font-size: 2.2rem; font-weight: 900; color: #059669; margin-top: 0.2rem;">${amountFormatted !== "--" ? `$${amountFormatted}` : "--"}</div>
           </div>
         </div>
       `,
@@ -1521,7 +1525,7 @@ export const CustomerView = {
       eventKey: queued ? `rate-driver:${id}` : undefined,
       eyebrow: "Trip feedback",
       title: "RATE YOUR DRIVER",
-      html: `<p>How was your journey with ${escapeHtml(booking.driver?.full_name || "your driver")}?</p><label class="smart-popup-field">Rating<select id="smart-rating"><option value="5">★★★★★ Excellent</option><option value="4">★★★★☆ Good</option><option value="3">★★★☆☆ Okay</option><option value="2">★★☆☆☆ Poor</option><option value="1">★☆☆☆☆ Very poor</option></select></label><label class="smart-popup-field">Comment (optional)<textarea id="smart-rating-comment" rows="3" maxlength="500" placeholder="Share a short comment"></textarea></label>`,
+      html: `<p>How was your journey with ${escapeHtml(booking.driver?.full_name || "your driver")}?</p><label class="smart-popup-field">Rating<select id="smart-rating"><option value="5">5 — Excellent</option><option value="4">4 — Good</option><option value="3">3 — Okay</option><option value="2">2 — Poor</option><option value="1">1 — Very poor</option></select></label><label class="smart-popup-field">Comment (optional)<textarea id="smart-rating-comment" rows="3" maxlength="500" placeholder="Share a short comment"></textarea></label>`,
       actions: [
         { label: "LATER" },
         { label: "SUBMIT RATING", primary: true, busyLabel: "Submitting…", onClick: async ({ backdrop }) => {
@@ -1755,7 +1759,7 @@ export const CustomerView = {
             Active Requests &amp; Driver Quotations
           </h3>
           <button type="button" class="passenger-link-button btn-go-to-quotes" style="font-size: 0.85rem; font-weight: 700; color: #2563eb; background: none; border: none; cursor: pointer;">
-            View Full Board →
+            <span>View Full Board</span>${icon("arrow-right", 16)}
           </button>
         </div>
         ${this.renderActiveRequestsHtml(openRequests, bidsByRequest)}
@@ -1792,10 +1796,10 @@ export const CustomerView = {
         <div style="flex: 1; min-width: 0;">
           <div style="font-weight: 800; font-size: 1rem; color: var(--text-main, #0f172a);">${escapeHtml(driverName)}</div>
           <div class="quote-driver-meta" style="font-size: 0.8rem; color: var(--text-muted, #64748b); margin-top: 0.15rem;">
-            ${isVerified ? "✓ Verified · " : ""}${escapeHtml(bid.driver?.city || "Harare")}${vehicleSummary ? ` · ${escapeHtml(vehicleSummary)}` : ""}
+            ${isVerified ? `${icon("badge-check", 15)} Verified · ` : ""}${escapeHtml(bid.driver?.city || "Harare")}${vehicleSummary ? ` · ${escapeHtml(vehicleSummary)}` : ""}
           </div>
           <div class="quote-driver-meta" style="font-size: 0.8rem; color: var(--text-muted, #64748b); margin-top: 0.15rem;">
-            ${driverRating > 0 ? `★ ${driverRating.toFixed(1)} (${Number(bid.driver?.review_count || 0)})` : "No ratings yet"} · ⏱️ ETA ${escapeHtml(etaMinutes)} mins
+            ${driverRating > 0 ? `${icon("star", 15, { className: "is-filled" })} ${driverRating.toFixed(1)} (${Number(bid.driver?.review_count || 0)})` : "No ratings yet"} · ${icon("clock-3", 15)} ETA ${escapeHtml(etaMinutes)} mins
           </div>
           ${bid.message ? `<div class="quote-driver-meta" style="margin-top: 0.35rem; font-size: 0.83rem; font-style: italic; color: var(--text-main, #334155); background: var(--bg-subtle, #f8fafc); padding: 0.35rem 0.6rem; border-radius: 6px;">“${escapeHtml(bid.message)}”</div>` : ""}
         </div>
@@ -1863,7 +1867,7 @@ export const CustomerView = {
           </div>
         ` : `
           <div class="waiting-quotes-box" style="background: var(--bg-subtle, #f8fafc); padding: 1.25rem; border-radius: 8px; text-align: center; color: var(--text-muted, #64748b); font-size: 0.9rem;">
-            ⏳ Waiting for driver's quotations...
+            ${icon("clock-3", 17)}<span>Waiting for driver's quotations...</span>
           </div>
         `}
       </div>
@@ -1975,7 +1979,7 @@ export const CustomerView = {
         container.innerHTML = renderEmptyState({
           title: "You don't have any active requests",
           description: "Post a ride or cargo request to receive real-time driver quotations.",
-          actionText: "➕ Request a Service",
+          actionText: "Request a Service",
           actionLink: "#customer?tab=search",
           icon: "car"
         });
@@ -2084,14 +2088,14 @@ export const CustomerView = {
             SmartPopup.update({
               state: "counter_sent",
               eyebrow: "Fare negotiation",
-              title: "✓ Counter sent",
+              title: "Counter sent",
               minimizable: true,
               pillText: `$${formatted} counter • Waiting`,
               autoMinimizeAfter: 2000,
               html: `
                 <div class="smart-sheet-status-box">
-                  <div class="smart-sheet-success-badge">✓</div>
-                  <h3 class="smart-sheet-status-heading">✓ Counter sent</h3>
+                  <div class="smart-sheet-success-badge">${icon("check", 20)}</div>
+                  <h3 class="smart-sheet-status-heading icon-label">${icon("circle-check", 20)}<span>Counter sent</span></h3>
                   <div class="smart-sheet-status-price-card">
                     <div style="font-size: 0.85rem; color: var(--text-muted); font-weight: 700;">Your counter</div>
                     <div style="font-size: 2.2rem; font-weight: 900; color: #059669; margin-top: 0.2rem;">$${formatted}</div>
@@ -2101,7 +2105,7 @@ export const CustomerView = {
               `,
               actions: []
             });
-            NotificationService.showToast("Counter sent ✓", "Waiting for driver response", "success");
+            NotificationService.showToast("Counter sent", "Waiting for driver response", "success");
             this.scheduleJourneySync(0);
             return false;
           }
@@ -2129,7 +2133,7 @@ export const CustomerView = {
           description: filter === "all"
             ? "When you accept a driver quotation, your confirmed trips will appear here."
             : "Bookings matching this status will appear here.",
-          actionText: "➕ Request a Service",
+          actionText: "Request a Service",
           actionLink: "#customer?tab=search",
           icon: "car"
         });
@@ -2265,7 +2269,7 @@ export const CustomerView = {
               <div class="trip-pin-box" style="margin-top: 1rem; background: ${booking.status === "arrived" ? "#fef3c7" : "#ecfdf5"}; border: 2px ${booking.status === "arrived" ? "solid #f59e0b" : "dashed #059669"}; padding: 1rem; border-radius: 10px; box-shadow: ${booking.status === "arrived" ? "0 4px 14px rgba(245, 158, 11, 0.25)" : "none"};">
                 ${booking.status === "arrived" ? `
                   <div style="font-weight: 800; color: #b45309; font-size: 0.95rem; margin-bottom: 0.35rem; display: flex; align-items: center; gap: 0.4rem;">
-                    <span>🔔 Your driver has arrived!</span>
+                    ${icon("bell-ring", 17)}<span>Your driver has arrived!</span>
                   </div>
                   <div style="font-size: 0.82rem; color: #78350f; margin-bottom: 0.6rem;">
                     Please meet your driver and share your Trip PIN to begin the journey:
@@ -2278,7 +2282,7 @@ export const CustomerView = {
                   </div>
                   <div style="display: flex; align-items: center; gap: 0.5rem;">
                     ${booking.status !== "arrived" ? `<small style="color: #047857;">Share with driver to start trip</small>` : ""}
-                    <button type="button" class="btn btn-outline btn-sm btn-copy-pin" data-pin="${escapeHtml(booking.trip_pin)}" style="padding: 0.25rem 0.65rem; font-size: 0.8rem; background: #ffffff; border-color: ${booking.status === "arrived" ? "#d97706" : "#059669"}; color: ${booking.status === "arrived" ? "#b45309" : "#047857"}; font-weight: 700;">📋 Copy PIN</button>
+                    <button type="button" class="btn btn-outline btn-sm btn-copy-pin" data-pin="${escapeHtml(booking.trip_pin)}" style="padding: 0.25rem 0.65rem; font-size: 0.8rem; background: #ffffff; border-color: ${booking.status === "arrived" ? "#d97706" : "#059669"}; color: ${booking.status === "arrived" ? "#b45309" : "#047857"}; font-weight: 700;">${icon("clipboard", 16)}<span>Copy PIN</span></button>
                   </div>
                 </div>
               </div>
@@ -2288,7 +2292,7 @@ export const CustomerView = {
               <div class="card" style="margin-top: 1rem; padding: 0.85rem 1rem; background: #f8fafc; border: 1.5px solid #e2e8f0; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;">
                 <div>
                   <div style="font-weight: 700; font-size: 0.88rem; color: #1e293b;">
-                    📍 Share live pickup location with driver
+                    <span class="icon-label">${icon("map-pin", 16)}<span>Share live pickup location with driver</span></span>
                   </div>
                   <small style="color: #64748b; font-size: 0.78rem;">Allows your driver to see your exact pickup point in real time.</small>
                 </div>
@@ -2301,12 +2305,12 @@ export const CustomerView = {
 
             <div class="booking-detail-buttons" style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1.25rem;">
               <a href="#messages?booking=${booking.id}" class="btn btn-primary">Contact Driver</a>
-              <button type="button" class="btn btn-outline btn-share-trip" data-booking-id="${booking.id}">🔗 Share Trip</button>
-              <button type="button" class="btn btn-outline btn-view-receipt" data-booking-id="${booking.id}">📄 View Receipt</button>
-              ${booking.driver_id ? `<button type="button" class="btn btn-outline btn-save-driver" data-driver-id="${booking.driver_id}">${isDriverFav ? "❤️ Saved" : "🤍 Save Driver"}</button>` : ""}
-              ${(isCompleted || isCancelled) ? `<button type="button" class="btn btn-outline btn-repeat-booking">🔁 Request Again</button>` : ""}
+              <button type="button" class="btn btn-outline btn-share-trip" data-booking-id="${booking.id}">${icon("share-2", 17)}<span>Share Trip</span></button>
+              <button type="button" class="btn btn-outline btn-view-receipt" data-booking-id="${booking.id}">${icon("file-text", 17)}<span>View Receipt</span></button>
+              ${booking.driver_id ? `<button type="button" class="btn btn-outline btn-save-driver" data-driver-id="${booking.driver_id}">${icon("heart", 17, { className: isDriverFav ? "is-filled" : "" })}<span>${isDriverFav ? "Saved" : "Save Driver"}</span></button>` : ""}
+              ${(isCompleted || isCancelled) ? `<button type="button" class="btn btn-outline btn-repeat-booking">${icon("repeat-2", 17)}<span>Request Again</span></button>` : ""}
               ${canCancel ? `<button type="button" class="btn btn-outline btn-cancel-passenger-booking" data-booking-id="${booking.id}">Cancel Booking</button>` : ""}
-              <button type="button" class="btn btn-outline btn-dispute-booking" data-booking-id="${booking.id}" style="color: #dc2626; border-color: #fca5a5;">⚠️ Report Issue</button>
+              <button type="button" class="btn btn-outline btn-dispute-booking" data-booking-id="${booking.id}" style="color: #dc2626; border-color: #fca5a5;">${icon("triangle-alert", 17)}<span>Report Issue</span></button>
             </div>
           </section>
           <section class="card booking-timeline-card">
@@ -2329,9 +2333,9 @@ export const CustomerView = {
             </div>
             <div>
               ${booking.payment_status === "received" ? `
-                <span class="settlement-badge-received">✓ Payment Confirmed by Driver</span>
+                <span class="settlement-badge-received icon-label">${icon("circle-check", 15)}<span>Payment Confirmed by Driver</span></span>
               ` : `
-                <span class="settlement-badge-pending">⏳ Awaiting Driver Payment Confirmation</span>
+                <span class="settlement-badge-pending icon-label">${icon("clock-3", 15)}<span>Awaiting Driver Payment Confirmation</span></span>
               `}
             </div>
           </div>
@@ -2340,7 +2344,7 @@ export const CustomerView = {
             <h3 style="font-size: 1rem; font-weight: 800; color: #0f172a; margin-bottom: 0.5rem;">Driver Rating &amp; Review</h3>
             ${existingReview ? `
               <div style="color: #f59e0b; font-size: 1.2rem; margin-bottom: 0.35rem;">
-                ${"★".repeat(existingReview.rating)}${"☆".repeat(5 - existingReview.rating)} (${existingReview.rating}/5)
+                ${ratingIcons(existingReview.rating, 18)} (${existingReview.rating}/5)
               </div>
               ${existingReview.comment ? `<div style="font-size: 0.88rem; color: #475569; font-style: italic;">“${escapeHtml(existingReview.comment)}”</div>` : ""}
             ` : `
@@ -2349,11 +2353,11 @@ export const CustomerView = {
                 <div>
                   <label style="font-size: 0.8rem; font-weight: 700; color: #64748b; display: block; margin-bottom: 0.25rem;">Rating</label>
                   <select id="review-rating-select" class="form-select" style="padding: 0.4rem 0.75rem; font-size: 0.9rem;">
-                    <option value="5">⭐⭐⭐⭐⭐ 5 Stars (Excellent)</option>
-                    <option value="4">⭐⭐⭐⭐ 4 Stars (Good)</option>
-                    <option value="3">⭐⭐⭐ 3 Stars (Average)</option>
-                    <option value="2">⭐⭐ 2 Stars (Poor)</option>
-                    <option value="1">⭐ 1 Star (Terrible)</option>
+                    <option value="5">5 Stars — Excellent</option>
+                    <option value="4">4 Stars — Good</option>
+                    <option value="3">3 Stars — Average</option>
+                    <option value="2">2 Stars — Poor</option>
+                    <option value="1">1 Star — Terrible</option>
                   </select>
                 </div>
               </div>
@@ -2399,7 +2403,7 @@ export const CustomerView = {
         btn.disabled = true;
         try {
           await FavouritesService.addFavourite(dId);
-          btn.innerText = "❤️ Saved";
+          btn.innerHTML = `${icon("heart", 17, { className: "is-filled" })}<span>Saved</span>`;
           alert("Driver added to your saved favourites!");
           await this.loadDashboardSummary();
         } catch (err) {
@@ -2473,8 +2477,8 @@ export const CustomerView = {
           const pin = e.currentTarget.getAttribute("data-pin");
           if (pin) {
             navigator.clipboard?.writeText(pin).then(() => {
-              e.currentTarget.innerText = "✓ Copied!";
-              setTimeout(() => { e.currentTarget.innerText = "📋 Copy PIN"; }, 2000);
+              e.currentTarget.innerHTML = `${icon("check", 16)}<span>Copied!</span>`;
+            setTimeout(() => { e.currentTarget.innerHTML = `${icon("clipboard", 16)}<span>Copy PIN</span>`; }, 2000);
             }).catch(() => {
               prompt("Your Trip PIN:", pin);
             });
@@ -2649,13 +2653,13 @@ export const CustomerView = {
                     </div>
                     <div>
                       <div style="font-weight: 800; font-size: 1rem; color: #0f172a;">${name}</div>
-                      <div style="font-size: 0.8rem; color: #64748b;">${category} · ⭐ ${rating}</div>
+              <div class="icon-label icon-label--inline" style="font-size: 0.8rem; color: #64748b;"><span>${category} ·</span>${icon("star", 15, { className: "is-filled" })}<span>${rating}</span></div>
                     </div>
                   </div>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-light); padding-top: 0.75rem; margin-top: 0.5rem;">
                   <button type="button" class="btn btn-outline btn-sm btn-remove-fav" data-fav-id="${fav.id}">
-                    💔 Remove
+              ${icon("heart-off", 16)}<span>Remove</span>
                   </button>
                   <button type="button" class="btn btn-primary btn-sm btn-request-fav" data-driver-name="${name}">
                     Post Request
@@ -2757,10 +2761,10 @@ export const CustomerView = {
     dBtn?.classList.toggle("btn-primary", mode === "destination");
 
     if (mode === "pickup") {
-      if (banner) banner.innerText = "🟢 Click anywhere on the map to set PICKUP location";
+      if (banner) banner.innerHTML = `${icon("map-pin", 16)}<span>Click anywhere on the map to set PICKUP location</span>`;
       mapEl?.classList.add("selecting-mode");
     } else if (mode === "destination") {
-      if (banner) banner.innerText = "🔴 Click anywhere on the map to set DROP-OFF DESTINATION";
+      if (banner) banner.innerHTML = `${icon("flag", 16)}<span>Click anywhere on the map to set DROP-OFF DESTINATION</span>`;
       mapEl?.classList.add("selecting-mode");
     } else {
       if (banner) banner.innerText = "Select pickup or destination using controls or enter address";
@@ -2942,7 +2946,7 @@ export const CustomerView = {
         draggable: true
       })
         .addTo(this.mapInstance)
-        .bindPopup("🟢 Pickup Location");
+      .bindPopup(`${icon("map-pin", 16)} Pickup Location`);
 
       this.pickupMarker.on("dragend", async (e) => {
         const pos = e.target.getLatLng();
@@ -2969,7 +2973,7 @@ export const CustomerView = {
         draggable: true
       })
         .addTo(this.mapInstance)
-        .bindPopup("🔴 Drop-off Destination");
+      .bindPopup(`${icon("flag", 16)} Drop-off Destination`);
 
       this.destMarker.on("dragend", async (e) => {
         const pos = e.target.getLatLng();
@@ -3087,7 +3091,7 @@ export const CustomerView = {
 
       dropdown.innerHTML = results.map((item) => `
         <div class="address-suggestion-item" data-lat="${item.lat}" data-lng="${item.lng}" data-address="${item.address.replace(/"/g, '&quot;')}">
-          📍 <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.85rem;">${item.address}</span>
+                  ${icon("map-pin", 15)}<span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 0.85rem;">${item.address}</span>
         </div>
       `).join("");
       dropdown.style.display = "block";
@@ -3176,10 +3180,10 @@ export const CustomerView = {
 
       const getIcon = (label) => {
         const l = (label || "").toLowerCase();
-        if (l === "home") return "🏠";
-        if (l === "work") return "🏢";
-        if (l === "school") return "🏫";
-        return "📍";
+        if (l === "home") return icon("house", 15);
+        if (l === "work") return icon("building-2", 15);
+        if (l === "school") return icon("school", 15);
+        return icon("map-pin", 15);
       };
 
       const renderChips = () => {
@@ -3258,7 +3262,7 @@ export const CustomerView = {
     }
 
     const providerStatusText = onlineCount > 0
-      ? `🟢 ${onlineCount} compatible driver${onlineCount === 1 ? "" : "s"} nearby`
+        ? `${icon("circle-dot", 15)} ${onlineCount} compatible driver${onlineCount === 1 ? "" : "s"} nearby`
       : `Looking for nearby drivers…`;
 
     SmartPopup.open({

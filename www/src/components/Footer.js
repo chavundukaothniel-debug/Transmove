@@ -2,6 +2,7 @@
 // TRANSMOVE GLOBAL PROFESSIONAL FOOTER COMPONENT
 // ==============================================================================
 import { SocialService } from "../services/social.js";
+import { icon } from "./Icon.js";
 
 export function renderFooter() {
   return `
@@ -21,11 +22,11 @@ export function renderFooter() {
             </p>
 
             <div style="font-size: 0.825rem; color: var(--text-muted); line-height: 1.6;">
-              <div style="font-weight: 700; color: var(--text-main); margin-bottom: 0.25rem;">📍 Head Office:</div>
+                <div class="icon-label" style="font-weight: 700; color: var(--text-main); margin-bottom: 0.25rem;">${icon("map-pin", 17)}<span>Head Office:</span></div>
               <div>17056 Teviotdale, Vainona</div>
               <div>Harare, Zimbabwe</div>
               
-              <div style="font-weight: 700; color: var(--text-main); margin-top: 0.75rem; margin-bottom: 0.25rem;">📞 Public Contacts:</div>
+                <div class="icon-label" style="font-weight: 700; color: var(--text-main); margin-top: 0.75rem; margin-bottom: 0.25rem;">${icon("phone", 17)}<span>Public Contacts:</span></div>
               <div>martintapiwa16@gmail.com • 0780963653</div>
               <div>takudzwagmhuwira@gmail.com • 078 166 4661</div>
             </div>
@@ -89,7 +90,7 @@ export function renderFooter() {
         <div style="border-top: 1px solid var(--border-light); padding-top: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
           <div style="display: flex; align-items: center; gap: 1rem;">
             <button id="btn-footer-wa-direct" class="btn btn-outline btn-sm" style="border-color: #22c55e; color: #22c55e; font-weight: 700;">
-              💬 WhatsApp Support (+263780266401)
+            ${icon("message-circle", 17)}<span>WhatsApp Support (+263780266401)</span>
             </button>
           </div>
 

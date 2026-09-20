@@ -7,10 +7,16 @@ import { AuthService } from "../services/auth.js";
 import { VehicleService } from "../services/vehicles.js";
 import { BookingService } from "../services/bids.js";
 import { ReviewService } from "../services/reviews.js";
+import { icon } from "../components/Icon.js";
 
 const escapeHtmlValue = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 }[char]));
+
+const renderRatingIcons = (rating, size = 16) => {
+  const value = Math.max(0, Math.min(5, Number(rating) || 0));
+  return `<span class="rating-icons" aria-label="${value} out of 5 stars">${Array.from({ length: 5 }, (_, index) => icon("star", size, { className: index < value ? "is-filled" : "" })).join("")}</span>`;
+};
 
 export const ProfileView = {
   profile: null,
@@ -69,12 +75,12 @@ export const ProfileView = {
               <!-- Profile Picture / Avatar & Upload Trigger -->
               <div style="position: relative;">
                 <div id="prof-avatar-container" style="width: 84px; height: 84px; border-radius: 50%; background: #2563eb; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: 800; overflow: hidden; border: 3px solid #ffffff; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                  <span id="prof-avatar-placeholder">👤</span>
+                  <span id="prof-avatar-placeholder">${icon("user-round", 32)}</span>
                   <img id="prof-avatar-img" src="" alt="Profile Photo" style="width: 100%; height: 100%; object-fit: cover; display: none;" />
                 </div>
                 
                 <label for="input-profile-photo-upload" style="position: absolute; bottom: 0; right: 0; background: #059669; color: #ffffff; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 0.85rem; border: 2px solid #ffffff;" title="Upload Profile Picture (Max 5MB)">
-                  📷
+                  ${icon("camera", 15)}
                 </label>
                 <input type="file" id="input-profile-photo-upload" accept="image/jpeg,image/jpg,image/png,image/webp" style="display: none;" />
               </div>
@@ -109,7 +115,7 @@ export const ProfileView = {
             </div>
             <div style="display: flex; gap: 0.5rem;">
               <button type="button" id="btn-cancel-photo-upload" class="btn btn-outline btn-sm" style="border: 1px solid #cbd5e1;">Cancel</button>
-              <button type="button" id="btn-save-photo-upload" class="btn btn-primary btn-sm" style="background: #059669; color: #ffffff; border: none;">Upload &amp; Save 📷</button>
+              <button type="button" id="btn-save-photo-upload" class="btn btn-primary btn-sm" style="background: #059669; color: #ffffff; border: none;">${icon("camera", 16)}<span>Upload &amp; Save</span></button>
             </div>
           </div>
 
@@ -162,7 +168,7 @@ export const ProfileView = {
           <!-- TAB 2: VERIFICATION & PRIVATE DOCUMENTS -->
           <div id="prof-tab-verification" style="display: none;">
             <div style="background: #f0f9ff; border: 1px solid #bae6fd; color: #0369a1; padding: 1rem; border-radius: 8px; margin-bottom: 1.25rem;">
-              <h4 style="font-weight: 700; margin: 0 0 0.25rem 0;">🔒 Private Driver Documents &amp; Verification</h4>
+            <h4 class="icon-label" style="font-weight: 700; margin: 0 0 0.25rem 0;">${icon("lock-keyhole", 18)}<span>Private Driver Documents &amp; Verification</span></h4>
               <p style="font-size: 0.85rem; margin: 0;">Upload confidential documents (Driver's License, Vehicle Registration, Insurance Policy). Documents are kept strictly private in Appwrite Storage with access restricted to your account and TransMove verification.</p>
             </div>
 
@@ -188,7 +194,7 @@ export const ProfileView = {
               </div>
 
               <button type="submit" id="btn-upload-doc-action" class="btn btn-primary btn-full" style="background: #059669; color: #ffffff; border: none; padding: 0.75rem; border-radius: 6px; font-weight: 700; width: 100%;">
-                Upload Private Verification Document 📄
+              ${icon("file-up", 17)}<span>Upload Private Verification Document</span>
               </button>
             </form>
           </div>
@@ -197,7 +203,7 @@ export const ProfileView = {
           <div id="prof-tab-vehicles" style="display: none;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
               <h3 style="font-size: 1.1rem; font-weight: 800; color: #0f172a; margin: 0;">Registered Vehicles</h3>
-              <a href="#driver" style="font-size: 0.85rem; font-weight: 700; color: #2563eb; text-decoration: none;">Manage in Driver Dashboard →</a>
+              <a href="#driver" class="icon-label" style="font-size: 0.85rem; font-weight: 700; color: #2563eb; text-decoration: none;"><span>Manage in Driver Dashboard</span>${icon("arrow-right", 16)}</a>
             </div>
             <div id="prof-vehicles-list">Loading vehicles...</div>
           </div>
@@ -270,7 +276,7 @@ export const ProfileView = {
 
         if (ratingBadgeEl) {
           if (count > 0 && rating !== null) {
-            ratingBadgeEl.innerHTML = `★ ${rating.toFixed(1)} <span style="font-weight: 500; color: #64748b;">(${count} ${count === 1 ? "review" : "reviews"})</span>`;
+            ratingBadgeEl.innerHTML = `${renderRatingIcons(Math.round(rating), 15)} ${rating.toFixed(1)} <span style="font-weight: 500; color: #64748b;">(${count} ${count === 1 ? "review" : "reviews"})</span>`;
             ratingBadgeEl.style.color = "#d97706";
           } else {
             ratingBadgeEl.innerText = "No ratings yet";
@@ -297,7 +303,7 @@ export const ProfileView = {
         avatarImg.style.display = "block";
       }
     } else if (avatarPlaceholder) {
-      avatarPlaceholder.innerText = this.profile.full_name ? this.profile.full_name.charAt(0).toUpperCase() : "👤";
+      avatarPlaceholder.innerHTML = this.profile.full_name ? escapeHtmlValue(this.profile.full_name.charAt(0).toUpperCase()) : icon("user-round", 32);
     }
 
     // Populate inputs
@@ -378,7 +384,7 @@ export const ProfileView = {
         alert("Error uploading profile photo: " + err.message);
       } finally {
         saveBtn.disabled = false;
-        saveBtn.innerText = "Upload & Save 📷";
+        saveBtn.innerHTML = `${icon("camera", 16)}<span>Upload &amp; Save</span>`;
       }
     });
 
@@ -427,7 +433,7 @@ export const ProfileView = {
         alert("Error uploading document: " + err.message);
       } finally {
         btn.disabled = false;
-        btn.innerText = "Upload Private Verification Document 📄";
+        btn.innerHTML = `${icon("file-up", 17)}<span>Upload Private Verification Document</span>`;
       }
     });
 
@@ -548,7 +554,7 @@ export const ProfileView = {
     if (reviews.length === 0) {
       container.innerHTML = `
         <div style="padding: 2rem; text-align: center; color: #64748b; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;">
-          <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">⭐</div>
+          <div class="feature-icon" style="margin-bottom: 0.5rem;">${icon("star", 24)}</div>
           <div style="font-weight: 700; font-size: 0.95rem; color: #0f172a; margin-bottom: 0.25rem;">No ratings yet</div>
           <div style="font-size: 0.85rem; color: #64748b;">As passengers complete and review journeys with you, their ratings and feedback will display here.</div>
         </div>
@@ -558,7 +564,7 @@ export const ProfileView = {
 
     container.innerHTML = reviews.map((r) => {
       const starRating = Math.max(1, Math.min(5, Number(r.rating) || 5));
-      const stars = "★".repeat(starRating) + "☆".repeat(5 - starRating);
+      const stars = renderRatingIcons(starRating, 16);
       const dateStr = r.created_at ? new Date(r.created_at).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "";
       const comment = r.comment ? escapeHtmlValue(r.comment) : "<em>No written feedback provided.</em>";
 

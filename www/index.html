@@ -15,7 +15,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
 
   <!-- TransMove Design System Stylesheet -->
-  <link rel="stylesheet" href="assets/css/style.css?v=20260918-mobile-blue-red">
+  <link rel="stylesheet" href="assets/css/style.css?v=20260920-mobile-icons">
 
   <!-- PWA Manifest & Meta -->
   <link rel="manifest" href="/manifest.webmanifest">
@@ -30,6 +30,9 @@
 
   <!-- Chart.js Library for Real Data Dashboards -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Locally bundled Lucide icon library (available offline in Android) -->
+  <script src="assets/js/vendor/lucide.min.js?v=1.47.0"></script>
 
   <!-- Theme Initialization -->
   <script type="module">
@@ -68,10 +71,10 @@
 
           <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
             <button id="btn-footer-whatsapp" class="btn btn-outline btn-sm" style="border-color: #22c55e; color: #22c55e;" title="Chat with TransMove on WhatsApp">
-              💬 Chat with TransMove on WhatsApp
+              <i data-lucide="message-circle" aria-hidden="true"></i><span>Chat with TransMove on WhatsApp</span>
             </button>
             <button id="btn-footer-share" class="btn btn-outline btn-sm" style="border-color: var(--border-light); color: var(--text-main);" title="Share TransMove">
-              🔗 Share TransMove
+              <i data-lucide="share-2" aria-hidden="true"></i><span>Share TransMove</span>
             </button>
             <div id="footer-social-links" style="display: flex; gap: 0.5rem; align-items: center;"></div>
             <div style="display: flex; gap: 1.25rem; font-size: 0.875rem; color: var(--text-muted); margin-left: 0.5rem;">
@@ -92,7 +95,11 @@
     <div id="mobile-nav-mount"></div>
   </div>
 
+  <script>
+    window.lucide?.createIcons({ attrs: { class: "tm-icon", "stroke-width": 2, "aria-hidden": "true" } });
+  </script>
+
   <!-- Main ES Module Bootstrap -->
-  <script type="module" src="assets/js/app.js?v=20260918-mobile-blue-red"></script>
+  <script type="module" src="assets/js/app.js?v=20260920-mobile-icons"></script>
 </body>
 </html>

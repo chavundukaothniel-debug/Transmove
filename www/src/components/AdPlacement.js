@@ -3,6 +3,7 @@
 // Renders real approved advertisements for targeted dashboard placements
 // ==============================================================================
 import { AdvertisingService } from "../services/advertising.js";
+import { icon } from "./Icon.js";
 
 const escapeHtml = (value) => {
   if (value === null || value === undefined) return "";
@@ -71,7 +72,7 @@ export const AdPlacement = {
           <div style="font-size: 0.85rem; color: var(--text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${escapeHtml(ad.description)}</div>
         </div>
         <button id="btn-ad-click-${escapeHtml(ad.id)}" class="btn btn-outline btn-sm" style="white-space: nowrap;">
-          View Offer ↗
+                  View Offer ${icon("external-link", 16)}
         </button>
       `;
 

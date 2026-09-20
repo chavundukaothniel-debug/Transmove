@@ -1,3 +1,5 @@
+import { icon } from "./Icon.js";
+
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 }[char]));
@@ -45,8 +47,8 @@ export const SmartPopup = {
             <h2 class="smart-popup-title">${escapeHtml(options.title)}</h2>
           </div>
           <div class="smart-popup-window-actions">
-            ${options.minimizable ? `<button type="button" class="smart-popup-minimize" aria-label="Minimize">−</button>` : ""}
-            ${options.dismissible === false ? "" : `<button type="button" class="smart-popup-close" aria-label="Close">×</button>`}
+            ${options.minimizable ? `<button type="button" class="smart-popup-minimize" aria-label="Minimize" title="Minimize">${icon("minus", 18)}</button>` : ""}
+            ${options.dismissible === false ? "" : `<button type="button" class="smart-popup-close" aria-label="Close" title="Close">${icon("x", 18)}</button>`}
           </div>
         </header>
         <div class="smart-popup-connection" ${options.connectionLost ? "" : "hidden"}><strong>Connection lost</strong><span>Trying to reconnect…</span></div>

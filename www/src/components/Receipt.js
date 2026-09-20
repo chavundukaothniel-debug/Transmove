@@ -1,6 +1,7 @@
 // ==============================================================================
 // TRANSMOVE OFFICIAL RECEIPT RENDERER COMPONENT
 // ==============================================================================
+import { icon } from "./Icon.js";
 
 export function renderReceiptModal(booking, transaction) {
   const receiptNum = transaction?.internal_reference || `TM-RCT-${(booking?.id || Date.now()).slice(0, 8).toUpperCase()}`;
@@ -57,10 +58,10 @@ export function renderReceiptModal(booking, transaction) {
       <!-- Route Details -->
       <div style="font-size: 0.85rem; margin-bottom: 1.25rem; background: #f8fafc; padding: 0.85rem; border-radius: 8px;">
         <div style="margin-bottom: 0.35rem;">
-          <strong style="color: #10b981;">🟢 Pickup:</strong> ${booking?.pickup_address || "Pickup Location"}
+          <strong class="icon-label" style="color: #10b981;">${icon("map-pin", 16)}<span>Pickup:</span></strong> ${booking?.pickup_address || "Pickup Location"}
         </div>
         <div>
-          <strong style="color: #ef4444;">🔴 Destination:</strong> ${booking?.destination_address || "Drop-off Location"}
+          <strong class="icon-label" style="color: #ef4444;">${icon("flag", 16)}<span>Destination:</span></strong> ${booking?.destination_address || "Drop-off Location"}
         </div>
       </div>
 
@@ -84,7 +85,7 @@ export function renderReceiptModal(booking, transaction) {
       <!-- Action Buttons -->
       <div style="display: flex; gap: 0.75rem;">
         <button onclick="window.print()" class="btn btn-primary btn-full" style="background: #10b981; border: none; font-weight: 700;">
-          🖨️ Print / Download Receipt
+        ${icon("printer", 17)}<span>Print / Download Receipt</span>
         </button>
       </div>
 

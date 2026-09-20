@@ -6,6 +6,7 @@
 import { NotificationService } from "../services/notifications.js";
 import { ThemeService } from "../services/theme.js";
 import { Modal } from "./Modal.js";
+import { icon } from "./Icon.js";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -95,27 +96,19 @@ export function initHeaderNotifications(currentProfile) {
               `).join("")}
             </div>
           `;
-        Modal.open("🔔 Notifications", content);
+        Modal.open("Notifications", content);
         await Promise.all((list || []).filter(n => !n.is_read).map(n => NotificationService.markAsRead(n.id)));
         refreshUnreadDot();
       } catch (err) {
-        Modal.open("🔔 Notifications", `<div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">Could not load notifications: ${escapeHtml(err.message)}</div>`);
+        Modal.open("Notifications", `<div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">Could not load notifications: ${escapeHtml(err.message)}</div>`);
       }
     });
   }
 }
 
 export const headerIcon = (name, size = 22) => {
-  const paths = {
-    menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
-    bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>',
-    message: '<path d="M21 15a3 3 0 0 1-3 3H8l-5 3V6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v9Z"/>',
-    chevron: '<path d="m9 10 3 3 3-3"/>',
-    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
-    moon: '<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>'
-  };
-
-  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || ""}</svg>`;
+  const names = { message: "message-circle", chevron: "chevron-down" };
+  return icon(names[name] || name, size);
 };
 
 export function renderHeader(currentProfile, currentRoute) {
@@ -185,9 +178,7 @@ export function renderHeader(currentProfile, currentRoute) {
           ${headerIcon("menu", 25)}
         </button>
         <a class="header-mobile-brand" href="${isAuth ? `#${currentProfile?.role === "driver" ? "driver" : "customer"}` : "#home"}" aria-label="TransMove home">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M19 17h2v-3c0-1-.8-1.8-1.7-2L16 11l-2.2-2.5a2.5 2.5 0 0 0-1.9-.8H6.2c-.9 0-1.7.5-2.1 1.3L3 11.5V17h2"/><path d="M9 17h6"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/>
-          </svg>
+          ${icon("car-front", 26)}
           <span>Trans<em>Move</em></span>
         </a>
         <h1 class="header-page-title" style="font-size: 1.2rem; font-weight: 800; color: var(--text-main); margin: 0;">${pageTitle}</h1>
@@ -202,13 +193,13 @@ export function renderHeader(currentProfile, currentRoute) {
         ${isAuth ? `
           <!-- Notifications (Private - Authenticated only) -->
           <a href="${notificationTarget}" id="btn-header-notifications" class="header-icon-btn" title="Notifications" aria-label="Notifications" style="background: transparent; border: none; cursor: pointer; position: relative; padding: 0.35rem; text-decoration: none; color: var(--text-main);">
-            ${isPassengerDashboard ? headerIcon("bell", 24) : "🔔"}
+            ${headerIcon("bell", 24)}
             <span class="icon-badge-dot" style="position: absolute; top: 2px; right: 2px; width: 7px; height: 7px; border-radius: 50%; background: #ef4444; display: none;"></span>
           </a>
 
           <!-- Messages Link (Private - Authenticated only) -->
-          <a href="#messages" class="header-icon-btn header-messages-link" title="Messages" style="background: transparent; border: none; font-size: 1.15rem; cursor: pointer; text-decoration: none; padding: 0.35rem; color: var(--text-main);">
-            ${isPassengerDashboard ? headerIcon("message", 22) : "💬"}
+          <a href="#messages" class="header-icon-btn header-messages-link" title="Messages" aria-label="Messages" style="background: transparent; border: none; font-size: 1.15rem; cursor: pointer; text-decoration: none; padding: 0.35rem; color: var(--text-main);">
+            ${headerIcon("message", 22)}
           </a>
 
           <!-- Profile Avatar & User Pill -->

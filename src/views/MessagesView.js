@@ -4,6 +4,8 @@
 import { MessagingService } from "../services/messaging.js";
 import { BookingService } from "../services/bids.js";
 import { AuthService } from "../services/auth.js";
+import { renderEmptyState } from "../components/EmptyState.js";
+import { icon } from "../components/Icon.js";
 const fileViewUrl = (fileId) => {
   if (!fileId) return "";
   return `/api/files/preview/${encodeURIComponent(fileId)}`;
@@ -35,18 +37,18 @@ export const MessagesView = {
         <div class="passenger-page-heading"><div><h2>Messages</h2><p>Coordinate safely with drivers assigned to your bookings.</p></div></div>
         <section class="passenger-messages-layout ${showingThread ? "is-thread-open" : "is-list-open"}">
           <aside class="conversation-panel">
-            <div class="conversation-search"><span>⌕</span><input type="search" id="conversation-search-input" placeholder="Search conversations…" aria-label="Search conversations"></div>
+            <div class="conversation-search">${icon("search", 17)}<input type="search" id="conversation-search-input" placeholder="Search conversations…" aria-label="Search conversations"></div>
             <div id="passenger-conversation-list" class="conversation-list"><div class="tm-skeleton-state" aria-label="Loading conversations"><i></i><i></i><i></i></div></div>
           </aside>
           <div class="conversation-chat-panel">
             <div class="conversation-chat-header">
-              <a href="#messages" class="conversation-mobile-back" aria-label="Back to conversations">←</a>
+              <a href="#messages" class="conversation-mobile-back" aria-label="Back to conversations" title="Back to conversations">${icon("arrow-left", 19)}</a>
               <div><strong id="chat-subheading">Select a conversation</strong><small>Booking messages</small></div>
             </div>
             <div id="chat-messages-box" class="chat-messages"><div class="passenger-loading-state">Select a booking to view messages.</div></div>
             <form id="chat-form" class="chat-input-bar">
               <input type="text" id="chat-input-text" class="form-input" placeholder="Type a message…" required autocomplete="off">
-              <button type="submit" class="btn btn-primary btn-sm" aria-label="Send message">Send</button>
+              <button type="submit" class="btn btn-primary btn-sm chat-send-button" aria-label="Send message">${icon("send", 17)}<span>Send</span></button>
             </form>
           </div>
         </section>
@@ -79,7 +81,7 @@ export const MessagesView = {
             <h2 style="font-size: 1.4rem; font-weight: 800;">Trip Chat</h2>
             <p id="chat-subheading" style="color: var(--text-muted); font-size: 0.85rem;">Secure trip conversation</p>
           </div>
-          <a href="#${dashboardRoute}" class="btn btn-outline btn-sm">← Back to Dashboard</a>
+          <a href="#${dashboardRoute}" class="btn btn-outline btn-sm">${icon("arrow-left", 17)}<span>Back to Dashboard</span></a>
         </div>
 
         <div class="chat-window">
@@ -90,21 +92,21 @@ export const MessagesView = {
           </div>
 
           <div id="quick-messages-bar" style="display: flex; gap: 0.5rem; overflow-x: auto; padding: 0.5rem 1rem; background: var(--bg-subtle); border-top: 1px solid var(--border-light);">
-            <button class="btn btn-outline btn-sm quick-msg-pill" style="font-size: 0.75rem; white-space: nowrap; border-radius: var(--radius-full);">
-              📍 I'm at the pickup point.
+            <button type="button" class="btn btn-outline btn-sm quick-msg-pill icon-label" data-message="I'm at the pickup point." style="font-size: 0.75rem; white-space: nowrap; border-radius: var(--radius-full);">
+              ${icon("map-pin", 14)}<span>I'm at the pickup point.</span>
             </button>
-            <button class="btn btn-outline btn-sm quick-msg-pill" style="font-size: 0.75rem; white-space: nowrap; border-radius: var(--radius-full);">
-              🚪 Please move to the main gate.
+            <button type="button" class="btn btn-outline btn-sm quick-msg-pill icon-label" data-message="Please move to the main gate." style="font-size: 0.75rem; white-space: nowrap; border-radius: var(--radius-full);">
+              ${icon("door-open", 14)}<span>Please move to the main gate.</span>
             </button>
-            <button class="btn btn-outline btn-sm quick-msg-pill" style="font-size: 0.75rem; white-space: nowrap; border-radius: var(--radius-full);">
-              ⏱️ I'm arriving in 2 minutes.
+            <button type="button" class="btn btn-outline btn-sm quick-msg-pill icon-label" data-message="I'm arriving in 2 minutes." style="font-size: 0.75rem; white-space: nowrap; border-radius: var(--radius-full);">
+              ${icon("clock-3", 14)}<span>I'm arriving in 2 minutes.</span>
             </button>
           </div>
 
           <form id="chat-form" class="chat-input-bar">
             <input type="text" id="chat-input-text" class="form-input" placeholder="Type your message..." required autocomplete="off" />
-            <button type="submit" class="btn btn-primary btn-sm" style="padding: 0 1.25rem;">
-              Send
+            <button type="submit" class="btn btn-primary btn-sm chat-send-button" style="padding: 0 1.25rem;" aria-label="Send message">
+              ${icon("send", 17)}<span>Send</span>
             </button>
           </form>
         </div>
@@ -186,7 +188,7 @@ export const MessagesView = {
     // Quick message pill clicks
     document.querySelectorAll(".quick-msg-pill").forEach((pill) => {
       pill.addEventListener("click", async (e) => {
-        const text = e.target.innerText.replace(/^[^\s]+\s/, ""); // strip emoji prefix
+        const text = e.currentTarget.getAttribute("data-message") || e.currentTarget.innerText.trim();
         const input = document.getElementById("chat-input-text");
         if (input) {
           input.value = text;
@@ -291,10 +293,10 @@ export const MessagesView = {
     el.className = `chat-bubble ${isMine ? "mine" : "theirs"}`;
     if (messageId) el.dataset.messageId = messageId;
     el.innerHTML = `
-      <div style="font-size: 0.75rem; opacity: 0.8; margin-bottom: 0.2rem;">
+      <div class="chat-message-meta">
         ${escapeHtml(senderName)} • ${escapeHtml(timestamp)}
       </div>
-      <div>${escapeHtml(msg.content || msg.message || "")}</div>
+      <div class="chat-message-content">${escapeHtml(msg.content || msg.message || "")}</div>
     `;
     return el;
   },

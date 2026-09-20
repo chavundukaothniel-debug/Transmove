@@ -5,6 +5,7 @@ import { getSupabaseCredentials } from "../config/supabase.js";
 import { Modal } from "./Modal.js";
 import { saveSupabaseCredentials } from "../config/supabase.js";
 import { ThemeService } from "../services/theme.js";
+import { icon } from "./Icon.js";
 
 export function renderNavbar(currentProfile, currentRoute) {
   const isAuth = Boolean(currentProfile);
@@ -17,12 +18,7 @@ export function renderNavbar(currentProfile, currentRoute) {
     <nav class="navbar">
       <div class="navbar-inner">
         <a href="#home" id="brand-logo-stealth" class="brand-logo" title="TransMove Marketplace">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/>
-            <circle cx="7" cy="17" r="2"/>
-            <path d="M9 17h6"/>
-            <circle cx="17" cy="17" r="2"/>
-          </svg>
+          ${icon("car-front", 28)}
           Trans<span>Move</span>
         </a>
 
@@ -50,19 +46,19 @@ export function renderNavbar(currentProfile, currentRoute) {
 
           ${isAdmin ? `
             <a href="#admin" class="nav-link ${currentRoute === "admin" ? "active" : ""}" style="color: #ef4444; font-weight: 700;">
-              🛡️ Admin
+              ${icon("shield-check", 17)}<span>Admin</span>
             </a>
           ` : ""}
         </div>
 
         <div class="nav-actions">
           <button id="btn-theme-toggle" class="btn btn-outline btn-sm" title="Toggle Light/Dark Theme" style="display: flex; align-items: center; gap: 0.3rem; padding: 0.35rem 0.65rem;">
-            ${currentTheme === "dark" ? "☀️ Light" : "🌙 Dark"}
+          ${currentTheme === "dark" ? `${icon("sun", 17)}<span>Light</span>` : `${icon("moon", 17)}<span>Dark</span>`}
           </button>
 
           ${!isConfigured ? `
             <button id="btn-quick-setup-supabase" class="btn btn-sm" style="background: #fef3c7; color: #b45309; border: 1px solid #fcd34d; font-weight: 700;">
-              ⚙️ Connect DB
+          ${icon("database", 17)}<span>Connect DB</span>
             </button>
           ` : ""}
 
@@ -71,7 +67,7 @@ export function renderNavbar(currentProfile, currentRoute) {
               ${role.toUpperCase()}
             </span>
             <a href="#profile" class="btn btn-outline btn-sm">
-              👤 ${currentProfile.full_name?.split(" ")[0] || "Profile"}
+              ${icon("user-round", 17)}<span>${currentProfile.full_name?.split(" ")[0] || "Profile"}</span>
             </a>
             <button id="btn-logout" class="btn btn-outline btn-sm">
               Sign Out
@@ -110,7 +106,7 @@ export function openSupabaseConfigModal() {
         </div>
 
         <button id="btn-save-supa-cfg" class="btn btn-primary btn-full" style="margin-top: 0.5rem;">
-          Save &amp; Connect Live Database ⚡
+          ${icon("plug-zap", 18)}<span>Save &amp; Connect Live Database</span>
         </button>
       </div>
     `

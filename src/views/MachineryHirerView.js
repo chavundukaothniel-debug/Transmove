@@ -4,6 +4,7 @@
 // ==============================================================================
 import { EquipmentService } from "../services/equipment.js";
 import { renderEmptyState } from "../components/EmptyState.js";
+import { icon } from "../components/Icon.js";
 
 const escapeHtml = (value) => {
   if (value === null || value === undefined) return "";
@@ -32,7 +33,7 @@ export const MachineryHirerView = {
             </div>
             <div>
               <a href="#equipment" class="btn btn-primary">
-                🔍 Browse All Equipment
+          ${icon("search", 18)}<span>Browse All Equipment</span>
               </a>
             </div>
           </div>
@@ -59,7 +60,7 @@ export const MachineryHirerView = {
 
         <!-- Machinery Marketplace List -->
         <div class="card">
-          <h3 style="font-size: 1.15rem; font-weight: 800; margin-bottom: 1.25rem;">🚜 Available Verified Equipment for Hire</h3>
+        <h3 class="icon-label" style="font-size: 1.15rem; font-weight: 800; margin-bottom: 1.25rem;">${icon("tractor", 20)}<span>Available Verified Equipment for Hire</span></h3>
           <div id="hirer-equipment-marketplace">
             <div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">
               Loading available machinery...
@@ -96,7 +97,7 @@ export const MachineryHirerView = {
             <span class="badge badge-info" style="font-size: 0.7rem;">${escapeHtml(m.category?.toUpperCase() || "MACHINERY")}</span>
             <h4 style="font-size: 1.05rem; font-weight: 700; margin: 0.35rem 0 0.15rem 0;">${escapeHtml(m.title)}</h4>
             <div style="font-size: 0.85rem; color: var(--text-muted);">
-              📍 Location: <strong>${escapeHtml(m.location_name)}</strong> • ${escapeHtml(m.make)} ${escapeHtml(m.model)}
+              <span class="icon-label icon-label--inline">${icon("map-pin", 15)}<span>Location: <strong>${escapeHtml(m.location_name)}</strong></span></span> • ${escapeHtml(m.make)} ${escapeHtml(m.model)}
             </div>
             <div style="font-size: 0.85rem; margin-top: 0.5rem; color: var(--text-muted);">
               ${escapeHtml(m.description)}
@@ -105,7 +106,7 @@ export const MachineryHirerView = {
           <div style="text-align: right;">
             <div style="font-size: 1.25rem; font-weight: 800; color: var(--primary);">$${escapeHtml(m.rate_per_day)} <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 500;">/ day</span></div>
             <button class="btn btn-primary btn-sm" disabled title="Equipment hire requests are not available on TransMove yet" style="margin-top: 0.5rem;">
-              Request Hire Quote 🚜
+              ${icon("calendar-plus", 17)}<span>Request Hire Quote</span>
             </button>
           </div>
         </div>

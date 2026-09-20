@@ -4,6 +4,7 @@
 import { CorporateService } from "../services/corporate.js";
 import { AuthService } from "../services/auth.js";
 import { renderEmptyState } from "../components/EmptyState.js";
+import { icon } from "../components/Icon.js";
 
 const escapeHtml = (value) => {
   if (value === null || value === undefined) return "";
@@ -28,7 +29,7 @@ export const BusinessView = {
             </div>
             <div>
               <button id="btn-create-corp-account" class="btn btn-primary">
-                🏢 Register Business Account
+            ${icon("building-2", 18)}<span>Register Business Account</span>
               </button>
             </div>
           </div>
@@ -59,7 +60,7 @@ export const BusinessView = {
             
             <div style="display: flex; flex-direction: column; gap: 1rem;">
               <div style="padding: 1.25rem; background: var(--bg-subtle); border-radius: var(--radius-md);">
-                <h4 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 0.35rem;">💼 Employee Commutes &amp; Executive Rides</h4>
+            <h4 class="icon-label" style="font-size: 1.05rem; font-weight: 700; margin-bottom: 0.35rem;">${icon("briefcase-business", 19)}<span>Employee Commutes &amp; Executive Rides</span></h4>
                 <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 0.75rem;">
                   Consolidate company travel with verified sedan and SUV transport options on transparent fare bidding.
                 </p>
@@ -67,7 +68,7 @@ export const BusinessView = {
               </div>
 
               <div style="padding: 1.25rem; background: var(--bg-subtle); border-radius: var(--radius-md);">
-                <h4 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 0.35rem;">📦 Commercial Cargo &amp; Bulk Logistics</h4>
+            <h4 class="icon-label" style="font-size: 1.05rem; font-weight: 700; margin-bottom: 0.35rem;">${icon("package", 19)}<span>Commercial Cargo &amp; Bulk Logistics</span></h4>
                 <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 0.75rem;">
                   Move goods, agricultural produce, machinery, and inventory across Zimbabwe with 3-tonne and 10-tonne trucks.
                 </p>
@@ -75,7 +76,7 @@ export const BusinessView = {
               </div>
 
               <div style="padding: 1.25rem; background: var(--bg-subtle); border-radius: var(--radius-md);">
-                <h4 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 0.35rem;">🚜 Site Machinery &amp; Equipment Fleet</h4>
+            <h4 class="icon-label" style="font-size: 1.05rem; font-weight: 700; margin-bottom: 0.35rem;">${icon("tractor", 19)}<span>Site Machinery &amp; Equipment Fleet</span></h4>
                 <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 0.75rem;">
                   Direct hire for tractors, excavators, tipper trucks, and cranes directly from verified equipment owners.
                 </p>

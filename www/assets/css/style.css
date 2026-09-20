@@ -5916,3 +5916,362 @@ html[data-theme="dark"] body .recent-booking-main span {
 [data-theme="dark"] .mobile-count-stepper button,
 [data-theme="dark"] .request-price-chips button { background: #181818; border-color: #2b2b2b; color: #f8fbff; }
 [data-theme="dark"] .passenger-place-shortcuts small { color: #f8fbff; }
+
+/* ========================================================================== */
+/* PROFESSIONAL ICONS + ANDROID LAYOUT HARDENING                              */
+/* ========================================================================== */
+
+.tm-icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  vertical-align: -0.16em;
+  color: currentColor;
+}
+
+.tm-icon--missing { width: 1em; height: 1em; }
+.tm-icon.is-filled,
+.rating-icons .tm-icon.is-filled { fill: currentColor; }
+
+.icon-label {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.42rem;
+}
+
+.icon-label > span { min-width: 0; overflow-wrap: anywhere; }
+.icon-label--inline { display: inline-flex; vertical-align: middle; }
+.feature-icon { display: inline-flex; align-items: center; justify-content: center; color: currentColor; }
+.rating-icons { display: inline-flex; align-items: center; gap: 0.12rem; color: #d97706; vertical-align: middle; }
+.status-badge { max-width: 100%; white-space: nowrap; }
+
+.btn,
+.nav-link,
+.sidebar-link,
+.mobile-nav-link {
+  max-width: 100%;
+}
+
+.btn {
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.btn > span { min-width: 0; overflow-wrap: anywhere; }
+.btn > .tm-icon { flex-shrink: 0; }
+
+.icon-button,
+.header-icon-btn,
+.btn-password-toggle {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.55rem;
+}
+
+.icon-button { width: 44px; height: 44px; flex: 0 0 44px; }
+
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.action-group {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.card,
+.card-header,
+.dashboard-header,
+.app-main > *,
+.grid-2 > *,
+.grid-3 > *,
+.grid-4 > *,
+.kpi-grid > *,
+.summary-cards-grid > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.card,
+.toast,
+.notification-row,
+.booking-list-row,
+.quote-driver-row,
+.job-row,
+.driver-vehicle-card {
+  overflow-wrap: anywhere;
+}
+
+.form-input,
+.form-select,
+.form-textarea,
+input,
+select,
+textarea {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.table-responsive,
+.admin-portal [style*="overflow-x: auto"] {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-responsive table,
+.admin-portal table { min-width: 680px; }
+
+.driver-vehicle-photo {
+  width: 100%;
+  height: 160px;
+  margin-bottom: 0.9rem;
+  border-radius: 10px;
+  object-fit: cover;
+  background: var(--bg-subtle);
+}
+
+.driver-vehicle-heading { min-width: 0; gap: 0.65rem; flex-wrap: wrap; }
+.driver-vehicle-title { min-width: 0; flex: 1 1 12rem; overflow-wrap: anywhere; }
+.driver-vehicle-actions .btn:not(.icon-button) { flex: 1 1 7.5rem; }
+
+.modal-backdrop {
+  padding:
+    max(1rem, env(safe-area-inset-top))
+    max(1rem, env(safe-area-inset-right))
+    max(1rem, env(safe-area-inset-bottom))
+    max(1rem, env(safe-area-inset-left));
+}
+
+.modal-card {
+  width: min(540px, calc(100vw - 2rem));
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.modal-card .card-header { gap: 0.75rem; }
+.modal-card .card-title { min-width: 0; overflow-wrap: anywhere; }
+.modal-body { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.modal-card form > div:last-child:has(.btn) { flex-wrap: wrap; }
+
+.smart-popup-backdrop {
+  padding-left: max(1.25rem, env(safe-area-inset-left));
+  padding-right: max(1.25rem, env(safe-area-inset-right));
+  padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+}
+
+.smart-popup-card { max-width: calc(100vw - 2rem); max-height: calc(100dvh - 2rem); }
+.smart-popup-header > div:first-child { min-width: 0; }
+.smart-popup-title { overflow-wrap: anywhere; }
+.smart-popup-minimize,
+.smart-popup-close { min-width: 44px; min-height: 44px; }
+
+.toast-container {
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  left: auto;
+  width: min(380px, calc(100vw - 2rem));
+}
+
+.toast { min-width: 0; max-width: 100%; }
+
+.passenger-messages-layout,
+.conversation-panel,
+.conversation-chat-panel,
+.conversation-list,
+.chat-window,
+.chat-messages,
+.chat-input-bar {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.conversation-item > span:nth-child(2),
+.conversation-chat-header > div { min-width: 0; }
+.conversation-item time { flex: 0 0 auto; white-space: nowrap; }
+.conversation-chat-header { gap: 0.65rem; }
+.conversation-chat-header strong,
+.conversation-chat-header small { overflow-wrap: anywhere; }
+
+.chat-bubble {
+  width: fit-content;
+  max-width: min(78%, 34rem);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.chat-message-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  margin-bottom: 0.2rem;
+  font-size: 0.75rem;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
+}
+
+.chat-message-content { white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-input-bar { align-items: center; }
+.chat-input-bar .form-input { flex: 1 1 auto; width: auto; }
+.chat-send-button { flex: 0 0 auto; min-height: 44px; }
+
+.header-left { min-width: 0; flex: 1 1 auto; }
+.header-page-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.header-right { flex: 0 0 auto; }
+.header-mobile-brand { min-width: 0; }
+
+@supports (padding: max(0px)) {
+  .app-header {
+    padding-left: max(0.8rem, env(safe-area-inset-left)) !important;
+    padding-right: max(0.8rem, env(safe-area-inset-right)) !important;
+  }
+
+  .mobile-bottom-nav {
+    padding-left: env(safe-area-inset-left) !important;
+    padding-right: env(safe-area-inset-right) !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-main { width: 100%; min-width: 0; }
+  .app-header { height: auto !important; }
+  .header-icon-btn { width: 44px !important; height: 44px !important; padding: 0.6rem !important; }
+
+  .mobile-nav-link {
+    min-height: 60px;
+    justify-content: center;
+    padding: 0.25rem 0.1rem;
+    text-align: center;
+  }
+
+  .mobile-nav-label {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    font-size: clamp(0.58rem, 2.7vw, 0.68rem);
+    line-height: 1.05;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chat-window {
+    height: min(620px, calc(100dvh - 158px));
+    min-height: 0;
+  }
+
+  .passenger-messages-layout { min-height: calc(100dvh - 158px); }
+  .passenger-messages-layout.is-thread-open .conversation-chat-panel { min-height: 0 !important; height: calc(100dvh - 158px); }
+  .conversation-chat-panel .chat-messages { min-height: 0; }
+  .chat-messages { padding: 0.85rem; }
+  .chat-bubble { max-width: 86%; padding: 0.65rem 0.8rem; }
+  .chat-input-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    padding: 0.65rem max(0.7rem, env(safe-area-inset-right)) max(0.65rem, env(safe-area-inset-bottom)) max(0.7rem, env(safe-area-inset-left));
+  }
+
+  .chat-send-button { min-width: 84px; }
+  .driver-vehicle-card { padding: 1rem !important; }
+  .driver-vehicle-heading { align-items: flex-start !important; }
+  .driver-vehicle-heading .status-badge { flex: 0 0 auto; }
+  .driver-vehicle-actions .btn:not(.icon-button) { flex: 1 1 calc(50% - 0.5rem); min-height: 44px; }
+
+  .modal-card { padding: 1rem; }
+  .modal-card .card-header { align-items: flex-start; }
+  .modal-card form > div:last-child:has(.btn) .btn { flex: 1 1 9rem; }
+
+  .toast-container {
+    right: max(0.75rem, env(safe-area-inset-right));
+    bottom: calc(76px + env(safe-area-inset-bottom));
+    left: max(0.75rem, env(safe-area-inset-left));
+    width: auto;
+  }
+}
+
+@media (max-width: 430px) {
+  .card-header { align-items: flex-start; gap: 0.65rem; flex-wrap: wrap; }
+  .card-header > :not(.icon-button) { min-width: 0; }
+  #vehicles-full-list { grid-template-columns: minmax(0, 1fr) !important; }
+  .driver-vehicles-section-header {
+    align-items: stretch !important;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+  .driver-vehicles-section-header .btn { width: 100%; }
+  .driver-vehicle-actions .btn:not(.icon-button) { flex-basis: 100%; }
+  .chat-input-bar { gap: 0.4rem; }
+  .chat-send-button { min-width: 50px; padding-inline: 0.75rem; }
+}
+
+@media (max-width: 340px) {
+  .header-mobile-brand span { display: none; }
+  .chat-send-button span { display: none; }
+  .chat-send-button { width: 44px; min-width: 44px; padding: 0.55rem; }
+}
+
+/* Production Mobile & Android WebView Viewport Polishing */
+html, body, #app, .app-shell {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.smart-popup-card,
+.modal-card,
+.modal-content,
+.dialog-box {
+  max-width: min(calc(100vw - 1.25rem), 540px) !important;
+  max-height: min(calc(100dvh - 2rem), 92vh) !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+}
+
+.smart-popup-actions,
+.modal-actions,
+.dialog-actions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 0.5rem !important;
+}
+
+.smart-popup-actions .btn,
+.modal-actions .btn,
+.dialog-actions .btn {
+  flex: 1 1 120px;
+  min-height: 44px;
+}
+
+.table-responsive,
+.admin-table-container,
+.responsive-table-wrap {
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: 1rem;
+}
+
+.btn, button, [role="button"] {
+  touch-action: manipulation;
+}
+
+.smart-sheet-status-box,
+.smart-sheet-driver-card,
+.smart-popup-profile,
+.smart-sheet-route-flow {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+

@@ -201,6 +201,104 @@ class SupabaseBackendEngine {
     } catch (_) {}
   }
 
+  async _hydrateBooking(booking) {
+    if (!booking) return null;
+    const b = { ...booking };
+    b.amount = Number(b.amount !== undefined && b.amount !== null ? b.amount : (b.final_price || 0));
+
+    // Hydrate driver
+    if (!b.driver || !b.driver.full_name) {
+      if (b.driver_id && this.isLive && this.supabaseAdmin) {
+        try {
+          const { data: prof } = await this.supabaseAdmin
+            .from("profiles")
+            .select("id, full_name, phone, profile_image_id, profile_photo_url, rating_avg, rating_count, verification_status")
+            .eq("id", b.driver_id)
+            .single();
+          if (prof) b.driver = prof;
+        } catch (_) {}
+      }
+      if (!b.driver || !b.driver.full_name) {
+        const localProf = (this.db.profiles || []).find((p) => (p.id === b.driver_id || p.user_id === b.driver_id));
+        if (localProf) {
+          b.driver = localProf;
+        } else {
+          b.driver = { id: b.driver_id, full_name: "Assigned Driver" };
+        }
+      }
+    }
+
+    // Hydrate vehicle
+    if (!b.vehicle || !b.vehicle.make) {
+      const vId = b.vehicle_id;
+      if (vId && this.isLive && this.supabaseAdmin) {
+        try {
+          const { data: veh } = await this.supabaseAdmin
+            .from("vehicles")
+            .select("id, make, model, year, colour, registration_number, verification_status")
+            .eq("id", vId)
+            .single();
+          if (veh) b.vehicle = veh;
+        } catch (_) {}
+      }
+      if (!b.vehicle && b.driver_id && this.isLive && this.supabaseAdmin) {
+        try {
+          const { data: primaryVeh } = await this.supabaseAdmin
+            .from("vehicles")
+            .select("id, make, model, year, colour, registration_number, verification_status")
+            .eq("driver_id", b.driver_id)
+            .eq("is_primary", true)
+            .limit(1);
+          if (primaryVeh && primaryVeh.length > 0) b.vehicle = primaryVeh[0];
+        } catch (_) {}
+      }
+      if (!b.vehicle || !b.vehicle.make) {
+        const localVeh = (this.db.vehicles || []).find((v) => v.id === b.vehicle_id || (v.driver_id === b.driver_id && v.is_primary));
+        if (localVeh) {
+          b.vehicle = localVeh;
+        }
+      }
+    }
+
+    // Hydrate request
+    if (!b.request || !b.request.pickup_location) {
+      if (b.request_id && this.isLive && this.supabaseAdmin) {
+        try {
+          const { data: req } = await this.supabaseAdmin
+            .from("service_requests")
+            .select("*")
+            .eq("id", b.request_id)
+            .single();
+          if (req) b.request = req;
+        } catch (_) {}
+      }
+      if (!b.request) {
+        const localReq = (this.db.service_requests || []).find((r) => r.id === b.request_id);
+        if (localReq) b.request = localReq;
+      }
+    }
+
+    // Hydrate passenger
+    if (!b.passenger && b.passenger_id) {
+      if (this.isLive && this.supabaseAdmin) {
+        try {
+          const { data: pass } = await this.supabaseAdmin
+            .from("profiles")
+            .select("id, full_name, phone, profile_image_id, profile_photo_url")
+            .eq("id", b.passenger_id)
+            .single();
+          if (pass) b.passenger = pass;
+        } catch (_) {}
+      }
+      if (!b.passenger) {
+        const localPass = (this.db.profiles || []).find((p) => p.id === b.passenger_id || p.user_id === b.passenger_id);
+        if (localPass) b.passenger = localPass;
+      }
+    }
+
+    return b;
+  }
+
   async authenticateUser(jwt) {
     if (!jwt) throw new Error("Missing Authorization token.");
 
@@ -227,7 +325,9 @@ class SupabaseBackendEngine {
 
     // Check if jwt is a direct test mock ID
     if (jwt.startsWith("test_") || jwt.startsWith("usr_") || jwt.startsWith("driver_") || jwt.startsWith("passenger_") || jwt.startsWith("admin_")) {
-      return { id: jwt, email: `${jwt}@transmove.test`, name: "Test User" };
+      const stripped = jwt.replace(/^(driver_|passenger_|admin_|test_|usr_)/, "");
+      const finalId = stripped || jwt;
+      return { id: finalId, email: `${jwt}@transmove.test`, name: "Test User" };
     }
 
     throw new Error("Unauthorized: Invalid or expired authentication token.");
@@ -1442,119 +1542,401 @@ class SupabaseBackendEngine {
     // =========================================================================
     if (action === "accept_bid") {
       const bidId = data.bid_id;
-      const bid = this.db.bids.find((b) => b.id === bidId);
+      if (!bidId) throw new Error("bid_id is required to accept a bid.");
+
+      let bid = (this.db.bids || []).find((b) => b.id === bidId);
+      if (!bid && this.isLive && this.supabaseAdmin) {
+        try {
+          const { data: sbBid } = await this.supabaseAdmin.from("bids").select("*").eq("id", bidId).single();
+          if (sbBid) bid = sbBid;
+        } catch (_) {}
+      }
       if (!bid) throw new Error("Bid not found.");
 
-      const req = this.db.service_requests.find((r) => r.id === bid.request_id);
+      let req = (this.db.service_requests || []).find((r) => r.id === bid.request_id);
+      if (!req && this.isLive && this.supabaseAdmin) {
+        try {
+          const { data: sbReq } = await this.supabaseAdmin.from("service_requests").select("*").eq("id", bid.request_id).single();
+          if (sbReq) req = sbReq;
+        } catch (_) {}
+      }
       if (!req) throw new Error("Request not found.");
       if (req.passenger_id !== userId) throw new Error("Forbidden: You do not own this request.");
 
-      // Generate 4-digit verification PIN
+      // Enforce single active booking for this request
+      const existingLocal = (this.db.bookings || []).find((b) => b.request_id === req.id && b.status !== "cancelled");
+      if (existingLocal) {
+        throw new Error("A booking already exists for this request.");
+      }
+      if (this.isLive && this.supabaseAdmin) {
+        try {
+          const { data: sbBookings } = await this.supabaseAdmin
+            .from("bookings")
+            .select("id, status")
+            .eq("request_id", req.id)
+            .neq("status", "cancelled");
+          if (sbBookings && sbBookings.length > 0) {
+            throw new Error("A booking already exists for this request.");
+          }
+        } catch (err) {
+          if (err.message && err.message.includes("already exists")) throw err;
+        }
+      }
+
+      // Authoritative agreed fare calculation
+      let finalPrice = null;
+      if (data.agreed_fare !== undefined && data.agreed_fare !== null) {
+        finalPrice = parseFloat(data.agreed_fare);
+      } else if (bid.counter_amount !== undefined && bid.counter_amount !== null && !isNaN(parseFloat(bid.counter_amount))) {
+        finalPrice = parseFloat(bid.counter_amount);
+      } else if (bid.amount !== undefined && bid.amount !== null && !isNaN(parseFloat(bid.amount))) {
+        finalPrice = parseFloat(bid.amount);
+      } else if (bid.proposed_price !== undefined && bid.proposed_price !== null && !isNaN(parseFloat(bid.proposed_price))) {
+        finalPrice = parseFloat(bid.proposed_price);
+      }
+      if (finalPrice === null || isNaN(finalPrice) || finalPrice <= 0) {
+        throw new Error("Invalid agreed fare. Fare must be a positive number.");
+      }
+
+      // Generate 4-digit verification PIN server-side
       const tripPin = Math.floor(1000 + Math.random() * 9000).toString();
 
-      const newBooking = {
-        id: `book_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      // Hydrate driver details
+      let driverProfile = null;
+      if (this.isLive && this.supabaseAdmin) {
+        try {
+          const { data: prof } = await this.supabaseAdmin
+            .from("profiles")
+            .select("id, full_name, phone, profile_image_id, profile_photo_url, rating_avg, rating_count, verification_status")
+            .eq("id", bid.driver_id)
+            .single();
+          if (prof) driverProfile = prof;
+        } catch (_) {}
+      }
+      if (!driverProfile) {
+        driverProfile = (this.db.profiles || []).find((p) => p.id === bid.driver_id || p.user_id === bid.driver_id) || {
+          id: bid.driver_id,
+          full_name: "Assigned Driver"
+        };
+      }
+
+      // Hydrate vehicle details
+      let vehicleRecord = null;
+      const targetVehId = bid.vehicle_id;
+      if (targetVehId && this.isLive && this.supabaseAdmin) {
+        try {
+          const { data: veh } = await this.supabaseAdmin
+            .from("vehicles")
+            .select("id, make, model, year, colour, registration_number, verification_status")
+            .eq("id", targetVehId)
+            .single();
+          if (veh) vehicleRecord = veh;
+        } catch (_) {}
+      }
+      if (!vehicleRecord && this.isLive && this.supabaseAdmin) {
+        try {
+          const { data: pVeh } = await this.supabaseAdmin
+            .from("vehicles")
+            .select("id, make, model, year, colour, registration_number, verification_status")
+            .eq("driver_id", bid.driver_id)
+            .eq("is_primary", true)
+            .limit(1);
+          if (pVeh && pVeh.length > 0) vehicleRecord = pVeh[0];
+        } catch (_) {}
+      }
+      if (!vehicleRecord) {
+        vehicleRecord = (this.db.vehicles || []).find((v) => v.id === targetVehId || (v.driver_id === bid.driver_id && v.is_primary)) || null;
+      }
+
+      const now = new Date().toISOString();
+      let bookingId = `book_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+      const bookingInsert = {
         request_id: req.id,
         passenger_id: userId,
         driver_id: bid.driver_id,
-        vehicle_id: bid.vehicle_id,
+        vehicle_id: vehicleRecord?.id || bid.vehicle_id || null,
         accepted_bid_id: bid.id,
-        amount: bid.amount,
+        amount: finalPrice,
         status: "confirmed",
         trip_pin: tripPin,
         payment_status: "pending",
         started_at: null,
         completed_at: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        created_at: now,
+        updated_at: now
       };
 
+      if (this.isLive && this.supabaseAdmin) {
+        try {
+          const { data: inserted, error: bErr } = await this.supabaseAdmin
+            .from("bookings")
+            .insert(bookingInsert)
+            .select()
+            .single();
+          if (!bErr && inserted) {
+            bookingId = inserted.id;
+          } else if (bErr) {
+            console.warn("[SupabaseBackend] bookings insert notice (permission/schema):", bErr.message);
+          }
+        } catch (e) {
+          console.warn("[SupabaseBackend] bookings insert exception:", e.message);
+        }
+
+        // Update service_requests status
+        try {
+          await this.supabaseAdmin.from("service_requests").update({ status: "accepted", updated_at: now }).eq("id", req.id);
+        } catch (_) {}
+
+        // Update bids statuses
+        try {
+          await this.supabaseAdmin.from("bids").update({ status: "accepted", updated_at: now }).eq("id", bid.id);
+          await this.supabaseAdmin.from("bids").update({ status: "rejected", updated_at: now }).eq("request_id", req.id).neq("id", bid.id);
+        } catch (_) {}
+      }
+
+      const newBooking = {
+        id: bookingId,
+        ...bookingInsert,
+        driver: driverProfile,
+        vehicle: vehicleRecord,
+        request: req
+      };
+
+      if (!this.db.bookings) this.db.bookings = [];
       this.db.bookings.push(newBooking);
+
       req.status = "accepted";
-      req.updated_at = new Date().toISOString();
+      req.updated_at = now;
 
       bid.status = "accepted";
-      // Reject other bids
-      this.db.bids.filter((b) => b.request_id === req.id && b.id !== bid.id).forEach((b) => {
+      bid.updated_at = now;
+
+      (this.db.bids || []).filter((b) => b.request_id === req.id && b.id !== bid.id).forEach((b) => {
         b.status = "rejected";
+        b.updated_at = now;
       });
 
       // Notify Driver
+      if (!this.db.notifications) this.db.notifications = [];
       this.db.notifications.push({
         id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         user_id: bid.driver_id,
         type: "job_confirmed",
         title: "Booking Confirmed!",
-        message: `Your offer was accepted for $${bid.amount.toFixed(2)}. Prepare to pick up passenger.`,
+        message: `Your offer was accepted for $${finalPrice.toFixed(2)}. Prepare to pick up passenger.`,
         related_id: newBooking.id,
         read: false,
-        created_at: new Date().toISOString()
+        created_at: now
       });
 
       this._persistLocalDb();
       await logActivity("booking_created", "Trip booking confirmed", `Amount: $${newBooking.amount}`, newBooking.id);
-      return newBooking;
+      return { success: true, bookingId: newBooking.id, booking: newBooking, ...newBooking };
     }
 
     if (action === "update_booking_status") {
       const bookingId = data.booking_id;
-      const newStatus = data.status; // 'driver_arriving' | 'arrived' | 'in_progress' | 'completed' | 'cancelled'
-      const booking = this.db.bookings.find((b) => b.id === bookingId);
+      const newStatus = String(data.status || "").trim(); // 'driver_arriving' | 'arrived' | 'in_progress' | 'completed' | 'cancelled'
+      if (!bookingId) throw new Error("booking_id is required.");
+      if (!newStatus) throw new Error("status is required.");
+
+      const validStatuses = ["driver_arriving", "arrived", "in_progress", "completed", "cancelled"];
+      if (!validStatuses.includes(newStatus)) {
+        throw new Error(`Invalid status '${newStatus}'. Allowed: ${validStatuses.join(", ")}`);
+      }
+
+      let booking = (this.db.bookings || []).find((b) => b.id === bookingId);
+      if (!booking && this.isLive && this.supabaseAdmin) {
+        try {
+          const { data: sbB } = await this.supabaseAdmin.from("bookings").select("*").eq("id", bookingId).single();
+          if (sbB) booking = sbB;
+        } catch (_) {}
+      }
       if (!booking) throw new Error("Booking not found.");
 
       if (booking.driver_id !== userId && booking.passenger_id !== userId) {
-        throw new Error("Forbidden: Not a participant in this booking.");
+        throw new Error("Forbidden: You are not a participant in this booking.");
       }
+
+      // Check for already completed or cancelled bookings
+      if (booking.status === "completed") {
+        throw new Error("Cannot modify a completed booking.");
+      }
+      if (booking.status === "cancelled") {
+        throw new Error("Cannot modify a cancelled booking.");
+      }
+
+      // Role check: only the driver can progress the trip lifecycle forward
+      if (["driver_arriving", "arrived", "in_progress", "completed"].includes(newStatus)) {
+        if (booking.driver_id !== userId) {
+          throw new Error("Forbidden: Only the assigned driver can advance trip status to " + newStatus);
+        }
+      }
+
+      // Enforce strict state machine transitions
+      const ALLOWED_TRANSITIONS = {
+        confirmed: ["driver_arriving", "cancelled"],
+        driver_arriving: ["arrived", "cancelled"],
+        arrived: ["in_progress", "cancelled"],
+        in_progress: ["completed", "cancelled"]
+      };
+
+      const allowedNext = ALLOWED_TRANSITIONS[booking.status] || [];
+      if (!allowedNext.includes(newStatus)) {
+        throw new Error(`Invalid transition from '${booking.status}' to '${newStatus}'.`);
+      }
+
+      const now = new Date().toISOString();
 
       // PIN verification when starting journey
       if (newStatus === "in_progress") {
-        if (data.pin && data.pin !== booking.trip_pin) {
+        const pin = String(data.pin || "").trim();
+        const expectedPin = String(booking.trip_pin || "").trim();
+        if (!pin) {
+          throw new Error("Trip PIN is required to start the journey.");
+        }
+        if (expectedPin && pin !== expectedPin) {
           throw new Error("Invalid Trip PIN. Ask the passenger for the 4-digit verification code.");
         }
-        booking.started_at = new Date().toISOString();
+        booking.started_at = now;
       }
 
       if (newStatus === "completed") {
-        booking.completed_at = new Date().toISOString();
+        booking.completed_at = now;
       }
 
       booking.status = newStatus;
-      booking.updated_at = new Date().toISOString();
+      booking.updated_at = now;
 
-      // Log event
+      if (this.isLive && this.supabaseAdmin) {
+        try {
+          await this.supabaseAdmin
+            .from("bookings")
+            .update({
+              status: newStatus,
+              started_at: booking.started_at || null,
+              completed_at: booking.completed_at || null,
+              updated_at: now
+            })
+            .eq("id", booking.id);
+        } catch (e) {
+          console.warn("[SupabaseBackend] booking status update notice:", e.message);
+        }
+
+        try {
+          await this.supabaseAdmin
+            .from("booking_events")
+            .insert({
+              booking_id: booking.id,
+              actor_id: userId,
+              status: newStatus,
+              event_type: `status_${newStatus}`,
+              notes: data.notes || data.reason || `Status updated to ${newStatus}`,
+              created_at: now
+            });
+        } catch (_) {}
+      }
+
+      // Local mirror
+      if (!this.db.booking_events) this.db.booking_events = [];
       this.db.booking_events.push({
         id: `be_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        booking_id: bookingId,
+        booking_id: booking.id,
         actor_id: userId,
         status: newStatus,
         event_type: `status_${newStatus}`,
-        notes: data.notes || "",
-        created_at: new Date().toISOString()
+        notes: data.notes || data.reason || `Status updated to ${newStatus}`,
+        created_at: now
       });
 
       this._persistLocalDb();
-      return booking;
+      const hydrated = await this._hydrateBooking(booking);
+      return { success: true, booking: hydrated, ...hydrated };
     }
 
     if (action === "confirm_trip_payment") {
       const bookingId = data.booking_id;
-      const booking = this.db.bookings.find((b) => b.id === bookingId);
+      let booking = (this.db.bookings || []).find((b) => b.id === bookingId);
+      if (!booking && this.isLive && this.supabaseAdmin) {
+        try {
+          const { data: sbB } = await this.supabaseAdmin.from("bookings").select("*").eq("id", bookingId).single();
+          if (sbB) booking = sbB;
+        } catch (_) {}
+      }
       if (!booking) throw new Error("Booking not found.");
 
       booking.payment_status = "paid";
       booking.updated_at = new Date().toISOString();
+
+      if (this.isLive && this.supabaseAdmin) {
+        try {
+          await this.supabaseAdmin.from("bookings").update({ payment_status: "paid", updated_at: booking.updated_at }).eq("id", booking.id);
+        } catch (_) {}
+      }
+
       this._persistLocalDb();
-      return booking;
+      const hydrated = await this._hydrateBooking(booking);
+      return { success: true, booking: hydrated, ...hydrated };
+    }
+
+    if (action === "get_booking" || action === "get_booking_by_id") {
+      const bId = data.booking_id || data.id;
+      let booking = (this.db.bookings || []).find((b) => b.id === bId);
+      if (!booking && this.isLive && this.supabaseAdmin) {
+        try {
+          const { data: sbB } = await this.supabaseAdmin.from("bookings").select("*").eq("id", bId).single();
+          if (sbB) booking = sbB;
+        } catch (_) {}
+      }
+      if (!booking) throw new Error("Booking not found.");
+      if (booking.driver_id !== userId && booking.passenger_id !== userId) {
+        await requireAdmin();
+      }
+      const hydrated = await this._hydrateBooking(booking);
+      return { booking: hydrated, ...hydrated };
     }
 
     if (action === "get_passenger_bookings") {
-      const list = this.db.bookings.filter((b) => b.passenger_id === userId);
-      return { bookings: list };
+      let list = [];
+      if (this.isLive && this.supabaseAdmin) {
+        try {
+          const { data: sbList, error } = await this.supabaseAdmin
+            .from("bookings")
+            .select("*, driver:profiles!driver_id(*), vehicle:vehicles(*), request:service_requests(*)")
+            .eq("passenger_id", userId)
+            .order("created_at", { ascending: false });
+          if (!error && Array.isArray(sbList) && sbList.length > 0) {
+            list = sbList;
+          }
+        } catch (_) {}
+      }
+      if (list.length === 0) {
+        list = (this.db.bookings || []).filter((b) => b.passenger_id === userId);
+      }
+      const enriched = await Promise.all(list.map((b) => this._hydrateBooking(b)));
+      return { bookings: enriched };
     }
 
     if (action === "get_driver_bookings") {
-      const list = this.db.bookings.filter((b) => b.driver_id === userId);
-      return { bookings: list };
+      let list = [];
+      if (this.isLive && this.supabaseAdmin) {
+        try {
+          const { data: sbList, error } = await this.supabaseAdmin
+            .from("bookings")
+            .select("*, driver:profiles!driver_id(*), vehicle:vehicles(*), request:service_requests(*)")
+            .eq("driver_id", userId)
+            .order("created_at", { ascending: false });
+          if (!error && Array.isArray(sbList) && sbList.length > 0) {
+            list = sbList;
+          }
+        } catch (_) {}
+      }
+      if (list.length === 0) {
+        list = (this.db.bookings || []).filter((b) => b.driver_id === userId);
+      }
+      const enriched = await Promise.all(list.map((b) => this._hydrateBooking(b)));
+      return { bookings: enriched };
     }
 
     // =========================================================================

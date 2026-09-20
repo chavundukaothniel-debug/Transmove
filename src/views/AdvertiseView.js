@@ -7,6 +7,7 @@ import { AdvertisingService } from "../services/advertising.js";
 import { PaymentService } from "../services/payments.js";
 import { AuthService } from "../services/auth.js";
 import { Modal } from "../components/Modal.js";
+import { icon } from "../components/Icon.js";
 
 const escapeHtml = (value) => {
   if (value === null || value === undefined) return "";
@@ -29,7 +30,7 @@ export const AdvertiseView = {
     return `
       <div id="advertise-container" style="max-width: 1100px; margin: 0 auto; padding-top: 1rem; padding-bottom: 3rem;">
         <div style="padding: 3rem; text-align: center; color: var(--text-muted);">
-          <div style="font-size: 2rem; margin-bottom: 0.5rem;">📢</div>
+          <div class="feature-icon" style="margin-bottom: 0.5rem;">${icon("megaphone", 30)}</div>
           Loading advertising rates &amp; cost calculator...
         </div>
       </div>
@@ -81,7 +82,7 @@ export const AdvertiseView = {
             </p>
           </div>
           <button id="btn-open-create-campaign" class="btn btn-primary btn-lg" style="font-weight: 800; display: flex; align-items: center; gap: 0.5rem;">
-            📢 Launch Ad Campaign
+          ${icon("megaphone", 18)}<span>Launch Ad Campaign</span>
           </button>
         </div>
       </div>
@@ -90,7 +91,7 @@ export const AdvertiseView = {
       <div style="margin-bottom: 3rem;">
         <div style="margin-bottom: 1.25rem;">
           <h2 style="font-size: 1.4rem; font-weight: 800; color: var(--text-main); margin: 0;">
-            🔥 Curated Advertising Packages
+          ${icon("badge-percent", 20)}<span>Curated Advertising Packages</span>
           </h2>
           <p style="font-size: 0.9rem; color: var(--text-muted); margin: 0.25rem 0 0 0;">
             Turnkey promotion bundles with built-in discount savings:
@@ -125,7 +126,7 @@ export const AdvertiseView = {
       <div class="card" style="margin-bottom: 3rem; padding: 2rem; background: var(--bg-surface); border: 1px solid var(--border-light);">
         <div style="margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-light); padding-bottom: 1rem;">
           <h2 style="font-size: 1.35rem; font-weight: 800; color: var(--text-main); margin: 0;">
-            🧮 Advertising Cost Calculator
+        ${icon("calculator", 20)}<span>Advertising Cost Calculator</span>
           </h2>
           <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0.25rem 0 0 0;">
             Calculate your campaign budget based on placement rates, duration, and audience targeting.
@@ -323,7 +324,7 @@ export const AdvertiseView = {
     const modalContent = `
       <div style="padding: 0.5rem; max-height: 80vh; overflow-y: auto;">
         <div style="text-align: center; margin-bottom: 1.5rem;">
-          <div style="font-size: 2.2rem; margin-bottom: 0.25rem;">📢</div>
+            <div class="feature-icon" style="margin-bottom: 0.25rem;">${icon("megaphone", 32)}</div>
           <h2 style="font-size: 1.4rem; font-weight: 900; color: var(--text-main); margin: 0;">
             Launch Campaign: ${pkg ? pkg.name : "Custom Placement"}
           </h2>
