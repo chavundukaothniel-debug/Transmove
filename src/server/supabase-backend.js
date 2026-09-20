@@ -236,13 +236,7 @@ class SupabaseBackendEngine {
   async getCallerProfile(userId) {
     if (!userId) return null;
 
-    // Check local database for admin role or test accounts first
-    const localProf = this.db.profiles.find((p) => p.id === userId || p.user_id === userId);
-    if (localProf && (localProf.role === "admin" || localProf.email?.startsWith("test_admin_"))) {
-      return localProf;
-    }
-
-    if (this.supabaseAdmin) {
+    if (this.isLive && this.supabaseAdmin) {
       try {
         const { data, error } = await this.supabaseAdmin
           .from("profiles")
@@ -263,6 +257,7 @@ class SupabaseBackendEngine {
       } catch (_) {}
     }
 
+    const localProf = this.db.profiles.find((p) => p.id === userId || p.user_id === userId);
     return localProf || null;
   }
 
@@ -667,13 +662,22 @@ class SupabaseBackendEngine {
     // 3. VERIFICATION DOCUMENTS (Google Drive storage for physical bytes)
     // =========================================================================
     if (action === "create_verification_document") {
-      const docType = data.document_type || "driver_license";
+      if (!userId) throw new Error("Authentication required for document upload.");
+
+      // B. Confirm profile belongs to user and role is eligible provider/driver
+      const callerProf = await getCallerProfile();
+      const eligibleRoles = ["driver", "owner", "vehicle_owner", "machinery_owner", "logistics", "cargo_owner", "provider", "admin"];
+      if (!callerProf || !eligibleRoles.includes(callerProf.role)) {
+        throw new Error(`Forbidden: User role '${callerProf?.role || "unknown"}' is not eligible for driver/provider verification.`);
+      }
+
+      const docType = data.document_type || "driver_licence";
       let driveFileId = data.drive_file_id || data.file_id || "";
       let originalFilename = data.original_filename || data.filename || `${docType}.pdf`;
       let mimeType = data.mime_type || "application/pdf";
       let fileSize = data.file_size || 1024;
 
-      // If binary buffer or Base64 file is attached, upload directly to Google Drive
+      // C. If binary buffer or Base64 file is attached, upload directly to Google Drive
       if (data.file_base64) {
         const fileBuffer = Buffer.from(data.file_base64, "base64");
         const uploadResult = await googleDriveStorage.uploadFile({
@@ -688,6 +692,11 @@ class SupabaseBackendEngine {
         mimeType = uploadResult.mimeType;
       }
 
+      if (!driveFileId) {
+        throw new Error("Missing verification document file.");
+      }
+
+      // D. Insert corresponding row into public.verification_documents with exact schema
       const docRecord = {
         id: randomUUID(),
         user_id: userId,
@@ -701,43 +710,78 @@ class SupabaseBackendEngine {
         verification_status: "pending",
         rejection_reason: "",
         expires_at: data.expires_at || null,
+        legacy_appwrite_id: null,
         uploaded_at: new Date().toISOString(),
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        view_url: `/api/files/preview/${driveFileId}`
+        updated_at: new Date().toISOString()
       };
 
-      this.db.verification_documents.push(docRecord);
+      if (this.isLive && this.supabaseAdmin) {
+        const { error: insertError } = await this.supabaseAdmin
+          .from("verification_documents")
+          .insert([docRecord]);
 
-      // Set user profile verification_status to 'pending'
+        if (insertError) {
+          console.error("[supabase-backend] verification_documents insert failed:", insertError);
+          // 4. Failure handling: remove uploaded Drive file when metadata persistence fails
+          if (driveFileId) {
+            try { await googleDriveStorage.deleteFile(driveFileId); } catch (_) {}
+          }
+          throw new Error(`Failed to record verification document in Supabase: ${insertError.message || insertError.code}`);
+        }
+
+        // E. Update public.profiles.verification_status = 'pending'
+        const { error: profUpdateError } = await this.supabaseAdmin
+          .from("profiles")
+          .update({
+            verification_status: "pending",
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", userId);
+
+        if (profUpdateError) {
+          console.error("[supabase-backend] profile status update failed:", profUpdateError);
+          throw new Error(`Verification document saved, but profile status update failed: ${profUpdateError.message || profUpdateError.code}`);
+        }
+      }
+
+      // Mirror to local relational store
+      this.db.verification_documents.push(docRecord);
       const prof = this.db.profiles.find((p) => p.id === userId || p.user_id === userId);
       if (prof && prof.verification_status !== "approved") {
         prof.verification_status = "pending";
         prof.updated_at = new Date().toISOString();
       }
-
-      if (this.supabaseAdmin) {
-        try {
-          await this.supabaseAdmin.from("verification_documents").insert([docRecord]);
-        } catch (_) {}
-        try {
-          await this.supabaseAdmin.from("profiles").update({
-            verification_status: "pending",
-            updated_at: new Date().toISOString()
-          }).eq("id", userId);
-        } catch (_) {}
-      }
-
       this._persistLocalDb();
+
       await logActivity("verification_submitted", `Uploaded ${docType}`, originalFilename, docRecord.id);
-      return docRecord;
+
+      return {
+        ...docRecord,
+        view_url: `/api/files/preview/${driveFileId}`
+      };
     }
 
     if (action === "list_driver_documents") {
-      const docs = this.db.verification_documents.filter((d) => d.user_id === userId);
+      let docs = [];
+      if (this.isLive && this.supabaseAdmin) {
+        const { data: cloudDocs, error } = await this.supabaseAdmin
+          .from("verification_documents")
+          .select("*")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false });
+        if (error) {
+          throw new Error(`Failed to list driver documents from Supabase: ${error.message}`);
+        }
+        docs = cloudDocs || [];
+      } else {
+        docs = this.db.verification_documents.filter((d) => d.user_id === userId);
+      }
+
       return {
         documents: docs.map((d) => ({
           ...d,
+          file_id: d.drive_file_id || d.file_id,
           view_url: `/api/files/preview/${d.drive_file_id || d.file_id}`
         }))
       };
@@ -745,45 +789,100 @@ class SupabaseBackendEngine {
 
     if (action === "admin_verify_document") {
       await requireAdmin();
-      const docId = data.document_id;
-      const status = data.verification_status; // 'approved' | 'rejected'
-      const doc = this.db.verification_documents.find((d) => d.id === docId);
-      if (!doc) throw new Error("Document not found.");
+      const docId = data.document_id || data.id;
+      const rawStatus = String(data.verification_status || data.status || "").toLowerCase().trim();
+      const status = (rawStatus === "verified" || rawStatus === "approved") ? "approved" : "rejected";
+      const rejectionReason = status === "rejected" ? (data.rejection_reason || data.reason || "Rejected by administrator") : "";
+      const now = new Date().toISOString();
 
-      doc.verification_status = status;
-      doc.rejection_reason = data.rejection_reason || "";
-      doc.updated_at = new Date().toISOString();
+      let targetDoc = null;
+      let targetUserId = null;
 
-      // Check if user has all approved docs
-      if (status === "approved") {
-        const userDocs = this.db.verification_documents.filter((d) => d.user_id === doc.user_id);
-        const allApproved = userDocs.length > 0 && userDocs.every((d) => d.verification_status === "approved");
-        if (allApproved) {
-          const prof = this.db.profiles.find((p) => p.id === doc.user_id || p.user_id === doc.user_id);
-          if (prof) prof.verification_status = "approved";
-          if (this.supabaseAdmin) {
-            try {
-              await this.supabaseAdmin.from("profiles").update({
-                verification_status: "approved",
-                updated_at: new Date().toISOString()
-              }).eq("id", doc.user_id);
-            } catch (_) {}
+      if (this.isLive && this.supabaseAdmin) {
+        // Query target document from Supabase
+        const { data: cloudDoc, error: fetchErr } = await this.supabaseAdmin
+          .from("verification_documents")
+          .select("*")
+          .eq("id", docId)
+          .maybeSingle();
+
+        if (fetchErr || !cloudDoc) {
+          throw new Error("Verification document not found in Supabase.");
+        }
+        targetDoc = cloudDoc;
+        targetUserId = cloudDoc.user_id;
+
+        // Update verification document in Supabase
+        const { error: docUpdateErr } = await this.supabaseAdmin
+          .from("verification_documents")
+          .update({
+            verification_status: status,
+            rejection_reason: rejectionReason,
+            updated_at: now
+          })
+          .eq("id", docId);
+
+        if (docUpdateErr) {
+          throw new Error(`Failed to update verification document in Supabase: ${docUpdateErr.message}`);
+        }
+
+        // Update profile in Supabase
+        if (status === "approved") {
+          const { error: profErr } = await this.supabaseAdmin
+            .from("profiles")
+            .update({
+              verification_status: "approved",
+              verification_rejection_reason: null,
+              updated_at: now
+            })
+            .eq("id", targetUserId);
+          if (profErr) {
+            throw new Error(`Failed to update profile verification status in Supabase: ${profErr.message}`);
+          }
+        } else {
+          const { error: profErr } = await this.supabaseAdmin
+            .from("profiles")
+            .update({
+              verification_status: "rejected",
+              verification_rejection_reason: rejectionReason,
+              updated_at: now
+            })
+            .eq("id", targetUserId);
+          if (profErr) {
+            throw new Error(`Failed to update profile verification status in Supabase: ${profErr.message}`);
           }
         }
+      } else {
+        targetDoc = this.db.verification_documents.find((d) => d.id === docId);
+        if (!targetDoc) throw new Error("Document not found.");
+        targetUserId = targetDoc.user_id;
       }
 
-      if (this.supabaseAdmin) {
-        try {
-          await this.supabaseAdmin.from("verification_documents").update({
-            verification_status: status,
-            rejection_reason: doc.rejection_reason,
-            updated_at: doc.updated_at
-          }).eq("id", docId);
-        } catch (_) {}
+      // Sync local mirror
+      if (targetDoc) {
+        targetDoc.verification_status = status;
+        targetDoc.rejection_reason = rejectionReason;
+        targetDoc.updated_at = now;
       }
-
+      const localProf = this.db.profiles.find((p) => p.id === targetUserId || p.user_id === targetUserId);
+      if (localProf) {
+        localProf.verification_status = status;
+        if (status === "rejected") localProf.verification_rejection_reason = rejectionReason;
+        localProf.updated_at = now;
+      }
       this._persistLocalDb();
-      return doc;
+
+      await logActivity(
+        status === "approved" ? "verification_approved" : "verification_rejected",
+        `Admin ${status} verification document`,
+        `Doc ID: ${docId}`,
+        targetUserId
+      );
+
+      return {
+        ...targetDoc,
+        view_url: `/api/files/preview/${targetDoc.drive_file_id || targetDoc.file_id}`
+      };
     }
 
     // =========================================================================
@@ -1336,32 +1435,149 @@ class SupabaseBackendEngine {
 
     if (action === "admin_list_verifications") {
       await requireAdmin();
-      let verifs = [...this.db.verification_documents];
-      if (this.supabaseAdmin) {
-        try {
-          const { data: cloudDocs, error } = await this.supabaseAdmin.from("verification_documents").select("*");
-          if (!error && cloudDocs && cloudDocs.length > 0) {
-            for (const cd of cloudDocs) {
-              if (!verifs.some((v) => v.id === cd.id || v.drive_file_id === cd.drive_file_id)) {
-                verifs.push(cd);
-              }
-            }
-          }
-        } catch (_) {}
+      const requestedFilter = String(data.status_filter || data.filter || "pending").toLowerCase().trim();
+
+      let profiles = [];
+      let allDocs = [];
+      let allVehicles = [];
+      let allPhotos = [];
+
+      if (this.isLive && this.supabaseAdmin) {
+        // Query profiles
+        const { data: cloudProfiles, error: profErr } = await this.supabaseAdmin
+          .from("profiles")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (profErr) {
+          throw new Error(`Failed to query profiles from Supabase: ${profErr.message}`);
+        }
+        profiles = (cloudProfiles || []).filter((p) =>
+          ["driver", "owner", "vehicle_owner", "machinery_owner", "logistics", "cargo_owner", "provider"].includes(p.role)
+        );
+
+        // Query verification documents
+        const { data: cloudDocs, error: docErr } = await this.supabaseAdmin
+          .from("verification_documents")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (docErr) {
+          throw new Error(`Failed to query verification_documents from Supabase: ${docErr.message}`);
+        }
+        allDocs = cloudDocs || [];
+
+        // Query vehicles
+        const { data: cloudVehicles } = await this.supabaseAdmin
+          .from("vehicles")
+          .select("*");
+        allVehicles = cloudVehicles || [];
+
+        // Query vehicle photos
+        const { data: cloudPhotos } = await this.supabaseAdmin
+          .from("vehicle_photos")
+          .select("*");
+        allPhotos = cloudPhotos || [];
+      } else {
+        profiles = this.db.profiles.filter((p) =>
+          ["driver", "owner", "vehicle_owner", "machinery_owner", "logistics", "cargo_owner", "provider"].includes(p.role)
+        );
+        allDocs = this.db.verification_documents || [];
+        allVehicles = this.db.vehicles || [];
+        allPhotos = this.db.vehicle_photos || [];
       }
-      const enriched = verifs.map((v) => {
-        const driver = this.db.profiles.find((p) => p.id === v.user_id || p.user_id === v.user_id);
-        const fileId = v.drive_file_id || v.file_id;
+
+      const queue = profiles.map((profile) => {
+        const userDocs = allDocs.filter((d) => d.user_id === profile.id);
+        const userVehicles = allVehicles.filter((v) => v.driver_id === profile.id);
+
+        const timestamps = [
+          profile.created_at,
+          ...userVehicles.map((v) => v.created_at),
+          ...userDocs.map((d) => d.created_at || d.uploaded_at)
+        ].filter(Boolean).map((t) => new Date(t).getTime()).filter(Number.isFinite);
+
+        const submittedAt = timestamps.length > 0 ? new Date(Math.max(...timestamps)).toISOString() : profile.created_at;
+
         return {
-          ...v,
-          view_url: `/api/files/preview/${fileId}`,
-          driver_name: driver?.full_name || driver?.name || "Driver",
-          driver_email: driver?.email || "",
-          driver_phone: driver?.phone || driver?.phone_number || ""
+          id: profile.id,
+          user_id: profile.id,
+          full_name: profile.full_name || profile.name || "Provider",
+          email: profile.email || "",
+          phone: profile.phone || profile.phone_number || "",
+          role: profile.role,
+          profile_image_url: profile.profile_photo_url || (profile.profile_image_id ? `/api/files/preview/${profile.profile_image_id}` : ""),
+          verification_status: profile.verification_status || "unverified",
+          rejection_reason: profile.verification_rejection_reason || "",
+          account_status: profile.account_status || "active",
+          submitted_at: submittedAt,
+          vehicles: userVehicles.map((v) => ({
+            id: v.id,
+            make: v.make || "",
+            model: v.model || "",
+            year: v.year || null,
+            registration_number: v.registration_number || "",
+            service_category: v.service_category || "",
+            verification_status: v.verification_status || "pending",
+            rejection_reason: v.rejection_reason || "",
+            created_at: v.created_at,
+            photos: allPhotos.filter((p) => p.vehicle_id === v.id).map((photo) => ({
+              id: photo.id,
+              is_primary: photo.is_primary,
+              view_url: photo.drive_file_id ? `/api/files/preview/${photo.drive_file_id}` : (photo.file_url || "")
+            }))
+          })),
+          documents: userDocs.map((d) => ({
+            id: d.id,
+            document_type: d.document_type || "document",
+            vehicle_id: d.vehicle_id || null,
+            verification_status: d.verification_status || "pending",
+            rejection_reason: d.rejection_reason || "",
+            created_at: d.created_at || d.uploaded_at,
+            expires_at: d.expires_at || null,
+            has_file: Boolean(d.drive_file_id),
+            drive_file_id: d.drive_file_id,
+            view_url: `/api/files/preview/${d.drive_file_id}`
+          }))
         };
       });
+
+      // Filter queue according to requestedFilter
+      const filteredQueue = queue.filter((provider) => {
+        if (requestedFilter === "all") return true;
+        const profStatus = provider.verification_status;
+        const docStatuses = provider.documents.map((d) => d.verification_status);
+        const vehicleStatuses = provider.vehicles.map((v) => v.verification_status);
+
+        if (requestedFilter === "pending") {
+          return profStatus === "pending" || profStatus === "unverified" ||
+            docStatuses.some((s) => s === "pending") ||
+            vehicleStatuses.some((s) => s === "pending");
+        }
+        if (requestedFilter === "approved" || requestedFilter === "verified") {
+          return profStatus === "approved" || profStatus === "verified";
+        }
+        if (requestedFilter === "rejected") {
+          return profStatus === "rejected" || docStatuses.includes("rejected") || vehicleStatuses.includes("rejected");
+        }
+        return true;
+      });
+
+      // Summary counts
+      const pendingProviders = profiles.filter((p) => p.verification_status === "pending" || p.verification_status === "unverified").length;
+      const pendingVehicles = allVehicles.filter((v) => v.verification_status === "pending").length;
+      const pendingDocuments = allDocs.filter((d) => d.verification_status === "pending").length;
+      const now = Date.now();
+      const expiredDocuments = allDocs.filter((d) => d.expires_at && new Date(d.expires_at).getTime() < now).length;
+
       return {
-        verifications: enriched.sort((a, b) => new Date(b.created_at || b.uploaded_at || 0) - new Date(a.created_at || a.uploaded_at || 0))
+        verifications: filteredQueue,
+        summary: {
+          pending_providers: pendingProviders,
+          pending_vehicles: pendingVehicles,
+          pending_documents: pendingDocuments,
+          expired_documents: expiredDocuments
+        }
       };
     }
 
@@ -1719,34 +1935,70 @@ class SupabaseBackendEngine {
     if (action === "admin_set_profile_verification") {
       await requireAdmin();
       const profileId = data.profile_id || data.user_id || data.id;
-      const status = data.verification_status || data.status;
-      const prof = this.db.profiles.find((p) => p.id === profileId || p.user_id === profileId);
-      if (!prof) throw new Error("Profile not found.");
-      prof.verification_status = status;
-      if (data.reason) prof.verification_rejection_reason = data.reason;
-      prof.updated_at = new Date().toISOString();
+      const rawStatus = String(data.verification_status || data.status || "").toLowerCase().trim();
+      const status = (rawStatus === "verified" || rawStatus === "approved") ? "approved" : (rawStatus === "rejected" ? "rejected" : "pending");
+      const reason = data.reason || data.rejection_reason || null;
+      const now = new Date().toISOString();
 
-      if (this.supabaseAdmin) {
-        try {
-          await this.supabaseAdmin.from("profiles").update({
-            verification_status: status,
-            verification_rejection_reason: data.reason || "",
-            updated_at: prof.updated_at
-          }).eq("id", profileId);
-        } catch (_) {}
+      if (this.isLive && this.supabaseAdmin) {
+        const updatePayload = {
+          verification_status: status,
+          updated_at: now
+        };
+        if (status === "rejected") {
+          updatePayload.verification_rejection_reason = reason;
+        } else if (status === "approved") {
+          updatePayload.verification_rejection_reason = null;
+        }
+
+        const { data: updatedProf, error } = await this.supabaseAdmin
+          .from("profiles")
+          .update(updatePayload)
+          .eq("id", profileId)
+          .select()
+          .maybeSingle();
+
+        if (error) {
+          throw new Error(`Failed to update profile verification in Supabase: ${error.message}`);
+        }
       }
 
+      const prof = this.db.profiles.find((p) => p.id === profileId || p.user_id === profileId);
+      if (prof) {
+        prof.verification_status = status;
+        if (reason) prof.verification_rejection_reason = reason;
+        prof.updated_at = now;
+      }
       this._persistLocalDb();
       await logActivity("profile_verification_updated", `Admin set verification to ${status}`, `Profile: ${profileId}`, profileId);
-      return prof;
+      return prof || { id: profileId, verification_status: status };
     }
 
     if (action === "admin_list_verification_documents") {
       await requireAdmin();
-      const docs = this.db.verification_documents || [];
+      let docs = [];
+      let profiles = [];
+
+      if (this.isLive && this.supabaseAdmin) {
+        const { data: cloudDocs, error } = await this.supabaseAdmin
+          .from("verification_documents")
+          .select("*")
+          .order("created_at", { ascending: false });
+        if (error) throw new Error(`Failed to list verification documents: ${error.message}`);
+        docs = cloudDocs || [];
+
+        const { data: cloudProfiles } = await this.supabaseAdmin
+          .from("profiles")
+          .select("id, full_name, email, phone, role");
+        profiles = cloudProfiles || [];
+      } else {
+        docs = this.db.verification_documents || [];
+        profiles = this.db.profiles || [];
+      }
+
       return {
         documents: docs.map((d) => {
-          const owner = this.db.profiles.find((p) => p.id === d.user_id || p.user_id === d.user_id);
+          const owner = profiles.find((p) => p.id === d.user_id || p.user_id === d.user_id);
           return {
             ...d,
             owner: owner ? { full_name: owner.full_name, email: owner.email, phone: owner.phone, role: owner.role } : null,
@@ -1763,8 +2015,34 @@ class SupabaseBackendEngine {
       return { logs: logs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) };
     }
 
-    if (action === "admin_get_analytics") {
+    if (action === "admin_get_analytics" || action === "admin_get_platform_stats") {
       await requireAdmin();
+      let pendingVerifs = 0;
+      let pendingDocs = 0;
+      let pendingProfiles = 0;
+
+      if (this.isLive && this.supabaseAdmin) {
+        try {
+          const { count: docCount } = await this.supabaseAdmin
+            .from("verification_documents")
+            .select("id", { count: "exact", head: true })
+            .eq("verification_status", "pending");
+          pendingDocs = docCount ?? 0;
+
+          const { count: profCount } = await this.supabaseAdmin
+            .from("profiles")
+            .select("id", { count: "exact", head: true })
+            .in("verification_status", ["pending", "unverified"])
+            .in("role", ["driver", "owner", "vehicle_owner", "machinery_owner", "logistics"]);
+          pendingProfiles = profCount ?? 0;
+          pendingVerifs = Math.max(pendingDocs, pendingProfiles);
+        } catch (_) {}
+      } else {
+        pendingDocs = this.db.verification_documents.filter((d) => d.verification_status === "pending").length;
+        pendingProfiles = this.db.profiles.filter((p) => p.verification_status === "pending").length;
+        pendingVerifs = Math.max(pendingDocs, pendingProfiles);
+      }
+
       const passengers = this.db.profiles.filter((p) => ["passenger", "customer"].includes(p.role)).length;
       const providers = this.db.profiles.filter((p) => p.role === "driver" || p.role === "owner").length;
       return {
@@ -1776,12 +2054,13 @@ class SupabaseBackendEngine {
         completedBookings: this.db.bookings.filter((b) => b.status === "completed").length,
         cancelledBookings: this.db.bookings.filter((b) => b.status === "cancelled").length,
         activeSubscriptions: this.db.subscriptions.filter((s) => s.status === "active").length,
-        verificationQueue: this.db.verification_documents.filter((d) => d.verification_status === "pending").length,
-        pendingProviders: this.db.profiles.filter((p) => p.verification_status === "pending").length,
+        verificationQueue: pendingVerifs,
+        pendingVerifications: pendingVerifs,
+        pendingProviders: pendingProfiles,
         pendingVehicles: this.db.vehicles.filter((v) => v.verification_status === "pending").length,
-        pendingDocuments: this.db.verification_documents.filter((d) => d.verification_status === "pending").length,
+        pendingDocuments: pendingDocs,
         expiredDocuments: 0,
-        paymentsTotal: this.db.payments.filter((p) => p.status === "approved").reduce((sum, p) => sum + p.amount, 0),
+        paymentsTotal: this.db.payments.filter((p) => p.status === "approved").reduce((sum, p) => sum + (p.amount || 0), 0),
         openDisputes: (this.db.disputes || []).filter((d) => d.status === "open").length
       };
     }
@@ -1789,9 +2068,35 @@ class SupabaseBackendEngine {
     if (action === "admin_create_verification_file_token") {
       await requireAdmin();
       const documentId = data.document_id || data.id;
-      const doc = this.db.verification_documents.find((d) => d.id === documentId);
-      if (!doc) throw new Error("Verification document not found.");
-      const fileId = doc.drive_file_id || doc.file_id;
+      let fileId = null;
+
+      if (this.isLive && this.supabaseAdmin) {
+        const { data: doc, error } = await this.supabaseAdmin
+          .from("verification_documents")
+          .select("id, drive_file_id")
+          .eq("id", documentId)
+          .maybeSingle();
+        if (error || !doc) {
+          const { data: byDrive } = await this.supabaseAdmin
+            .from("verification_documents")
+            .select("id, drive_file_id")
+            .eq("drive_file_id", documentId)
+            .maybeSingle();
+          if (byDrive) fileId = byDrive.drive_file_id;
+        } else {
+          fileId = doc.drive_file_id;
+        }
+      }
+
+      if (!fileId) {
+        const localDoc = (this.db.verification_documents || []).find((d) => d.id === documentId || d.drive_file_id === documentId);
+        if (localDoc) fileId = localDoc.drive_file_id || localDoc.file_id;
+      }
+
+      if (!fileId) {
+        fileId = documentId;
+      }
+
       return {
         view_url: `/api/files/preview/${fileId}`,
         expires_at: new Date(Date.now() + 300000).toISOString()

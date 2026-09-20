@@ -61,12 +61,52 @@ const server = http.createServer(async (req, res) => {
       const { googleDriveStorage } = await import("./src/server/google-drive-storage.js");
 
       // Check if file is a sensitive verification document or payment proof
-      const isVerifDoc = (supabaseBackendEngine.db?.verification_documents || []).some(
-        (d) => (d.drive_file_id || d.file_id || d.id) === fileId
-      );
-      const isPaymentProof = (supabaseBackendEngine.db?.payments || []).some(
-        (p) => (p.proof_file_id || p.id) === fileId
-      );
+      let isVerifDoc = false;
+      let isPaymentProof = false;
+      let docOwnerId = null;
+
+      if (supabaseBackendEngine.isLive && supabaseBackendEngine.supabaseAdmin) {
+        try {
+          const { data: vDoc } = await supabaseBackendEngine.supabaseAdmin
+            .from("verification_documents")
+            .select("id, user_id, drive_file_id")
+            .or(`drive_file_id.eq.${fileId},id.eq.${fileId}`)
+            .maybeSingle();
+          if (vDoc) {
+            isVerifDoc = true;
+            docOwnerId = vDoc.user_id;
+          }
+        } catch (_) {}
+
+        try {
+          const { data: pDoc } = await supabaseBackendEngine.supabaseAdmin
+            .from("payments")
+            .select("id, user_id, proof_file_id")
+            .or(`proof_file_id.eq.${fileId},id.eq.${fileId}`)
+            .maybeSingle();
+          if (pDoc) {
+            isPaymentProof = true;
+            docOwnerId = pDoc.user_id;
+          }
+        } catch (_) {}
+      }
+
+      if (!isVerifDoc && !isPaymentProof) {
+        const localVDoc = (supabaseBackendEngine.db?.verification_documents || []).find(
+          (d) => (d.drive_file_id || d.file_id || d.id) === fileId
+        );
+        if (localVDoc) {
+          isVerifDoc = true;
+          docOwnerId = localVDoc.user_id;
+        }
+        const localPDoc = (supabaseBackendEngine.db?.payments || []).find(
+          (p) => (p.proof_file_id || p.id) === fileId
+        );
+        if (localPDoc) {
+          isPaymentProof = true;
+          docOwnerId = localPDoc.user_id;
+        }
+      }
 
       if (isVerifDoc || isPaymentProof) {
         if (!token) {
@@ -86,11 +126,7 @@ const server = http.createServer(async (req, res) => {
 
         const profile = await supabaseBackendEngine.getCallerProfile(caller.id);
         const isAdmin = profile?.role === "admin";
-        const isOwner = (supabaseBackendEngine.db?.verification_documents || []).some(
-          (d) => (d.drive_file_id || d.file_id || d.id) === fileId && (d.user_id === caller.id || d.user_id === caller.$id)
-        ) || (supabaseBackendEngine.db?.payments || []).some(
-          (p) => (p.proof_file_id || p.id) === fileId && (p.user_id === caller.id || p.user_id === caller.$id)
-        );
+        const isOwner = docOwnerId && (caller.id === docOwnerId || caller.$id === docOwnerId);
 
         if (!isAdmin && !isOwner) {
           res.writeHead(403, { "Content-Type": "application/json" });
