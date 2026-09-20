@@ -233,6 +233,26 @@ export const VehicleService = {
    * Fetches a single vehicle by ID.
    */
   async getVehicle(vehicleId) {
+    const jwt = await getAuthJwt();
+    const endpoint = getTrustedApiEndpoint();
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(jwt ? { Authorization: `Bearer ${jwt}` } : {})
+        },
+        body: JSON.stringify({
+          action: "get_vehicle",
+          vehicle_id: vehicleId,
+          jwt
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return this._formatVehicle(data, data.photos || [], data.photo_documents || []);
+      }
+    } catch (_) {}
     const vehicles = await this.getDriverVehicles();
     return vehicles.find((v) => v.id === vehicleId || v.$id === vehicleId) || null;
   },

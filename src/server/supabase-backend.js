@@ -399,23 +399,56 @@ class SupabaseBackendEngine {
     // 2. VEHICLES
     // =========================================================================
     if (action === "create_vehicle") {
+      // 1. Reject client from setting privileged fields
+      const privilegedFields = ["driver_id", "verification_status", "created_at", "updated_at"];
+      for (const field of privilegedFields) {
+        if (data[field] !== undefined) {
+          throw new Error(`Privilege escalation blocked: Cannot supply vehicle '${field}' during creation.`);
+        }
+      }
+
+      // 2. Validate required fields
       if (!data.make || !String(data.make).trim()) throw new Error("Vehicle make is required.");
       if (!data.model || !String(data.model).trim()) throw new Error("Vehicle model is required.");
       if (!data.registration_number || !String(data.registration_number).trim()) {
         throw new Error("Vehicle registration number (plate) is required.");
       }
 
-      const existingVehicles = this.db.vehicles.filter((v) => v.driver_id === userId);
-      const isFirst = existingVehicles.length === 0;
-      const isPrimary = isFirst || data.is_primary === true;
+      const now = new Date().toISOString();
+      let isPrimary = data.is_primary === true;
 
-      if (isPrimary && existingVehicles.length > 0) {
-        existingVehicles.forEach((v) => { v.is_primary = false; });
+      if (this.isLive && this.supabaseAdmin) {
+        const { data: driverVehs, error: countErr } = await this.supabaseAdmin
+          .from("vehicles")
+          .select("id, is_primary")
+          .eq("driver_id", userId);
+
+        if (countErr) {
+          throw new Error(`Failed to check existing vehicles in Supabase: ${countErr.message}`);
+        }
+
+        const existingCount = (driverVehs || []).length;
+        if (existingCount === 0) {
+          isPrimary = true;
+        } else if (isPrimary) {
+          const { error: unsetErr } = await this.supabaseAdmin
+            .from("vehicles")
+            .update({ is_primary: false, updated_at: now })
+            .eq("driver_id", userId);
+          if (unsetErr) {
+            throw new Error(`Failed to unset primary vehicle in Supabase: ${unsetErr.message}`);
+          }
+        }
+      } else {
+        const existingVehicles = this.db.vehicles.filter((v) => v.driver_id === userId);
+        if (existingVehicles.length === 0) {
+          isPrimary = true;
+        } else if (isPrimary) {
+          existingVehicles.forEach((v) => { v.is_primary = false; });
+        }
       }
 
-      const vehId = randomUUID();
-      const newVehicle = {
-        id: vehId,
+      const newVehicleData = {
         driver_id: userId,
         vehicle_type: data.vehicle_type || "sedan",
         make: String(data.make).trim(),
@@ -427,89 +460,237 @@ class SupabaseBackendEngine {
         load_capacity: data.load_capacity ? parseFloat(data.load_capacity) : 0,
         service_category: data.service_category || "passenger_transport",
         description: data.description || "",
-        status: "active",
+        status: data.status || "active",
         verification_status: "pending",
-        rejection_reason: "",
+        rejection_reason: null,
         is_primary: isPrimary,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        created_at: now,
+        updated_at: now
       };
 
-      this.db.vehicles.push(newVehicle);
+      let createdVehicle = null;
 
-      if (this.supabaseAdmin) {
-        try {
-          await this.supabaseAdmin.from("vehicles").insert([newVehicle]);
-        } catch (_) {}
+      if (this.isLive && this.supabaseAdmin) {
+        const { data: inserted, error: insertErr } = await this.supabaseAdmin
+          .from("vehicles")
+          .insert([newVehicleData])
+          .select()
+          .single();
+
+        if (insertErr || !inserted) {
+          throw new Error(`Failed to create vehicle in Supabase: ${insertErr?.message || "Unknown error"}`);
+        }
+        createdVehicle = inserted;
+      } else {
+        createdVehicle = { id: randomUUID(), ...newVehicleData };
       }
 
+      // Sync local mirror
+      if (isPrimary && this.db.vehicles) {
+        this.db.vehicles.filter((v) => v.driver_id === userId).forEach((v) => { v.is_primary = false; });
+      }
+      this.db.vehicles.push(createdVehicle);
       this._persistLocalDb();
-      await logActivity("vehicle_created", "Vehicle submitted for review", `${newVehicle.make} ${newVehicle.model}`, newVehicle.id);
-      return newVehicle;
+
+      await logActivity("vehicle_created", "Vehicle submitted for review", `${createdVehicle.make} ${createdVehicle.model}`, createdVehicle.id);
+      return createdVehicle;
+    }
+
+    if (action === "get_vehicle") {
+      const targetId = vehicle_id || data.vehicle_id || data.id;
+      if (!targetId) throw new Error("Missing vehicle_id parameter.");
+
+      let veh = null;
+      let photos = [];
+
+      if (this.isLive && this.supabaseAdmin) {
+        const { data: cloudVeh, error: vehErr } = await this.supabaseAdmin
+          .from("vehicles")
+          .select("*")
+          .eq("id", targetId)
+          .maybeSingle();
+
+        if (vehErr) throw new Error(`Failed to fetch vehicle from Supabase: ${vehErr.message}`);
+        veh = cloudVeh;
+
+        if (veh) {
+          const { data: cloudPhotos } = await this.supabaseAdmin
+            .from("vehicle_photos")
+            .select("*")
+            .eq("vehicle_id", targetId);
+          photos = cloudPhotos || [];
+        }
+      } else {
+        veh = this.db.vehicles.find((v) => v.id === targetId);
+        photos = (this.db.vehicle_photos || []).filter((p) => p.vehicle_id === targetId);
+      }
+
+      if (!veh) throw new Error("Vehicle not found.");
+
+      const caller = await getCallerProfile();
+      if (veh.driver_id !== userId && caller?.role !== "admin") {
+        throw new Error("Forbidden: You do not have permission to view this vehicle.");
+      }
+
+      const photoUrls = photos.map((p) => p.file_url || `/api/files/preview/${p.drive_file_id || p.file_id}`);
+      return {
+        ...veh,
+        photos: photoUrls,
+        photo_documents: photos
+      };
     }
 
     if (action === "update_vehicle") {
-      const targetId = vehicle_id || data.vehicle_id;
+      const targetId = vehicle_id || data.vehicle_id || data.id;
       if (!targetId) throw new Error("Missing vehicle_id parameter.");
 
-      const veh = this.db.vehicles.find((v) => v.id === targetId);
-      if (!veh) throw new Error("Vehicle not found.");
-      if (veh.driver_id !== userId) throw new Error("Forbidden: You do not own this vehicle.");
-
-      if (data.make !== undefined) veh.make = String(data.make).trim();
-      if (data.model !== undefined) veh.model = String(data.model).trim();
-      if (data.year !== undefined) veh.year = parseInt(data.year, 10);
-      if (data.colour !== undefined) veh.colour = String(data.colour).trim();
-      if (data.registration_number !== undefined) veh.registration_number = String(data.registration_number).toUpperCase().trim();
-      if (data.service_category !== undefined) veh.service_category = String(data.service_category).trim();
-      if (data.description !== undefined) veh.description = String(data.description).trim();
-      veh.verification_status = "pending";
-      veh.updated_at = new Date().toISOString();
-
-      if (this.supabaseAdmin) {
-        try {
-          await this.supabaseAdmin.from("vehicles").update(veh).eq("id", targetId);
-        } catch (_) {}
+      let existing = null;
+      if (this.isLive && this.supabaseAdmin) {
+        const { data: cloudVeh, error } = await this.supabaseAdmin
+          .from("vehicles")
+          .select("*")
+          .eq("id", targetId)
+          .maybeSingle();
+        if (error) throw new Error(`Failed to find vehicle in Supabase: ${error.message}`);
+        existing = cloudVeh;
+      } else {
+        existing = this.db.vehicles.find((v) => v.id === targetId);
       }
 
+      if (!existing) throw new Error("Vehicle not found.");
+      if (existing.driver_id !== userId) throw new Error("Forbidden: You do not own this vehicle.");
+
+      const privilegedFields = ["driver_id", "verification_status", "created_at"];
+      for (const field of privilegedFields) {
+        if (data[field] !== undefined) {
+          throw new Error(`Privilege escalation blocked: Cannot modify vehicle '${field}'.`);
+        }
+      }
+
+      const now = new Date().toISOString();
+      const updates = { updated_at: now };
+      if (data.make !== undefined) updates.make = String(data.make).trim();
+      if (data.model !== undefined) updates.model = String(data.model).trim();
+      if (data.year !== undefined) updates.year = parseInt(data.year, 10);
+      if (data.colour !== undefined || data.color !== undefined) updates.colour = String(data.colour || data.color).trim();
+      if (data.registration_number !== undefined) updates.registration_number = String(data.registration_number).toUpperCase().trim();
+      if (data.passenger_capacity !== undefined) updates.passenger_capacity = parseInt(data.passenger_capacity, 10);
+      if (data.load_capacity !== undefined) updates.load_capacity = parseFloat(data.load_capacity);
+      if (data.service_category !== undefined) updates.service_category = String(data.service_category).trim();
+      if (data.description !== undefined) updates.description = String(data.description).trim();
+      if (data.status !== undefined) updates.status = String(data.status).trim();
+      updates.verification_status = "pending";
+
+      let updated = null;
+      if (this.isLive && this.supabaseAdmin) {
+        const { data: updatedCloud, error: updateErr } = await this.supabaseAdmin
+          .from("vehicles")
+          .update(updates)
+          .eq("id", targetId)
+          .select()
+          .single();
+
+        if (updateErr || !updatedCloud) {
+          throw new Error(`Failed to update vehicle in Supabase: ${updateErr?.message || "Unknown error"}`);
+        }
+        updated = updatedCloud;
+      } else {
+        Object.assign(existing, updates);
+        updated = existing;
+      }
+
+      const localIdx = this.db.vehicles.findIndex((v) => v.id === targetId);
+      if (localIdx !== -1) {
+        this.db.vehicles[localIdx] = { ...this.db.vehicles[localIdx], ...updates };
+      }
       this._persistLocalDb();
-      return veh;
+
+      return updated;
     }
 
     if (action === "set_primary_vehicle") {
-      const targetId = vehicle_id || data.vehicle_id;
+      const targetId = vehicle_id || data.vehicle_id || data.id;
       if (!targetId) throw new Error("Missing vehicle_id parameter.");
 
-      const target = this.db.vehicles.find((v) => v.id === targetId);
-      if (!target) throw new Error("Vehicle not found.");
-      if (target.driver_id !== userId) throw new Error("Forbidden: You do not own this vehicle.");
+      let existing = null;
+      if (this.isLive && this.supabaseAdmin) {
+        const { data: cloudVeh, error } = await this.supabaseAdmin
+          .from("vehicles")
+          .select("*")
+          .eq("id", targetId)
+          .maybeSingle();
+        if (error) throw new Error(`Failed to find vehicle in Supabase: ${error.message}`);
+        existing = cloudVeh;
+      } else {
+        existing = this.db.vehicles.find((v) => v.id === targetId);
+      }
+
+      if (!existing) throw new Error("Vehicle not found.");
+      if (existing.driver_id !== userId) throw new Error("Forbidden: You do not own this vehicle.");
+
+      const now = new Date().toISOString();
+
+      if (this.isLive && this.supabaseAdmin) {
+        const { error: unsetErr } = await this.supabaseAdmin
+          .from("vehicles")
+          .update({ is_primary: false, updated_at: now })
+          .eq("driver_id", userId);
+        if (unsetErr) throw new Error(`Failed to unset primary vehicles in Supabase: ${unsetErr.message}`);
+
+        const { error: setErr } = await this.supabaseAdmin
+          .from("vehicles")
+          .update({ is_primary: true, updated_at: now })
+          .eq("id", targetId);
+        if (setErr) throw new Error(`Failed to set primary vehicle in Supabase: ${setErr.message}`);
+      }
 
       this.db.vehicles.filter((v) => v.driver_id === userId).forEach((v) => {
         v.is_primary = v.id === targetId;
       });
-
       this._persistLocalDb();
+
       return { success: true, primary_vehicle_id: targetId };
     }
 
     if (action === "delete_vehicle") {
-      const targetId = vehicle_id || data.vehicle_id;
+      const targetId = vehicle_id || data.vehicle_id || data.id;
       if (!targetId) throw new Error("Missing vehicle_id parameter.");
 
-      const vehIndex = this.db.vehicles.findIndex((v) => v.id === targetId);
-      if (vehIndex === -1) throw new Error("Vehicle not found.");
-      if (this.db.vehicles[vehIndex].driver_id !== userId) throw new Error("Forbidden: You do not own this vehicle.");
-
-      this.db.vehicles.splice(vehIndex, 1);
-      this.db.vehicle_photos = (this.db.vehicle_photos || []).filter((p) => p.vehicle_id !== targetId);
-
-      if (this.supabaseAdmin) {
-        try {
-          await this.supabaseAdmin.from("vehicles").delete().eq("id", targetId);
-        } catch (_) {}
+      let existing = null;
+      if (this.isLive && this.supabaseAdmin) {
+        const { data: cloudVeh, error } = await this.supabaseAdmin
+          .from("vehicles")
+          .select("*")
+          .eq("id", targetId)
+          .maybeSingle();
+        if (error) throw new Error(`Failed to find vehicle in Supabase: ${error.message}`);
+        existing = cloudVeh;
+      } else {
+        existing = this.db.vehicles.find((v) => v.id === targetId);
       }
 
+      if (!existing) throw new Error("Vehicle not found.");
+      if (existing.driver_id !== userId) throw new Error("Forbidden: You do not own this vehicle.");
+
+      if (this.isLive && this.supabaseAdmin) {
+        try {
+          await this.supabaseAdmin.from("vehicle_photos").delete().eq("vehicle_id", targetId);
+        } catch (_) {}
+
+        const { error: delErr } = await this.supabaseAdmin
+          .from("vehicles")
+          .delete()
+          .eq("id", targetId);
+        if (delErr) throw new Error(`Failed to delete vehicle from Supabase: ${delErr.message}`);
+      }
+
+      const vehIndex = this.db.vehicles.findIndex((v) => v.id === targetId);
+      if (vehIndex !== -1) {
+        this.db.vehicles.splice(vehIndex, 1);
+      }
+      this.db.vehicle_photos = (this.db.vehicle_photos || []).filter((p) => p.vehicle_id !== targetId);
       this._persistLocalDb();
+
       return { success: true };
     }
 
@@ -517,7 +698,18 @@ class SupabaseBackendEngine {
       const targetVehId = vehicle_id || data.vehicle_id;
       if (!targetVehId) throw new Error("Missing vehicle_id parameter.");
 
-      const veh = this.db.vehicles.find((v) => v.id === targetVehId);
+      let veh = null;
+      if (this.isLive && this.supabaseAdmin) {
+        const { data: cloudVeh } = await this.supabaseAdmin
+          .from("vehicles")
+          .select("id, driver_id")
+          .eq("id", targetVehId)
+          .maybeSingle();
+        veh = cloudVeh;
+      } else {
+        veh = this.db.vehicles.find((v) => v.id === targetVehId);
+      }
+
       if (veh && veh.driver_id !== userId) throw new Error("Forbidden: You do not own this vehicle.");
 
       let driveFileId = data.drive_file_id || data.file_id || "";
@@ -557,10 +749,11 @@ class SupabaseBackendEngine {
       if (!this.db.vehicle_photos) this.db.vehicle_photos = [];
       this.db.vehicle_photos.push(photoRecord);
 
-      if (this.supabaseAdmin) {
-        try {
-          await this.supabaseAdmin.from("vehicle_photos").insert([photoRecord]);
-        } catch (_) {}
+      if (this.isLive && this.supabaseAdmin) {
+        const { error: photoErr } = await this.supabaseAdmin.from("vehicle_photos").insert([photoRecord]);
+        if (photoErr) {
+          throw new Error(`Failed to save vehicle photo to Supabase: ${photoErr.message}`);
+        }
       }
 
       this._persistLocalDb();
@@ -577,10 +770,11 @@ class SupabaseBackendEngine {
         this.db.vehicle_photos.splice(idx, 1);
       }
 
-      if (this.supabaseAdmin) {
-        try {
-          await this.supabaseAdmin.from("vehicle_photos").delete().eq("id", photoId);
-        } catch (_) {}
+      if (this.isLive && this.supabaseAdmin) {
+        const { error: delErr } = await this.supabaseAdmin.from("vehicle_photos").delete().eq("id", photoId);
+        if (delErr) {
+          throw new Error(`Failed to delete vehicle photo from Supabase: ${delErr.message}`);
+        }
       }
 
       this._persistLocalDb();
@@ -588,8 +782,34 @@ class SupabaseBackendEngine {
     }
 
     if (action === "list_driver_vehicles") {
-      const vehicles = this.db.vehicles.filter((v) => v.driver_id === userId);
-      const photos = this.db.vehicle_photos || [];
+      let vehicles = [];
+      let photos = [];
+
+      if (this.isLive && this.supabaseAdmin) {
+        const { data: cloudVehs, error: vehErr } = await this.supabaseAdmin
+          .from("vehicles")
+          .select("*")
+          .eq("driver_id", userId)
+          .order("created_at", { ascending: false });
+
+        if (vehErr) {
+          throw new Error(`Failed to query driver vehicles from Supabase: ${vehErr.message}`);
+        }
+        vehicles = cloudVehs || [];
+
+        if (vehicles.length > 0) {
+          const vehIds = vehicles.map((v) => v.id);
+          const { data: cloudPhotos } = await this.supabaseAdmin
+            .from("vehicle_photos")
+            .select("*")
+            .in("vehicle_id", vehIds);
+          photos = cloudPhotos || [];
+        }
+      } else {
+        vehicles = this.db.vehicles.filter((v) => v.driver_id === userId);
+        photos = this.db.vehicle_photos || [];
+      }
+
       const result = vehicles.map((veh) => {
         const vehPhotos = photos.filter((p) => p.vehicle_id === veh.id);
         const photoUrls = vehPhotos.map((p) => p.file_url || `/api/files/preview/${p.drive_file_id || p.file_id}`);
@@ -883,6 +1103,57 @@ class SupabaseBackendEngine {
         ...targetDoc,
         view_url: `/api/files/preview/${targetDoc.drive_file_id || targetDoc.file_id}`
       };
+    }
+
+    if (action === "admin_verify_vehicle") {
+      await requireAdmin();
+      const targetVehId = vehicle_id || data.vehicle_id || data.id;
+      if (!targetVehId) throw new Error("Missing vehicle_id parameter.");
+
+      const rawStatus = String(data.verification_status || data.status || "").toLowerCase().trim();
+      const status = (rawStatus === "approved" || rawStatus === "verified") ? "approved" : (rawStatus === "rejected" ? "rejected" : "pending");
+      const reason = data.reason || data.rejection_reason || null;
+      if (status === "rejected" && (!reason || !String(reason).trim())) {
+        throw new Error("A rejection reason is required when rejecting a vehicle.");
+      }
+      const now = new Date().toISOString();
+
+      let updatedVehicle = null;
+
+      if (this.isLive && this.supabaseAdmin) {
+        const updatePayload = {
+          verification_status: status,
+          rejection_reason: status === "rejected" ? String(reason).trim() : null,
+          updated_at: now
+        };
+
+        const { data: cloudUpdated, error } = await this.supabaseAdmin
+          .from("vehicles")
+          .update(updatePayload)
+          .eq("id", targetVehId)
+          .select()
+          .maybeSingle();
+
+        if (error) {
+          throw new Error(`Failed to update vehicle verification in Supabase: ${error.message}`);
+        }
+        if (!cloudUpdated) {
+          throw new Error(`Vehicle not found in Supabase: ${targetVehId}`);
+        }
+        updatedVehicle = cloudUpdated;
+      }
+
+      const veh = this.db.vehicles.find((v) => v.id === targetVehId);
+      if (veh) {
+        veh.verification_status = status;
+        veh.rejection_reason = status === "rejected" ? String(reason).trim() : "";
+        veh.updated_at = now;
+        if (!updatedVehicle) updatedVehicle = veh;
+      }
+
+      this._persistLocalDb();
+      await logActivity("vehicle_verification_updated", `Admin set vehicle verification to ${status}`, `Vehicle: ${targetVehId}`, targetVehId);
+      return updatedVehicle || { id: targetVehId, verification_status: status };
     }
 
     // =========================================================================
@@ -1468,15 +1739,21 @@ class SupabaseBackendEngine {
         allDocs = cloudDocs || [];
 
         // Query vehicles
-        const { data: cloudVehicles } = await this.supabaseAdmin
+        const { data: cloudVehicles, error: vehErr } = await this.supabaseAdmin
           .from("vehicles")
           .select("*");
+        if (vehErr) {
+          throw new Error(`Failed to query vehicles from Supabase: ${vehErr.message}`);
+        }
         allVehicles = cloudVehicles || [];
 
         // Query vehicle photos
-        const { data: cloudPhotos } = await this.supabaseAdmin
+        const { data: cloudPhotos, error: photoErr } = await this.supabaseAdmin
           .from("vehicle_photos")
           .select("*");
+        if (photoErr) {
+          throw new Error(`Failed to query vehicle_photos from Supabase: ${photoErr.message}`);
+        }
         allPhotos = cloudPhotos || [];
       } else {
         profiles = this.db.profiles.filter((p) =>
@@ -2020,6 +2297,7 @@ class SupabaseBackendEngine {
       let pendingVerifs = 0;
       let pendingDocs = 0;
       let pendingProfiles = 0;
+      let pendingVehs = 0;
 
       if (this.isLive && this.supabaseAdmin) {
         try {
@@ -2035,12 +2313,20 @@ class SupabaseBackendEngine {
             .in("verification_status", ["pending", "unverified"])
             .in("role", ["driver", "owner", "vehicle_owner", "machinery_owner", "logistics"]);
           pendingProfiles = profCount ?? 0;
-          pendingVerifs = Math.max(pendingDocs, pendingProfiles);
+
+          const { count: vehCount } = await this.supabaseAdmin
+            .from("vehicles")
+            .select("id", { count: "exact", head: true })
+            .eq("verification_status", "pending");
+          pendingVehs = vehCount ?? 0;
+
+          pendingVerifs = Math.max(pendingDocs, pendingProfiles, pendingVehs);
         } catch (_) {}
       } else {
         pendingDocs = this.db.verification_documents.filter((d) => d.verification_status === "pending").length;
         pendingProfiles = this.db.profiles.filter((p) => p.verification_status === "pending").length;
-        pendingVerifs = Math.max(pendingDocs, pendingProfiles);
+        pendingVehs = this.db.vehicles.filter((v) => v.verification_status === "pending").length;
+        pendingVerifs = Math.max(pendingDocs, pendingProfiles, pendingVehs);
       }
 
       const passengers = this.db.profiles.filter((p) => ["passenger", "customer"].includes(p.role)).length;
@@ -2057,7 +2343,7 @@ class SupabaseBackendEngine {
         verificationQueue: pendingVerifs,
         pendingVerifications: pendingVerifs,
         pendingProviders: pendingProfiles,
-        pendingVehicles: this.db.vehicles.filter((v) => v.verification_status === "pending").length,
+        pendingVehicles: pendingVehs,
         pendingDocuments: pendingDocs,
         expiredDocuments: 0,
         paymentsTotal: this.db.payments.filter((p) => p.status === "approved").reduce((sum, p) => sum + (p.amount || 0), 0),
