@@ -1079,6 +1079,14 @@ class SupabaseBackendEngine {
         throw new Error("No photo file data provided.");
       }
 
+      const allowedPhotoTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+      if (!allowedPhotoTypes.has(String(mimeType).toLowerCase())) {
+        throw new Error("Profile photo must be a JPG, PNG, or WebP image.");
+      }
+      if (!fileBuffer.length || fileBuffer.length > 5 * 1024 * 1024) {
+        throw new Error("Profile photo must be between 1 byte and 5MB.");
+      }
+
       const upload = await googleDriveStorage.uploadFile({
         buffer: fileBuffer,
         originalFilename: filename,
@@ -1089,26 +1097,37 @@ class SupabaseBackendEngine {
 
       const photoUrl = `/api/files/preview/${upload.id}`;
 
-      // Update in-memory profile
-      const prof = this.db.profiles.find((p) => p.id === userId || p.user_id === userId);
+      const updatedAt = new Date().toISOString();
+      let prof = this.db.profiles.find((p) => p.id === userId || p.user_id === userId) || null;
+
+      if (this.isLive && this.supabaseAdmin && isUuid(userId)) {
+        const { data: updatedProfile, error: profileError } = await this.supabaseAdmin
+          .from("profiles")
+          .update({
+            profile_photo_url: photoUrl,
+            profile_image_id: upload.id,
+            updated_at: updatedAt
+          })
+          .eq("id", userId)
+          .select()
+          .single();
+        if (profileError) {
+          await googleDriveStorage.deleteFile(upload.id).catch(() => {});
+          throw new Error(`Failed to save profile photo metadata: ${profileError.message}`);
+        }
+        prof = updatedProfile;
+      } else if (!prof) {
+        await googleDriveStorage.deleteFile(upload.id).catch(() => {});
+        throw new Error("Profile not found.");
+      }
+
       if (prof) {
         prof.profile_photo_url = photoUrl;
         prof.profile_image_id = upload.id;
-        prof.updated_at = new Date().toISOString();
-      }
-
-      // Also attempt Supabase cloud profiles update if available
-      if (this.supabaseAdmin) {
-        try {
-          await this.supabaseAdmin
-            .from("profiles")
-            .update({
-              profile_photo_url: photoUrl,
-              profile_image_id: upload.id,
-              updated_at: new Date().toISOString()
-            })
-            .eq("id", userId);
-        } catch (_) {}
+        prof.updated_at = updatedAt;
+        const localIndex = this.db.profiles.findIndex((p) => p.id === userId || p.user_id === userId);
+        if (localIndex >= 0) this.db.profiles[localIndex] = { ...this.db.profiles[localIndex], ...prof };
+        else this.db.profiles.push({ ...prof });
       }
 
       this._persistLocalDb();
@@ -1117,6 +1136,8 @@ class SupabaseBackendEngine {
       return {
         file_id: upload.id,
         photo_url: photoUrl,
+        mime_type: upload.mimeType || mimeType,
+        updated_at: updatedAt,
         storage_provider: "google_drive",
         profile: prof
       };
@@ -1602,7 +1623,19 @@ class SupabaseBackendEngine {
     if (action === "check_driver_entitlement" || action === "get_subscription_status") {
       const awardedCount = this.db.bookings.filter((b) => b.driver_id === userId).length;
       const now = new Date();
-      const activeSub = this.db.subscriptions.find((s) => s.user_id === userId && s.status === "active" && new Date(s.expires_at) > now);
+      let activeSub = this.db.subscriptions.find((s) => s.user_id === userId && s.status === "active" && new Date(s.expires_at) > now) || null;
+      if (authoritativeCaller) {
+        const { data: activeSubscriptions, error } = await this.supabaseAdmin
+          .from("subscriptions")
+          .select("*")
+          .eq("user_id", userId)
+          .eq("status", "active")
+          .gt("expires_at", now.toISOString())
+          .order("expires_at", { ascending: false })
+          .limit(1);
+        if (!error) activeSub = activeSubscriptions?.[0] || null;
+        else console.warn("[payments] Supabase active subscription lookup unavailable:", error.message);
+      }
 
       return {
         active: Boolean(activeSub),
@@ -2823,12 +2856,215 @@ class SupabaseBackendEngine {
     // =========================================================================
     // 10. PAYMENTS & SUBSCRIPTIONS (EcoCash + Google Drive Storage)
     // =========================================================================
+    if (action === "admin_manage_payment_destination") {
+      await requireAdmin();
+      if (!this.supabaseAdmin) throw new Error("Server payment destination storage is unavailable.");
+
+      const operation = String(data.operation || "list").trim().toLowerCase();
+      if (operation === "list") {
+        const { data: destinations, error } = await this.supabaseAdmin
+          .from("payment_destinations")
+          .select("*")
+          .order("display_order", { ascending: true });
+        if (error) throw new Error(`Failed to load payment destinations: ${error.message}`);
+        return { destinations: destinations || [], total: destinations?.length || 0, source: "supabase" };
+      }
+
+      if (operation === "create") {
+        if (!String(data.account_name || "").trim() || !String(data.account_number || "").trim()) {
+          throw new Error("Missing required destination fields (account_name, account_number).");
+        }
+        const payload = {
+          provider: String(data.provider || data.payment_method || "ecocash").trim().toLowerCase(),
+          account_name: String(data.account_name).trim(),
+          account_number: String(data.account_number).trim(),
+          instructions: String(data.instructions || "").trim(),
+          active: data.active !== undefined ? Boolean(data.active) : true,
+          display_order: Number.parseInt(data.display_order, 10) || 0,
+          updated_at: new Date().toISOString()
+        };
+        const { data: created, error } = await this.supabaseAdmin
+          .from("payment_destinations")
+          .insert(payload)
+          .select()
+          .single();
+        if (error) throw new Error(`Failed to create payment destination: ${error.message}`);
+        await logActivity("destination_created", `Payment destination created: ${created.account_name}`, created.account_number, created.id);
+        return created;
+      }
+
+      const destinationId = data.destination_id || data.id;
+      if (!isUuid(destinationId)) throw new Error("Missing or invalid destination_id.");
+
+      if (operation === "update") {
+        const updateData = { updated_at: new Date().toISOString() };
+        if (data.account_name !== undefined) updateData.account_name = String(data.account_name).trim();
+        if (data.account_number !== undefined) updateData.account_number = String(data.account_number).trim();
+        if (data.provider !== undefined || data.payment_method !== undefined) {
+          updateData.provider = String(data.provider || data.payment_method).trim().toLowerCase();
+        }
+        if (data.instructions !== undefined) updateData.instructions = String(data.instructions).trim();
+        if (data.active !== undefined) updateData.active = Boolean(data.active);
+        if (data.display_order !== undefined) updateData.display_order = Number.parseInt(data.display_order, 10) || 0;
+        const { data: updated, error } = await this.supabaseAdmin
+          .from("payment_destinations")
+          .update(updateData)
+          .eq("id", destinationId)
+          .select()
+          .single();
+        if (error) throw new Error(`Failed to update payment destination: ${error.message}`);
+        return updated;
+      }
+
+      if (operation === "toggle_active") {
+        const { data: current, error: loadError } = await this.supabaseAdmin
+          .from("payment_destinations")
+          .select("id, active")
+          .eq("id", destinationId)
+          .single();
+        if (loadError) throw new Error(`Failed to load payment destination: ${loadError.message}`);
+        const { data: updated, error } = await this.supabaseAdmin
+          .from("payment_destinations")
+          .update({ active: !current.active, updated_at: new Date().toISOString() })
+          .eq("id", destinationId)
+          .select()
+          .single();
+        if (error) throw new Error(`Failed to toggle payment destination: ${error.message}`);
+        return updated;
+      }
+
+      if (operation === "delete") {
+        const { error } = await this.supabaseAdmin.from("payment_destinations").delete().eq("id", destinationId);
+        if (error) throw new Error(`Failed to delete payment destination: ${error.message}`);
+        return { success: true, deleted: destinationId };
+      }
+
+      throw new Error(`Unsupported destination operation: ${operation}`);
+    }
+
+    if (action === "admin_manage_subscription_plan") {
+      await requireAdmin();
+      if (!this.supabaseAdmin) throw new Error("Server subscription plan storage is unavailable.");
+
+      const operation = String(data.operation || "list").trim().toLowerCase();
+      if (operation === "list") {
+        const { data: plans, error } = await this.supabaseAdmin
+          .from("subscription_plans")
+          .select("*")
+          .order("display_order", { ascending: true });
+        if (error) throw new Error(`Failed to load subscription plans: ${error.message}`);
+        return { plans: plans || [], total: plans?.length || 0, source: "supabase" };
+      }
+
+      if (operation === "create") {
+        if (!String(data.name || "").trim() || !String(data.slug || "").trim() || !positiveNumber(data.price) || !positiveNumber(data.duration_days)) {
+          throw new Error("Missing required plan fields (name, slug, price, duration_days).");
+        }
+        const payload = {
+          name: String(data.name).trim(),
+          slug: String(data.slug).trim().toLowerCase(),
+          description: String(data.description || "").trim(),
+          price: positiveNumber(data.price),
+          currency: String(data.currency || "USD").trim().toUpperCase(),
+          duration_days: Math.trunc(positiveNumber(data.duration_days)),
+          active: data.active !== undefined ? Boolean(data.active) : true,
+          recommended: Boolean(data.recommended),
+          display_order: Number.parseInt(data.display_order, 10) || 0,
+          features: Array.isArray(data.features) ? data.features : [],
+          updated_at: new Date().toISOString()
+        };
+        const { data: created, error } = await this.supabaseAdmin
+          .from("subscription_plans")
+          .insert(payload)
+          .select()
+          .single();
+        if (error) throw new Error(`Failed to create subscription plan: ${error.message}`);
+        await logActivity("plan_created", `Subscription plan created: ${created.name}`, created.slug, created.id);
+        return created;
+      }
+
+      const planId = data.plan_id || data.id;
+      if (!isUuid(planId)) throw new Error("Missing or invalid plan_id.");
+
+      if (operation === "update") {
+        const updateData = { updated_at: new Date().toISOString() };
+        if (data.name !== undefined) updateData.name = String(data.name).trim();
+        if (data.slug !== undefined) updateData.slug = String(data.slug).trim().toLowerCase();
+        if (data.description !== undefined) updateData.description = String(data.description).trim();
+        if (data.price !== undefined) updateData.price = positiveNumber(data.price);
+        if (data.currency !== undefined) updateData.currency = String(data.currency).trim().toUpperCase();
+        if (data.duration_days !== undefined) updateData.duration_days = Math.trunc(positiveNumber(data.duration_days));
+        if (data.active !== undefined) updateData.active = Boolean(data.active);
+        if (data.recommended !== undefined) updateData.recommended = Boolean(data.recommended);
+        if (data.display_order !== undefined) updateData.display_order = Number.parseInt(data.display_order, 10) || 0;
+        if (data.features !== undefined) updateData.features = Array.isArray(data.features) ? data.features : [];
+        const { data: updated, error } = await this.supabaseAdmin
+          .from("subscription_plans")
+          .update(updateData)
+          .eq("id", planId)
+          .select()
+          .single();
+        if (error) throw new Error(`Failed to update subscription plan: ${error.message}`);
+        return updated;
+      }
+
+      if (operation === "toggle_active") {
+        const { data: current, error: loadError } = await this.supabaseAdmin
+          .from("subscription_plans")
+          .select("id, active")
+          .eq("id", planId)
+          .single();
+        if (loadError) throw new Error(`Failed to load subscription plan: ${loadError.message}`);
+        const { data: updated, error } = await this.supabaseAdmin
+          .from("subscription_plans")
+          .update({ active: !current.active, updated_at: new Date().toISOString() })
+          .eq("id", planId)
+          .select()
+          .single();
+        if (error) throw new Error(`Failed to toggle subscription plan: ${error.message}`);
+        return updated;
+      }
+
+      if (operation === "delete") {
+        const { error } = await this.supabaseAdmin.from("subscription_plans").delete().eq("id", planId);
+        if (error) throw new Error(`Failed to delete subscription plan: ${error.message}`);
+        return { success: true, deleted: planId };
+      }
+
+      throw new Error(`Unsupported plan operation: ${operation}`);
+    }
+
     if (action === "list_payment_destinations") {
-      return { destinations: this.db.payment_destinations.filter((d) => d.active) };
+      if (this.isLive && this.supabaseAdmin) {
+        const { data: destinations, error } = await this.supabaseAdmin
+          .from("payment_destinations")
+          .select("*")
+          .eq("active", true)
+          .order("display_order", { ascending: true });
+        if (!error && destinations?.length) return { destinations, source: "supabase" };
+        if (error) console.warn("[payments] Supabase destination lookup unavailable:", error.message);
+      }
+      return {
+        destinations: this.db.payment_destinations.filter((d) => d.active).sort((a, b) => a.display_order - b.display_order),
+        source: "trusted_server_config"
+      };
     }
 
     if (action === "list_subscription_plans") {
-      return { plans: this.db.subscription_plans.filter((p) => p.active) };
+      if (this.isLive && this.supabaseAdmin) {
+        let plansQuery = this.supabaseAdmin
+          .from("subscription_plans")
+          .select("*")
+          .order("display_order", { ascending: true });
+        if (!data.include_all) plansQuery = plansQuery.eq("active", true);
+        const { data: plans, error } = await plansQuery;
+        if (!error && plans?.length) return { plans, source: "supabase" };
+        if (error) console.warn("[payments] Supabase plan lookup unavailable:", error.message);
+      }
+      return {
+        plans: this.db.subscription_plans.filter((p) => p.active).sort((a, b) => a.display_order - b.display_order),
+        source: "trusted_server_config"
+      };
     }
 
     if (action === "upload_payment_proof") {
@@ -2841,7 +3077,15 @@ class SupabaseBackendEngine {
       } else if (data.buffer) {
         fileBuffer = Buffer.from(data.buffer);
       } else {
-        fileBuffer = Buffer.from("DUMMY_PAYMENT_PROOF_BYTES");
+        throw new Error("Payment proof file data is required.");
+      }
+
+      const allowedProofTypes = new Set(["image/jpeg", "image/png", "application/pdf"]);
+      if (!allowedProofTypes.has(String(mimeType).toLowerCase())) {
+        throw new Error("Payment proof must be a JPG, PNG, or PDF file.");
+      }
+      if (!fileBuffer.length || fileBuffer.length > 5 * 1024 * 1024) {
+        throw new Error("Payment proof must be between 1 byte and 5MB.");
       }
 
       const upload = await googleDriveStorage.uploadFile({
@@ -2856,15 +3100,60 @@ class SupabaseBackendEngine {
         file_id: upload.id,
         $id: upload.id,
         file_name: upload.name,
+        mime_type: upload.mimeType || mimeType,
         storage_provider: "google_drive",
         size: upload.size
       };
     }
 
     if (action === "submit_ecocash_payment") {
-      const destinationId = data.payment_destination_id;
-      const dest = this.db.payment_destinations.find((d) => d.id === destinationId && d.active);
-      if (!dest) throw new Error("Invalid or inactive EcoCash payment destination.");
+      const destinationId = data.destination_account_id || data.payment_destination_id;
+      if (!destinationId) throw new Error("Destination account required.");
+
+      let dest = null;
+      let supabasePaymentsAvailable = false;
+      if (this.isLive && this.supabaseAdmin && isUuid(destinationId)) {
+        const { data: liveDestination, error: destinationError } = await this.supabaseAdmin
+          .from("payment_destinations")
+          .select("*")
+          .eq("id", destinationId)
+          .eq("active", true)
+          .maybeSingle();
+        if (!destinationError) {
+          dest = liveDestination;
+          supabasePaymentsAvailable = true;
+        } else {
+          console.warn("[payments] Supabase destination validation unavailable:", destinationError.message);
+        }
+      }
+      if (!dest) dest = this.db.payment_destinations.find((d) => d.id === destinationId && d.active) || null;
+      if (!dest) throw new Error("Invalid or inactive payment destination.");
+
+      const requestedPlanId = data.plan_id || data.related_id;
+      if (!requestedPlanId) throw new Error("Subscription plan is required.");
+      let plan = null;
+      if (this.isLive && this.supabaseAdmin) {
+        let planQuery = this.supabaseAdmin.from("subscription_plans").select("*").eq("active", true);
+        planQuery = isUuid(requestedPlanId) ? planQuery.eq("id", requestedPlanId) : planQuery.eq("slug", requestedPlanId);
+        const { data: livePlan, error: planError } = await planQuery.maybeSingle();
+        if (!planError && livePlan) {
+          plan = livePlan;
+          supabasePaymentsAvailable = supabasePaymentsAvailable && true;
+        } else if (planError) {
+          supabasePaymentsAvailable = false;
+          console.warn("[payments] Supabase plan validation unavailable:", planError.message);
+        }
+      }
+      if (!plan) {
+        plan = this.db.subscription_plans.find((p) => (p.id === requestedPlanId || p.slug === requestedPlanId) && p.active) || null;
+      }
+      if (!plan) throw new Error("Invalid or inactive subscription plan.");
+
+      const expectedAmount = positiveNumber(plan.price);
+      if (!expectedAmount) throw new Error("Selected plan has an invalid configured price.");
+      if (data.amount_declared !== undefined && data.amount_declared !== null && Number(data.amount_declared) !== expectedAmount) {
+        throw new Error("Declared amount does not match the selected plan price.");
+      }
 
       const reference = String(data.transaction_reference || data.reference || "").trim();
       if (!reference) throw new Error("Transaction reference / EcoCash approval code is required.");
@@ -2890,46 +3179,206 @@ class SupabaseBackendEngine {
         proofFilename = upload.name;
       }
 
-      const payment = {
-        id: `pay_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      if (!proofFileId) throw new Error("Payment proof is required.");
+      const proofMetadata = await googleDriveStorage.getFileMetadata(proofFileId);
+      const proofMimeType = String(proofMetadata?.mimeType || "").toLowerCase();
+      if (!["image/jpeg", "image/png", "application/pdf"].includes(proofMimeType)) {
+        throw new Error("Stored payment proof must be a JPG, PNG, or PDF file.");
+      }
+      if (Number(proofMetadata?.size || 0) <= 0 || Number(proofMetadata?.size || 0) > 5 * 1024 * 1024) {
+        throw new Error("Stored payment proof must be between 1 byte and 5MB.");
+      }
+
+      const now = new Date().toISOString();
+      let subscription = {
+        id: supabasePaymentsAvailable ? randomUUID() : `sub_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         user_id: userId,
-        payment_destination_id: destinationId,
+        plan_id: isUuid(plan.id) ? plan.id : null,
+        plan: plan.name,
+        amount: expectedAmount,
+        currency: plan.currency || "USD",
+        status: "pending_review",
+        started_at: null,
+        expires_at: null,
+        created_at: now,
+        updated_at: now
+      };
+
+      if (supabasePaymentsAvailable && authoritativeCaller) {
+        const { data: insertedSubscription, error: subscriptionError } = await this.supabaseAdmin
+          .from("subscriptions")
+          .insert(subscription)
+          .select()
+          .single();
+        if (subscriptionError) {
+          supabasePaymentsAvailable = false;
+          subscription.id = `sub_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+          console.warn("[payments] Supabase pending subscription insert unavailable:", subscriptionError.message);
+        } else {
+          subscription = insertedSubscription;
+        }
+      }
+
+      let payment = {
+        id: supabasePaymentsAvailable && authoritativeCaller ? randomUUID() : `pay_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        user_id: userId,
+        payment_destination_id: isUuid(dest.id) ? dest.id : null,
+        subscription_id: isUuid(subscription.id) ? subscription.id : null,
         payment_type: data.payment_type || "subscription",
-        related_id: data.related_id || data.plan_id || "plan_professional",
-        amount: parseFloat(data.amount_declared || data.amount || 15.0),
-        currency: "USD",
-        provider: "ecocash",
+        amount: expectedAmount,
+        currency: plan.currency || "USD",
+        provider: dest.provider || "ecocash",
         reference,
+        provider_reference: reference,
         sender_name: data.sender_name || "",
         sender_phone: data.sender_phone || "",
         proof_storage_provider: "google_drive",
         proof_file_id: proofFileId,
-        proof_filename: proofFilename,
+        proof_filename: proofMetadata.originalFilename || proofFilename,
         status: "pending_review",
         admin_notes: "",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        created_at: now,
+        updated_at: now
       };
 
-      this.db.payments.push(payment);
+      if (supabasePaymentsAvailable && authoritativeCaller) {
+        const { data: insertedPayment, error: paymentError } = await this.supabaseAdmin
+          .from("payments")
+          .insert(payment)
+          .select()
+          .single();
+        if (paymentError) {
+          await this.supabaseAdmin.from("subscriptions").delete().eq("id", subscription.id);
+          throw new Error(`Failed to create payment in Supabase: ${paymentError.message}`);
+        }
+        payment = insertedPayment;
+      }
+
+      const responsePayment = {
+        ...payment,
+        $id: payment.id,
+        plan_id: plan.id,
+        plan_name: plan.name,
+        plan_duration_days: plan.duration_days,
+        related_id: plan.id,
+        amount_expected: expectedAmount,
+        amount_declared: data.amount_declared !== undefined && data.amount_declared !== null
+          ? Number(data.amount_declared)
+          : expectedAmount,
+        destination_account_id: dest.id,
+        recipient_name: dest.account_name,
+        recipient_number: dest.account_number,
+        transaction_reference: reference,
+        persistence: supabasePaymentsAvailable && authoritativeCaller ? "supabase" : "trusted_server_store"
+      };
+
+      this.db.subscriptions.push({ ...subscription });
+      this.db.payments.push({ ...responsePayment, payment_destination_id: dest.id, subscription_id: subscription.id });
       this._persistLocalDb();
-      await logActivity("payment_submitted", "EcoCash payment submitted for review", `Ref: ${reference}`, payment.id);
-      return payment;
+      await logActivity("payment_submitted", "Payment submitted for review", `Ref: ${reference}`, payment.id);
+      return responsePayment;
     }
 
     if (action === "list_user_payments") {
-      const list = this.db.payments.filter((p) => p.user_id === userId);
+      let list = this.db.payments.filter((p) => p.user_id === userId);
+      if (authoritativeCaller) {
+        const { data: livePayments, error } = await this.supabaseAdmin
+          .from("payments")
+          .select("*, destination:payment_destinations(*), subscription:subscriptions(*, plan_details:subscription_plans(*))")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false });
+        if (!error) {
+          list = (livePayments || []).map((payment) => ({
+            ...payment,
+            plan_id: payment.subscription?.plan_id || null,
+            plan_name: payment.subscription?.plan_details?.name || payment.subscription?.plan || "Subscription",
+            destination_account_id: payment.destination?.id || payment.payment_destination_id,
+            recipient_name: payment.destination?.account_name || "Payment destination",
+            recipient_number: payment.destination?.account_number || "",
+            transaction_reference: payment.provider_reference || payment.reference,
+            rejection_reason: payment.admin_notes || ""
+          }));
+        } else {
+          console.warn("[payments] Supabase user payment history unavailable:", error.message);
+        }
+      }
       return { payments: list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) };
     }
 
-    if (action === "admin_list_payments") {
+    if (action === "admin_list_payments" || action === "admin_list_pending_payments") {
       await requireAdmin();
-      return { payments: this.db.payments.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) };
+      const statusFilter = String(data.status || "").trim();
+      let list = this.db.payments
+        .filter((payment) => !statusFilter || payment.status === statusFilter)
+        .map((payment) => {
+          const profile = this.db.profiles.find((entry) => entry.id === payment.user_id || entry.user_id === payment.user_id);
+          const destination = this.db.payment_destinations.find((entry) => entry.id === (payment.destination_account_id || payment.payment_destination_id));
+          const subscription = this.db.subscriptions.find((entry) => entry.id === payment.subscription_id);
+          const plan = this.db.subscription_plans.find((entry) => entry.id === (payment.plan_id || subscription?.plan_id));
+          return {
+            ...payment,
+            $id: payment.id,
+            provider_name: profile?.full_name || "User",
+            provider_email: profile?.email || "",
+            plan_id: payment.plan_id || subscription?.plan_id || null,
+            plan_name: payment.plan_name || plan?.name || subscription?.plan || "Subscription",
+            plan_duration_days: plan?.duration_days || null,
+            destination_account_id: destination?.id || payment.destination_account_id || payment.payment_destination_id,
+            recipient_name: destination?.account_name || payment.recipient_name || "Payment destination",
+            recipient_number: destination?.account_number || payment.recipient_number || "",
+            transaction_reference: payment.provider_reference || payment.reference,
+            submitted_at: payment.created_at,
+            rejection_reason: payment.admin_notes || payment.rejection_reason || ""
+          };
+        });
+      if (this.isLive && this.supabaseAdmin) {
+        let paymentQuery = this.supabaseAdmin
+          .from("payments")
+          .select("*, user:profiles!user_id(id, full_name, email, phone), destination:payment_destinations(*), subscription:subscriptions(*, plan_details:subscription_plans(*))")
+          .order("created_at", { ascending: false });
+        if (statusFilter) paymentQuery = paymentQuery.eq("status", statusFilter);
+        const { data: livePayments, error } = await paymentQuery;
+        if (!error) {
+          list = (livePayments || []).map((payment) => ({
+            ...payment,
+            $id: payment.id,
+            user_name: payment.user?.full_name || "User",
+            user_email: payment.user?.email || "",
+            provider_name: payment.user?.full_name || "User",
+            provider_email: payment.user?.email || "",
+            plan_id: payment.subscription?.plan_id || null,
+            plan_name: payment.subscription?.plan_details?.name || payment.subscription?.plan || "Subscription",
+            plan_duration_days: payment.subscription?.plan_details?.duration_days || null,
+            amount_expected: Number(payment.amount),
+            amount_declared: Number(payment.amount),
+            destination_account_id: payment.destination?.id || payment.payment_destination_id,
+            recipient_name: payment.destination?.account_name || "Payment destination",
+            recipient_number: payment.destination?.account_number || "",
+            transaction_reference: payment.provider_reference || payment.reference,
+            submitted_at: payment.created_at,
+            rejection_reason: payment.admin_notes || ""
+          }));
+        } else {
+          console.warn("[payments] Supabase admin payment queue unavailable:", error.message);
+        }
+      }
+      return { payments: list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) };
     }
 
-    if (action === "admin_get_payment_proof_preview") {
+    if (action === "admin_get_payment_proof_preview" || action === "admin_create_payment_proof_token") {
       await requireAdmin();
-      const fileId = data.file_id;
+      let fileId = data.file_id;
+      if (!fileId && data.payment_id) {
+        if (this.isLive && this.supabaseAdmin && isUuid(data.payment_id)) {
+          const { data: livePayment } = await this.supabaseAdmin
+            .from("payments")
+            .select("proof_file_id")
+            .eq("id", data.payment_id)
+            .maybeSingle();
+          fileId = livePayment?.proof_file_id || "";
+        }
+        if (!fileId) fileId = this.db.payments.find((payment) => payment.id === data.payment_id)?.proof_file_id || "";
+      }
       if (!fileId) throw new Error("Missing file_id.");
       const download = await googleDriveStorage.downloadAuthorizedFile(fileId);
 
@@ -2941,30 +3390,63 @@ class SupabaseBackendEngine {
       return {
         filename: download.filename,
         mimeType: download.mimeType,
+        mime_type: download.mimeType,
         size: download.size,
-        base64: buf.toString("base64")
+        base64: buf.toString("base64"),
+        view_url: `data:${download.mimeType || "application/octet-stream"};base64,${buf.toString("base64")}`
       };
     }
 
-    if (action === "approve_subscription_payment") {
+    if (action === "approve_subscription_payment" || action === "admin_approve_payment") {
       await requireAdmin();
       const paymentId = data.payment_id;
-      const payment = this.db.payments.find((p) => p.id === paymentId);
+      let payment = this.db.payments.find((p) => p.id === paymentId) || null;
+      if (this.isLive && this.supabaseAdmin && isUuid(paymentId)) {
+        const { data: livePayment, error } = await this.supabaseAdmin
+          .from("payments")
+          .select("*")
+          .eq("id", paymentId)
+          .maybeSingle();
+        if (error) throw new Error(`Failed to load payment from Supabase: ${error.message}`);
+        payment = livePayment || payment;
+      }
       if (!payment) throw new Error("Payment record not found.");
+      if (payment.user_id === userId) throw new Error("Forbidden: Administrators cannot approve their own payments.");
+      if (payment.status !== "pending_review") throw new Error(`Conflict: Only pending-review payments can be approved (current status: ${payment.status}).`);
 
       payment.status = "approved";
       payment.paid_at = new Date().toISOString();
       payment.updated_at = new Date().toISOString();
 
       // Find plan details
-      const plan = this.db.subscription_plans.find((p) => p.id === payment.related_id || p.slug === payment.related_id) || DEFAULT_SUBSCRIPTION_PLANS[1];
+      let subscription = this.db.subscriptions.find((s) => s.id === payment.subscription_id) || null;
+      if (this.isLive && this.supabaseAdmin && isUuid(payment.subscription_id)) {
+        const { data: liveSubscription, error } = await this.supabaseAdmin
+          .from("subscriptions")
+          .select("*")
+          .eq("id", payment.subscription_id)
+          .maybeSingle();
+        if (error) throw new Error(`Failed to load pending subscription: ${error.message}`);
+        subscription = liveSubscription || subscription;
+      }
+      let plan = this.db.subscription_plans.find((p) => p.id === subscription?.plan_id || p.id === payment.plan_id || p.slug === payment.plan_id) || null;
+      if (!plan && this.isLive && this.supabaseAdmin && isUuid(subscription?.plan_id)) {
+        const { data: livePlan, error } = await this.supabaseAdmin
+          .from("subscription_plans")
+          .select("*")
+          .eq("id", subscription.plan_id)
+          .maybeSingle();
+        if (error) throw new Error(`Failed to load subscription plan: ${error.message}`);
+        plan = livePlan;
+      }
+      plan = plan || DEFAULT_SUBSCRIPTION_PLANS.find((entry) => entry.name === subscription?.plan) || DEFAULT_SUBSCRIPTION_PLANS[1];
       const durationDays = plan.duration_days || 30;
 
       const startedAt = new Date();
       const expiresAt = new Date(startedAt.getTime() + durationDays * 24 * 60 * 60 * 1000);
 
       // Create or activate subscription
-      let sub = this.db.subscriptions.find((s) => s.user_id === payment.user_id);
+      let sub = subscription || this.db.subscriptions.find((s) => s.user_id === payment.user_id && s.status === "pending_review");
       if (sub) {
         sub.status = "active";
         sub.plan_id = plan.id;
@@ -2992,13 +3474,42 @@ class SupabaseBackendEngine {
 
       payment.subscription_id = sub.id;
 
+      if (this.isLive && this.supabaseAdmin && isUuid(payment.id)) {
+        const { error: paymentUpdateError } = await this.supabaseAdmin
+          .from("payments")
+          .update({ status: "approved", paid_at: payment.paid_at, updated_at: payment.updated_at })
+          .eq("id", payment.id);
+        if (paymentUpdateError) throw new Error(`Failed to approve payment in Supabase: ${paymentUpdateError.message}`);
+
+        const { error: subscriptionUpdateError } = await this.supabaseAdmin
+          .from("subscriptions")
+          .update({
+            status: "active",
+            plan_id: isUuid(plan.id) ? plan.id : sub.plan_id,
+            plan: plan.name,
+            amount: Number(plan.price),
+            started_at: sub.started_at,
+            expires_at: sub.expires_at,
+            updated_at: sub.updated_at
+          })
+          .eq("id", sub.id);
+        if (subscriptionUpdateError) throw new Error(`Failed to activate subscription in Supabase: ${subscriptionUpdateError.message}`);
+      }
+
+      const localPaymentIndex = this.db.payments.findIndex((entry) => entry.id === payment.id);
+      if (localPaymentIndex >= 0) this.db.payments[localPaymentIndex] = { ...this.db.payments[localPaymentIndex], ...payment };
+      else this.db.payments.push({ ...payment });
+      const localSubscriptionIndex = this.db.subscriptions.findIndex((entry) => entry.id === sub.id);
+      if (localSubscriptionIndex >= 0) this.db.subscriptions[localSubscriptionIndex] = { ...this.db.subscriptions[localSubscriptionIndex], ...sub };
+      else this.db.subscriptions.push({ ...sub });
+
       // Notify User
       this.db.notifications.push({
         id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
         user_id: payment.user_id,
         type: "payment_approved",
         title: "Subscription Payment Approved!",
-        message: `Your payment of $${payment.amount.toFixed(2)} was approved. Subscription active until ${expiresAt.toLocaleDateString()}.`,
+        message: `Your payment of $${Number(payment.amount).toFixed(2)} was approved. Subscription active until ${expiresAt.toLocaleDateString()}.`,
         related_id: sub.id,
         read: false,
         created_at: new Date().toISOString()
@@ -3006,18 +3517,53 @@ class SupabaseBackendEngine {
 
       this._persistLocalDb();
       await logActivity("payment_approved", `Approved payment for ${plan.name}`, `User: ${payment.user_id}`, payment.id);
-      return { payment, subscription: sub };
+      return { ...payment, $id: payment.id, payment, subscription: sub };
     }
 
-    if (action === "reject_subscription_payment") {
+    if (action === "reject_subscription_payment" || action === "admin_reject_payment") {
       await requireAdmin();
       const paymentId = data.payment_id;
-      const payment = this.db.payments.find((p) => p.id === paymentId);
+      let payment = this.db.payments.find((p) => p.id === paymentId) || null;
+      if (this.isLive && this.supabaseAdmin && isUuid(paymentId)) {
+        const { data: livePayment, error } = await this.supabaseAdmin
+          .from("payments")
+          .select("*")
+          .eq("id", paymentId)
+          .maybeSingle();
+        if (error) throw new Error(`Failed to load payment from Supabase: ${error.message}`);
+        payment = livePayment || payment;
+      }
       if (!payment) throw new Error("Payment record not found.");
+      if (payment.user_id === userId) throw new Error("Forbidden: Administrators cannot reject their own payments.");
+      if (payment.status !== "pending_review") throw new Error(`Conflict: Only pending-review payments can be rejected (current status: ${payment.status}).`);
 
       payment.status = "rejected";
-      payment.admin_notes = data.reason || "Payment details could not be verified.";
+      payment.admin_notes = data.rejection_reason || data.reason || "Payment details could not be verified.";
       payment.updated_at = new Date().toISOString();
+
+      if (this.isLive && this.supabaseAdmin && isUuid(payment.id)) {
+        const { error: paymentUpdateError } = await this.supabaseAdmin
+          .from("payments")
+          .update({ status: "rejected", admin_notes: payment.admin_notes, updated_at: payment.updated_at })
+          .eq("id", payment.id);
+        if (paymentUpdateError) throw new Error(`Failed to reject payment in Supabase: ${paymentUpdateError.message}`);
+        if (isUuid(payment.subscription_id)) {
+          const { error: subscriptionUpdateError } = await this.supabaseAdmin
+            .from("subscriptions")
+            .update({ status: "inactive", updated_at: payment.updated_at })
+            .eq("id", payment.subscription_id)
+            .eq("status", "pending_review");
+          if (subscriptionUpdateError) throw new Error(`Failed to close pending subscription: ${subscriptionUpdateError.message}`);
+        }
+      }
+
+      const localPaymentIndex = this.db.payments.findIndex((entry) => entry.id === payment.id);
+      if (localPaymentIndex >= 0) this.db.payments[localPaymentIndex] = { ...this.db.payments[localPaymentIndex], ...payment };
+      const localSub = this.db.subscriptions.find((entry) => entry.id === payment.subscription_id);
+      if (localSub?.status === "pending_review") {
+        localSub.status = "inactive";
+        localSub.updated_at = payment.updated_at;
+      }
 
       this.db.notifications.push({
         id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,

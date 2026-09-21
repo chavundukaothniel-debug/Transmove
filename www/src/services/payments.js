@@ -3,7 +3,7 @@
 // Client service for EcoCash payment destinations, proof uploads (Google Drive),
 // and manual payment submissions with server-side verification.
 // ==============================================================================
-import { getTrustedApiEndpoint } from "../config/appwrite.js";
+import { getTrustedApiEndpoint, getFilePreviewUrl } from "../config/appwrite.js";
 import { getSupabase } from "../config/supabase.js";
 
 async function getAuthJwt() {
@@ -66,10 +66,10 @@ export const PaymentService = {
       throw new Error("Proof file exceeds maximum size of 5MB. Please upload a smaller image.");
     }
 
-    const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-    const allowedExtension = /\.(?:jpe?g|png|webp)$/i.test(file.name || "");
+    const allowedTypes = new Set(["image/jpeg", "image/png", "application/pdf"]);
+    const allowedExtension = /\.(?:jpe?g|png|pdf)$/i.test(file.name || "");
     if (!allowedTypes.has(String(file.type || "").toLowerCase()) || !allowedExtension) {
-      throw new Error("Proof must be a JPG, PNG, or WebP image.");
+      throw new Error("Proof must be a JPG, PNG, or PDF file.");
     }
 
     // Convert to Base64
@@ -103,7 +103,7 @@ export const PaymentService = {
    */
   getProofViewUrl(fileId) {
     if (!fileId) return null;
-    return `/api/files/preview/${encodeURIComponent(fileId)}`;
+    return getFilePreviewUrl(fileId);
   },
 
   /**

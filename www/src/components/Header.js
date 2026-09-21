@@ -7,6 +7,7 @@ import { NotificationService } from "../services/notifications.js";
 import { ThemeService } from "../services/theme.js";
 import { Modal } from "./Modal.js";
 import { icon } from "./Icon.js";
+import { resolveAvatarUrl, avatarInitials } from "../utils/avatar.js";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -163,8 +164,8 @@ export function renderHeader(currentProfile, currentRoute) {
     ? (passengerTitles[passengerTab] || routeTitles[currentRoute])
     : (isPassengerDashboard ? (passengerRouteTitles[currentRoute] || routeTitles[currentRoute] || "Dashboard") : (routeTitles[currentRoute] || "Dashboard"));
 
-  const avatarPhotoUrl = currentProfile?.profile_photo_url || null;
-  const initial = currentProfile?.full_name ? escapeHtml(currentProfile.full_name.charAt(0).toUpperCase()) : "U";
+  const avatarPhotoUrl = resolveAvatarUrl(currentProfile);
+  const initial = escapeHtml(avatarInitials(currentProfile?.full_name || "User"));
   const roleLabel = ROLE_LABELS[currentProfile?.role]
     || (currentProfile?.role ? escapeHtml(currentProfile.role.replace(/_/g, " ").replace(/\b[a-z]/g, (c) => c.toUpperCase())) : "Passenger");
   const notificationTarget = isPassengerDashboard
@@ -205,7 +206,7 @@ export function renderHeader(currentProfile, currentRoute) {
           <!-- Profile Avatar & User Pill -->
           <a href="#profile" style="display: flex; align-items: center; gap: 0.65rem; text-decoration: none; padding: 0.25rem 0.5rem; border-radius: 8px; transition: background 0.15s ease;" title="Account Profile">
             <div style="width: 36px; height: 36px; border-radius: 50%; background: var(--primary); color: #ffffff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.95rem; overflow: hidden; flex-shrink: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-              ${avatarPhotoUrl ? `<img src="${avatarPhotoUrl}" alt="Profile" style="width: 100%; height: 100%; object-fit: cover;" />` : `<span>${initial}</span>`}
+              ${avatarPhotoUrl ? `<img src="${escapeHtml(avatarPhotoUrl)}" alt="Profile" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'" /><span style="display:none">${initial}</span>` : `<span>${initial}</span>`}
             </div>
             <div style="display: flex; flex-direction: column; text-align: left;">
               <span style="font-size: 0.875rem; font-weight: 800; color: var(--text-main); line-height: 1.2;">${escapeHtml(currentProfile?.full_name) || "User"}</span>

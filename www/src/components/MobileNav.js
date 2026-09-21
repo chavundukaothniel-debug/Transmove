@@ -7,7 +7,8 @@ const navIcon = (name) => icon({
   profile: "user-round",
   earnings: "circle-dollar-sign",
   explore: "compass",
-  card: "credit-card"
+  card: "credit-card",
+  more: "menu"
 }[name] || "house", 22);
 
 const activeRoute = (href, currentRoute, currentHash) => {
@@ -26,19 +27,19 @@ export function renderMobileNav(currentProfile, currentRoute) {
     { href: "#customer?tab=quotes", label: "Requests", icon: "request" },
     { href: "#customer?tab=bookings", label: "Trips", icon: "trips" },
     { href: "#messages", label: "Messages", icon: "message" },
-    { href: "#profile", label: "Profile", icon: "profile" }
+    { action: "more", label: "More", icon: "more" }
   ] : role === "driver" ? [
     { href: "#driver", label: "Home", icon: "home" },
     { href: "#driver?tab=available", label: "Requests", icon: "request" },
     { href: "#driver?tab=offers", label: "Jobs", icon: "trips" },
-    { href: "#driver?tab=earnings", label: "Earnings", icon: "earnings" },
-    { href: "#profile", label: "Profile", icon: "profile" }
+    { href: "#messages", label: "Messages", icon: "message" },
+    { action: "more", label: "More", icon: "more" }
   ] : currentProfile ? [
     { href: `#${currentRoute || "home"}`, label: "Home", icon: "home" },
     { href: "#equipment", label: "Explore", icon: "explore" },
     { href: "#messages", label: "Messages", icon: "message" },
     { href: "#subscriptions", label: "Plans", icon: "card" },
-    { href: "#profile", label: "Profile", icon: "profile" }
+    { action: "more", label: "More", icon: "more" }
   ] : [
     { href: "#home", label: "Home", icon: "home" },
     { href: "#equipment", label: "Explore", icon: "explore" },
@@ -49,7 +50,12 @@ export function renderMobileNav(currentProfile, currentRoute) {
 
   return `
     <nav class="mobile-bottom-nav" aria-label="Primary mobile navigation">
-      ${items.map((item) => `
+      ${items.map((item) => item.action === "more" ? `
+        <button type="button" id="btn-mobile-more" class="mobile-nav-link mobile-nav-more" aria-label="Open all navigation" aria-controls="app-sidebar" aria-expanded="false">
+          <span class="mobile-nav-icon">${navIcon(item.icon)}</span>
+          <span class="mobile-nav-label">${item.label}</span>
+        </button>
+      ` : `
         <a href="${item.href}" class="mobile-nav-link ${activeRoute(item.href, currentRoute, currentHash) ? "active" : ""}">
           <span class="mobile-nav-icon">${navIcon(item.icon)}</span>
           <span class="mobile-nav-label">${item.label}</span>

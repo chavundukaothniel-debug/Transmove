@@ -7,15 +7,51 @@ import { AuthService } from "../services/auth.js";
 import { VehicleService } from "../services/vehicles.js";
 import { BookingService } from "../services/bids.js";
 import { ReviewService } from "../services/reviews.js";
+import { DevicePermissionService } from "../services/device-permissions.js";
+import { icon } from "../components/Icon.js";
+import { resolveAvatarUrl, avatarInitials } from "../utils/avatar.js";
 
 const escapeHtmlValue = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 }[char]));
 
+const renderRatingIcons = (rating, size = 16) => {
+  const value = Math.max(0, Math.min(5, Number(rating) || 0));
+  return `<span class="rating-icons" aria-label="${value} out of 5 stars">${Array.from({ length: 5 }, (_, index) => icon("star", size, { className: index < value ? "is-filled" : "" })).join("")}</span>`;
+};
+
 export const ProfileView = {
   profile: null,
   completedJobsCount: 0,
   isPassengerView: false,
+
+  renderAccountControls() {
+    return `
+      <section style="margin-top:1rem;display:grid;gap:1rem;">
+        <button type="button" id="btn-profile-logout" class="btn btn-outline" style="width:100%;min-height:46px;border:1px solid var(--danger,#dc2626);color:var(--danger,#dc2626);background:transparent;font-weight:800;display:flex;align-items:center;justify-content:center;gap:0.5rem;">
+          ${icon("log-out", 19)}<span>Log out</span>
+        </button>
+        <div class="card" style="padding:1.1rem;border:1px solid var(--border-light,#e2e8f0);border-radius:12px;background:var(--bg-card,#fff);color:var(--text-main,#0f172a);">
+          <div style="display:flex;align-items:center;gap:0.55rem;margin-bottom:0.8rem;">${icon("shield-check", 20)}<h3 style="font-size:1rem;margin:0;">App Permissions</h3></div>
+          <div style="display:grid;gap:0.65rem;margin-bottom:0.9rem;">
+            <div style="display:flex;justify-content:space-between;gap:1rem;"><span class="icon-label">${icon("map-pin", 17)}<span>Location</span></span><strong id="permission-status-location">Checking...</strong></div>
+            <div style="display:flex;justify-content:space-between;gap:1rem;"><span class="icon-label">${icon("bell", 17)}<span>Notifications</span></span><strong id="permission-status-notification">Checking...</strong></div>
+            <div style="display:flex;justify-content:space-between;gap:1rem;"><span class="icon-label">${icon("camera", 17)}<span>Camera / Photos</span></span><strong id="permission-status-camera">Checking...</strong></div>
+          </div>
+          <button type="button" id="btn-manage-app-permissions" class="btn btn-outline" style="width:100%;min-height:44px;">Manage permissions</button>
+        </div>
+      </section>
+      <dialog id="profile-logout-dialog" style="width:min(calc(100% - 2rem),420px);border:0;border-radius:16px;padding:0;background:var(--bg-card,#fff);color:var(--text-main,#0f172a);box-shadow:0 24px 60px rgba(15,23,42,.3);">
+        <div style="padding:1.35rem;">
+          <h2 style="font-size:1.2rem;margin:0 0 0.45rem;">Log out of TransMove?</h2>
+          <p style="margin:0;color:var(--text-muted,#64748b);line-height:1.5;">You will need to sign in again to access your dashboard.</p>
+          <div style="display:flex;justify-content:flex-end;gap:0.65rem;margin-top:1.2rem;">
+            <button type="button" id="btn-cancel-profile-logout" class="btn btn-outline" style="min-height:44px;">Cancel</button>
+            <button type="button" id="btn-confirm-profile-logout" class="btn" style="min-height:44px;background:var(--danger,#dc2626);color:#fff;font-weight:800;">Log out</button>
+          </div>
+        </div>
+      </dialog>`;
+  },
 
   renderPassengerProfile() {
     return `
@@ -52,6 +88,7 @@ export const ProfileView = {
             </form>
           </div>
         </section>
+        ${this.renderAccountControls()}
       </div>`;
   },
 
@@ -69,12 +106,12 @@ export const ProfileView = {
               <!-- Profile Picture / Avatar & Upload Trigger -->
               <div style="position: relative;">
                 <div id="prof-avatar-container" style="width: 84px; height: 84px; border-radius: 50%; background: #2563eb; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: 800; overflow: hidden; border: 3px solid #ffffff; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                  <span id="prof-avatar-placeholder">👤</span>
+                  <span id="prof-avatar-placeholder">${icon("user-round", 32)}</span>
                   <img id="prof-avatar-img" src="" alt="Profile Photo" style="width: 100%; height: 100%; object-fit: cover; display: none;" />
                 </div>
                 
                 <label for="input-profile-photo-upload" style="position: absolute; bottom: 0; right: 0; background: #059669; color: #ffffff; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 0.85rem; border: 2px solid #ffffff;" title="Upload Profile Picture (Max 5MB)">
-                  📷
+                  ${icon("camera", 15)}
                 </label>
                 <input type="file" id="input-profile-photo-upload" accept="image/jpeg,image/jpg,image/png,image/webp" style="display: none;" />
               </div>
@@ -109,7 +146,7 @@ export const ProfileView = {
             </div>
             <div style="display: flex; gap: 0.5rem;">
               <button type="button" id="btn-cancel-photo-upload" class="btn btn-outline btn-sm" style="border: 1px solid #cbd5e1;">Cancel</button>
-              <button type="button" id="btn-save-photo-upload" class="btn btn-primary btn-sm" style="background: #059669; color: #ffffff; border: none;">Upload &amp; Save 📷</button>
+              <button type="button" id="btn-save-photo-upload" class="btn btn-primary btn-sm" style="background: #059669; color: #ffffff; border: none;">${icon("camera", 16)}<span>Upload &amp; Save</span></button>
             </div>
           </div>
 
@@ -162,7 +199,7 @@ export const ProfileView = {
           <!-- TAB 2: VERIFICATION & PRIVATE DOCUMENTS -->
           <div id="prof-tab-verification" style="display: none;">
             <div style="background: #f0f9ff; border: 1px solid #bae6fd; color: #0369a1; padding: 1rem; border-radius: 8px; margin-bottom: 1.25rem;">
-              <h4 style="font-weight: 700; margin: 0 0 0.25rem 0;">🔒 Private Driver Documents &amp; Verification</h4>
+            <h4 class="icon-label" style="font-weight: 700; margin: 0 0 0.25rem 0;">${icon("lock-keyhole", 18)}<span>Private Driver Documents &amp; Verification</span></h4>
               <p style="font-size: 0.85rem; margin: 0;">Upload confidential documents (Driver's License, Vehicle Registration, Insurance Policy). Documents are kept strictly private in Appwrite Storage with access restricted to your account and TransMove verification.</p>
             </div>
 
@@ -188,7 +225,7 @@ export const ProfileView = {
               </div>
 
               <button type="submit" id="btn-upload-doc-action" class="btn btn-primary btn-full" style="background: #059669; color: #ffffff; border: none; padding: 0.75rem; border-radius: 6px; font-weight: 700; width: 100%;">
-                Upload Private Verification Document 📄
+              ${icon("file-up", 17)}<span>Upload Private Verification Document</span>
               </button>
             </form>
           </div>
@@ -197,7 +234,7 @@ export const ProfileView = {
           <div id="prof-tab-vehicles" style="display: none;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
               <h3 style="font-size: 1.1rem; font-weight: 800; color: #0f172a; margin: 0;">Registered Vehicles</h3>
-              <a href="#driver" style="font-size: 0.85rem; font-weight: 700; color: #2563eb; text-decoration: none;">Manage in Driver Dashboard →</a>
+              <a href="#driver" class="icon-label" style="font-size: 0.85rem; font-weight: 700; color: #2563eb; text-decoration: none;"><span>Manage in Driver Dashboard</span>${icon("arrow-right", 16)}</a>
             </div>
             <div id="prof-vehicles-list">Loading vehicles...</div>
           </div>
@@ -211,6 +248,7 @@ export const ProfileView = {
           </div>
 
         </div>
+        ${this.renderAccountControls()}
       </div>
     `;
   },
@@ -221,6 +259,8 @@ export const ProfileView = {
       window.location.hash = "#login";
       return;
     }
+
+    this.bindAccountControls();
 
     // Calculate completed jobs
     try {
@@ -270,7 +310,7 @@ export const ProfileView = {
 
         if (ratingBadgeEl) {
           if (count > 0 && rating !== null) {
-            ratingBadgeEl.innerHTML = `★ ${rating.toFixed(1)} <span style="font-weight: 500; color: #64748b;">(${count} ${count === 1 ? "review" : "reviews"})</span>`;
+            ratingBadgeEl.innerHTML = `${renderRatingIcons(Math.round(rating), 15)} ${rating.toFixed(1)} <span style="font-weight: 500; color: #64748b;">(${count} ${count === 1 ? "review" : "reviews"})</span>`;
             ratingBadgeEl.style.color = "#d97706";
           } else {
             ratingBadgeEl.innerText = "No ratings yet";
@@ -286,18 +326,19 @@ export const ProfileView = {
     // Avatar image or initials
     const avatarPlaceholder = document.getElementById("prof-avatar-placeholder");
     const avatarImg = document.getElementById("prof-avatar-img");
-    let avatarUrl = this.profile.profile_photo_url || "";
-    if (!avatarUrl && this.profile.profile_image_id) {
-      avatarUrl = `/api/files/preview/${encodeURIComponent(this.profile.profile_image_id)}`;
-    }
+    const avatarUrl = resolveAvatarUrl(this.profile);
     if (avatarUrl) {
       if (avatarPlaceholder) avatarPlaceholder.style.display = "none";
       if (avatarImg) {
         avatarImg.src = avatarUrl;
+        avatarImg.onerror = () => {
+          avatarImg.style.display = "none";
+          if (avatarPlaceholder) avatarPlaceholder.style.display = "flex";
+        };
         avatarImg.style.display = "block";
       }
     } else if (avatarPlaceholder) {
-      avatarPlaceholder.innerText = this.profile.full_name ? this.profile.full_name.charAt(0).toUpperCase() : "👤";
+      avatarPlaceholder.innerHTML = escapeHtmlValue(avatarInitials(this.profile.full_name));
     }
 
     // Populate inputs
@@ -371,14 +412,19 @@ export const ProfileView = {
         if (avatarPlaceholder) avatarPlaceholder.style.display = "none";
         if (avatarImg) {
           avatarImg.src = photoUrl;
+          avatarImg.onerror = () => {
+            avatarImg.style.display = "none";
+            if (avatarPlaceholder) avatarPlaceholder.style.display = "flex";
+          };
           avatarImg.style.display = "block";
         }
+        this.profile = await AuthService.getCurrentProfile() || this.profile;
         if (previewNotice) previewNotice.style.display = "none";
       } catch (err) {
         alert("Error uploading profile photo: " + err.message);
       } finally {
         saveBtn.disabled = false;
-        saveBtn.innerText = "Upload & Save 📷";
+        saveBtn.innerHTML = `${icon("camera", 16)}<span>Upload &amp; Save</span>`;
       }
     });
 
@@ -427,11 +473,80 @@ export const ProfileView = {
         alert("Error uploading document: " + err.message);
       } finally {
         btn.disabled = false;
-        btn.innerText = "Upload Private Verification Document 📄";
+        btn.innerHTML = `${icon("file-up", 17)}<span>Upload Private Verification Document</span>`;
       }
     });
 
     if (!this.isPassengerView) await this.loadVerificationState();
+  },
+
+  permissionLabel(status) {
+    if (status === "granted") return "Allowed";
+    if (status === "denied") return "Not allowed";
+    return "As required";
+  },
+
+  async refreshPermissionStatuses() {
+    const [location, notification, camera] = await Promise.all([
+      DevicePermissionService.checkLocation(),
+      DevicePermissionService.checkNotification(),
+      DevicePermissionService.checkCamera()
+    ]);
+    const entries = { location, notification, camera };
+    Object.entries(entries).forEach(([name, status]) => {
+      const node = document.getElementById(`permission-status-${name}`);
+      if (!node) return;
+      node.textContent = this.permissionLabel(status);
+      node.style.color = status === "granted" ? "#047857" : status === "denied" ? "#b91c1c" : "var(--text-muted,#64748b)";
+    });
+    return entries;
+  },
+
+  bindAccountControls() {
+    const dialog = document.getElementById("profile-logout-dialog");
+    document.getElementById("btn-profile-logout")?.addEventListener("click", () => {
+      if (typeof dialog?.showModal === "function") dialog.showModal();
+      else dialog?.setAttribute("open", "");
+    });
+    document.getElementById("btn-cancel-profile-logout")?.addEventListener("click", () => {
+      if (typeof dialog?.close === "function") dialog.close();
+      else dialog?.removeAttribute("open");
+    });
+    document.getElementById("btn-confirm-profile-logout")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      button.textContent = "Logging out...";
+      try {
+        await AuthService.logout();
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = "Log out";
+        console.warn("Logout failed:", error.message);
+      }
+    });
+
+    document.getElementById("btn-manage-app-permissions")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      button.textContent = "Checking permissions...";
+      try {
+        const current = await this.refreshPermissionStatuses();
+        if (Object.values(current).includes("denied") && DevicePermissionService.isAndroid()) {
+          await DevicePermissionService.openAppSettings();
+          return;
+        }
+        if (current.location === "prompt") await DevicePermissionService.requestLocation();
+        if (current.notification === "prompt") await DevicePermissionService.requestNotification();
+        if (current.camera === "prompt") await DevicePermissionService.requestCamera();
+        await this.refreshPermissionStatuses();
+      } finally {
+        button.disabled = false;
+        button.textContent = "Manage permissions";
+      }
+    });
+
+    this.refreshPermissionStatuses().catch((error) => console.warn("Permission status unavailable:", error.message));
+    window.addEventListener("focus", () => this.refreshPermissionStatuses(), { once: true });
   },
 
   async loadVerificationState() {
@@ -548,7 +663,7 @@ export const ProfileView = {
     if (reviews.length === 0) {
       container.innerHTML = `
         <div style="padding: 2rem; text-align: center; color: #64748b; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;">
-          <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">⭐</div>
+          <div class="feature-icon" style="margin-bottom: 0.5rem;">${icon("star", 24)}</div>
           <div style="font-weight: 700; font-size: 0.95rem; color: #0f172a; margin-bottom: 0.25rem;">No ratings yet</div>
           <div style="font-size: 0.85rem; color: #64748b;">As passengers complete and review journeys with you, their ratings and feedback will display here.</div>
         </div>
@@ -558,7 +673,7 @@ export const ProfileView = {
 
     container.innerHTML = reviews.map((r) => {
       const starRating = Math.max(1, Math.min(5, Number(r.rating) || 5));
-      const stars = "★".repeat(starRating) + "☆".repeat(5 - starRating);
+      const stars = renderRatingIcons(starRating, 16);
       const dateStr = r.created_at ? new Date(r.created_at).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "";
       const comment = r.comment ? escapeHtmlValue(r.comment) : "<em>No written feedback provided.</em>";
 

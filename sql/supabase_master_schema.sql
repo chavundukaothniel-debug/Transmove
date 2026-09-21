@@ -517,3 +517,11 @@ DROP TRIGGER IF EXISTS trg_update_driver_rating ON public.reviews;
 CREATE TRIGGER trg_update_driver_rating
 AFTER INSERT OR UPDATE OR DELETE ON public.reviews
 FOR EACH ROW EXECUTE FUNCTION public.update_driver_rating_on_review();
+
+-- Trusted backend access for manual subscription payments. RLS remains in
+-- force for browser roles; only the server-side service role receives writes.
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.subscription_plans TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.payment_destinations TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.payments TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.subscriptions TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.profiles TO service_role;

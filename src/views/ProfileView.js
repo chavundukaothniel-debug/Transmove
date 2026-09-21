@@ -9,6 +9,7 @@ import { BookingService } from "../services/bids.js";
 import { ReviewService } from "../services/reviews.js";
 import { DevicePermissionService } from "../services/device-permissions.js";
 import { icon } from "../components/Icon.js";
+import { resolveAvatarUrl, avatarInitials } from "../utils/avatar.js";
 
 const escapeHtmlValue = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -325,18 +326,19 @@ export const ProfileView = {
     // Avatar image or initials
     const avatarPlaceholder = document.getElementById("prof-avatar-placeholder");
     const avatarImg = document.getElementById("prof-avatar-img");
-    let avatarUrl = this.profile.profile_photo_url || "";
-    if (!avatarUrl && this.profile.profile_image_id) {
-      avatarUrl = `/api/files/preview/${encodeURIComponent(this.profile.profile_image_id)}`;
-    }
+    const avatarUrl = resolveAvatarUrl(this.profile);
     if (avatarUrl) {
       if (avatarPlaceholder) avatarPlaceholder.style.display = "none";
       if (avatarImg) {
         avatarImg.src = avatarUrl;
+        avatarImg.onerror = () => {
+          avatarImg.style.display = "none";
+          if (avatarPlaceholder) avatarPlaceholder.style.display = "flex";
+        };
         avatarImg.style.display = "block";
       }
     } else if (avatarPlaceholder) {
-      avatarPlaceholder.innerHTML = this.profile.full_name ? escapeHtmlValue(this.profile.full_name.charAt(0).toUpperCase()) : icon("user-round", 32);
+      avatarPlaceholder.innerHTML = escapeHtmlValue(avatarInitials(this.profile.full_name));
     }
 
     // Populate inputs
@@ -410,8 +412,13 @@ export const ProfileView = {
         if (avatarPlaceholder) avatarPlaceholder.style.display = "none";
         if (avatarImg) {
           avatarImg.src = photoUrl;
+          avatarImg.onerror = () => {
+            avatarImg.style.display = "none";
+            if (avatarPlaceholder) avatarPlaceholder.style.display = "flex";
+          };
           avatarImg.style.display = "block";
         }
+        this.profile = await AuthService.getCurrentProfile() || this.profile;
         if (previewNotice) previewNotice.style.display = "none";
       } catch (err) {
         alert("Error uploading profile photo: " + err.message);

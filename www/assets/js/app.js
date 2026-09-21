@@ -453,29 +453,42 @@ class App {
       });
     }
 
+    const closeMobileSidebar = () => {
+      document.getElementById("app-sidebar")?.classList.remove("mobile-open");
+      document.getElementById("sidebar-mobile-backdrop")?.classList.remove("active");
+      document.getElementById("btn-mobile-more")?.setAttribute("aria-expanded", "false");
+      document.getElementById("btn-mobile-sidebar-trigger")?.setAttribute("aria-expanded", "false");
+      document.body.classList.remove("mobile-drawer-open");
+    };
+
+    const toggleMobileSidebar = () => {
+      const sidebar = document.getElementById("app-sidebar");
+      if (!sidebar || !window.matchMedia("(max-width: 768px)").matches) return;
+      let backdrop = document.getElementById("sidebar-mobile-backdrop");
+      if (!backdrop) {
+        backdrop = document.createElement("div");
+        backdrop.id = "sidebar-mobile-backdrop";
+        backdrop.className = "sidebar-mobile-backdrop";
+        backdrop.setAttribute("aria-hidden", "true");
+        document.body.appendChild(backdrop);
+        backdrop.addEventListener("click", closeMobileSidebar);
+      }
+      const isOpen = sidebar.classList.toggle("mobile-open");
+      backdrop.classList.toggle("active", isOpen);
+      document.getElementById("btn-mobile-more")?.setAttribute("aria-expanded", String(isOpen));
+      document.getElementById("btn-mobile-sidebar-trigger")?.setAttribute("aria-expanded", String(isOpen));
+      document.body.classList.toggle("mobile-drawer-open", isOpen);
+      if (isOpen) document.getElementById("btn-close-mobile-sidebar")?.focus();
+    };
+
     // Render Top Header
     if (headerMount) {
       headerMount.innerHTML = renderHeader(this.currentProfile, this.currentRoute);
 
       // Mobile Menu Trigger Listener
       document.getElementById("btn-mobile-sidebar-trigger")?.addEventListener("click", () => {
-        const sidebar = document.getElementById("app-sidebar");
-        if (!sidebar) return;
-
         if (window.matchMedia("(max-width: 768px)").matches) {
-          const isOpen = sidebar.classList.toggle("mobile-open");
-          let backdrop = document.getElementById("sidebar-mobile-backdrop");
-          if (!backdrop) {
-            backdrop = document.createElement("div");
-            backdrop.id = "sidebar-mobile-backdrop";
-            backdrop.className = "sidebar-mobile-backdrop";
-            document.body.appendChild(backdrop);
-            backdrop.addEventListener("click", () => {
-              sidebar.classList.remove("mobile-open");
-              backdrop.classList.remove("active");
-            });
-          }
-          backdrop.classList.toggle("active", isOpen);
+          toggleMobileSidebar();
         } else {
           document.getElementById("btn-toggle-sidebar")?.click();
         }
@@ -484,10 +497,11 @@ class App {
       // Close mobile drawer when clicking navigation links
       document.getElementById("app-sidebar")?.addEventListener("click", (e) => {
         if (e.target.closest("a") && window.matchMedia("(max-width: 768px)").matches) {
-          document.getElementById("app-sidebar")?.classList.remove("mobile-open");
-          document.getElementById("sidebar-mobile-backdrop")?.classList.remove("active");
+          closeMobileSidebar();
         }
       });
+
+      document.getElementById("btn-close-mobile-sidebar")?.addEventListener("click", closeMobileSidebar);
 
       // Bind Global Theme Toggle
       document.getElementById("btn-theme-toggle")?.addEventListener("click", () => {
@@ -505,6 +519,7 @@ class App {
     // Render Mobile Bottom Navigation
     if (mobileNavMount) {
       mobileNavMount.innerHTML = renderMobileNav(this.currentProfile, this.currentRoute);
+      document.getElementById("btn-mobile-more")?.addEventListener("click", toggleMobileSidebar);
     }
 
     // Render Page Content

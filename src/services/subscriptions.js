@@ -80,7 +80,7 @@ export const SubscriptionService = {
    * @param {string} params.senderName - Name of sender on EcoCash
    * @param {string} params.senderPhone - Phone number payment sent from
    * @param {string} params.transactionRef - EcoCash confirmation code
-   * @param {string} params.proofFileId - Appwrite file ID of payment proof screenshot
+   * @param {string} params.proofFileId - Private Google Drive file ID for the payment proof
    * @param {number} [params.amountDeclared] - Declared amount
    */
   async submitSubscriptionPayment({
@@ -95,7 +95,9 @@ export const SubscriptionService = {
     return PaymentService.submitEcocashPayment({
       payment_type: "subscription",
       related_id: planId,
+      plan_id: planId,
       payment_destination_id: destinationId,
+      destination_account_id: destinationId,
       sender_name: senderName,
       sender_phone: senderPhone,
       transaction_reference: transactionRef,

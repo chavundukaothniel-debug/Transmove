@@ -6,10 +6,7 @@ import { BookingService } from "../services/bids.js";
 import { AuthService } from "../services/auth.js";
 import { renderEmptyState } from "../components/EmptyState.js";
 import { icon } from "../components/Icon.js";
-const fileViewUrl = (fileId) => {
-  if (!fileId) return "";
-  return `/api/files/preview/${encodeURIComponent(fileId)}`;
-};
+import { resolveAvatarUrl, avatarInitials } from "../utils/avatar.js";
 
 const escapeHtml = (value) => {
   if (value === null || value === undefined) return "";
@@ -248,10 +245,10 @@ export const MessagesView = {
       const other = isPassengerSide ? booking.driver : booking.passenger;
       const otherName = other?.full_name || "Trip Partner";
       const route = `${escapeHtml(booking.request?.pickup_location || "Pickup")} → ${escapeHtml(booking.request?.destination || "Destination")}`;
-      const photoUrl = fileViewUrl(other?.profile_image_id);
+      const photoUrl = resolveAvatarUrl(other);
       const avatar = photoUrl
-        ? `<img src="${photoUrl}" alt="${escapeHtml(otherName)}">`
-        : escapeHtml(otherName.charAt(0).toUpperCase());
+        ? `<img src="${escapeHtml(photoUrl)}" alt="${escapeHtml(otherName)}" onerror="this.replaceWith(document.createTextNode('${escapeHtml(avatarInitials(otherName))}'))">`
+        : escapeHtml(avatarInitials(otherName));
       return `
         <button type="button" class="conversation-item ${bookingId === this.activeBookingId ? "active" : ""}" data-booking-id="${bookingId}">
           <span class="conversation-avatar">${avatar}</span>

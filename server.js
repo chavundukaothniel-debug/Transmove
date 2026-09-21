@@ -138,7 +138,8 @@ const server = http.createServer(async (req, res) => {
       const fileData = await googleDriveStorage.downloadAuthorizedFile(fileId);
       res.writeHead(200, {
         "Content-Type": fileData.mimeType || "application/octet-stream",
-        "Content-Disposition": `inline; filename="${fileData.filename}"`
+        "Content-Disposition": `inline; filename="${fileData.filename}"`,
+        "Cache-Control": "private, max-age=86400"
       });
       fileData.stream.pipe(res);
       return;

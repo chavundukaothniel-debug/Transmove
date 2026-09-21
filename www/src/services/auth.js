@@ -4,6 +4,7 @@
 // ==============================================================================
 import { getSupabase, getAuthJwt } from "../config/supabase.js";
 import { getTrustedApiEndpoint, getAppwriteStorage, APPWRITE_CONFIG } from "../config/appwrite.js";
+import { resolveAvatarUrl } from "../utils/avatar.js";
 
 // Internal registry for auth state change subscribers
 const authListeners = new Set();
@@ -15,12 +16,7 @@ export const AuthService = {
    */
   _formatProfile(doc) {
     if (!doc) return null;
-    let photoUrl = "";
-    if (doc.profile_image_id) {
-      photoUrl = `/api/files/preview/${encodeURIComponent(doc.profile_image_id)}`;
-    } else if (doc.profile_photo_url) {
-      photoUrl = doc.profile_photo_url;
-    }
+    const photoUrl = resolveAvatarUrl(doc);
 
     const uid = doc.user_id || doc.id || doc.$id;
     return {

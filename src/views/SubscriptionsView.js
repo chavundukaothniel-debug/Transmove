@@ -189,6 +189,7 @@ export const SubscriptionsView = {
                     <th style="padding: 0.75rem 0.5rem;">Reference</th>
                     <th style="padding: 0.75rem 0.5rem;">EcoCash Ref</th>
                     <th style="padding: 0.75rem 0.5rem;">Amount</th>
+                    <th style="padding: 0.75rem 0.5rem;">Plan</th>
                     <th style="padding: 0.75rem 0.5rem;">Recipient</th>
                     <th style="padding: 0.75rem 0.5rem;">Status</th>
                     <th style="padding: 0.75rem 0.5rem; text-align: right;">Action</th>
@@ -214,6 +215,9 @@ export const SubscriptionsView = {
                         </td>
                         <td style="padding: 0.75rem 0.5rem; font-weight: 800;">
                           $${Number(p.amount || 0).toFixed(2)} USD
+                        </td>
+                        <td style="padding: 0.75rem 0.5rem; color: var(--text-main);">
+                          ${p.plan_name || p.subscription?.plan || "Subscription"}
                         </td>
                         <td style="padding: 0.75rem 0.5rem; color: var(--text-muted);">
                           ${p.recipient_name ? `${p.recipient_name} (${p.recipient_number})` : "EcoCash"}
@@ -324,6 +328,8 @@ export const SubscriptionsView = {
           </div>
         </div>
 
+        <form id="ecocash-submission-form" style="display: flex; flex-direction: column; gap: 0.85rem;">
+
         <!-- Step 1: Select EcoCash Destination -->
         <div style="margin-bottom: 1.25rem;">
           <label style="display: block; font-weight: 700; font-size: 0.85rem; margin-bottom: 0.5rem; color: var(--text-main);">
@@ -333,7 +339,7 @@ export const SubscriptionsView = {
             ${this.destinations.map((dest, idx) => `
               <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border: 1px solid var(--border-light); border-radius: 8px; cursor: pointer; background: var(--bg-surface);" class="dest-radio-label">
                 <div style="display: flex; align-items: center; gap: 0.75rem;">
-                  <input type="radio" name="ecocash_destination" value="${dest.$id || dest.id}" ${idx === 0 ? "checked" : ""} />
+                  <input type="radio" name="ecocash_destination" value="${dest.$id || dest.id}" ${this.destinations.length === 1 ? "checked" : ""} />
                   <div>
                     <div style="font-weight: 700; font-size: 0.9rem; color: var(--text-main);">${dest.account_name}</div>
                     <div style="font-size: 0.8rem; color: var(--text-muted);">EcoCash Number: <strong style="color: var(--primary);">${dest.account_number}</strong></div>
@@ -355,7 +361,6 @@ export const SubscriptionsView = {
         </div>
 
         <!-- Step 2: Verification Details Form -->
-        <form id="ecocash-submission-form" style="display: flex; flex-direction: column; gap: 0.85rem;">
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
             <div>
               <label style="display: block; font-size: 0.75rem; font-weight: 700; margin-bottom: 0.25rem; color: var(--text-main);">
@@ -380,9 +385,10 @@ export const SubscriptionsView = {
 
           <div>
             <label style="display: block; font-size: 0.75rem; font-weight: 700; margin-bottom: 0.25rem; color: var(--text-main);">
-              Proof of Payment Screenshot * (SMS or EcoCash App Receipt, Max 5MB)
+              Proof of Payment * (JPG, PNG, or PDF, Max 5MB)
             </label>
-            <input type="file" id="eco-proof-file" accept="image/jpeg,image/png,image/webp" required style="width: 100%; font-size: 0.8rem;" />
+            <input type="file" id="eco-proof-file" accept="image/jpeg,image/png,application/pdf,.jpg,.jpeg,.png,.pdf" required style="width: 100%; font-size: 0.8rem;" />
+            <div id="eco-proof-file-name" style="font-size:0.75rem;color:var(--text-muted);margin-top:0.3rem;">No file selected</div>
           </div>
 
           <div style="background: #fffbeb; border: 1px solid #fef3c7; border-radius: 6px; padding: 0.75rem; font-size: 0.75rem; color: #92400e;">
@@ -403,6 +409,13 @@ export const SubscriptionsView = {
     const form = document.getElementById("ecocash-submission-form");
     const submitBtn = document.getElementById("btn-submit-ecocash");
     const errorDiv = document.getElementById("eco-submit-error");
+    const proofInput = document.getElementById("eco-proof-file");
+    const proofFileName = document.getElementById("eco-proof-file-name");
+
+    proofInput?.addEventListener("change", () => {
+      const file = proofInput.files?.[0];
+      if (proofFileName) proofFileName.textContent = file ? `${file.name} (${(file.size / 1024).toFixed(1)} KB)` : "No file selected";
+    });
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -466,10 +479,7 @@ export const SubscriptionsView = {
 
         Modal.close();
         await this.init();
-        Modal.open(
-          "Payment submitted successfully",
-          `<div style="padding: 0.5rem 0; color: var(--text-main);">Your EcoCash payment is awaiting admin approval.</div>`
-        );
+        Modal.open("Payment proof submitted", `<div style="padding:0.5rem 0;color:var(--text-main);">Your payment is awaiting admin review.</div>`);
       } catch (err) {
         console.error("Payment submission failure:", err);
         if (fileId) {

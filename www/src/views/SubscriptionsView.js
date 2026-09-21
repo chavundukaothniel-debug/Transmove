@@ -9,6 +9,7 @@ import { PaymentService } from "../services/payments.js";
 import { AuthService } from "../services/auth.js";
 import { ReceiptService } from "../services/receipts.js";
 import { Modal } from "../components/Modal.js";
+import { icon } from "../components/Icon.js";
 
 export const SubscriptionsView = {
   currentProfile: null,
@@ -39,7 +40,7 @@ export const SubscriptionsView = {
     if (this.currentProfile && (this.currentProfile.role === "customer" || this.currentProfile.role === "passenger")) {
       container.innerHTML = `
         <div class="card" style="max-width: 640px; margin: 2rem auto; text-align: center; padding: 2.5rem; background: var(--bg-surface); border: 1px solid var(--border-light);">
-          <div style="font-size: 3.5rem; margin-bottom: 1rem;">🎉</div>
+        <div class="feature-icon" style="margin-bottom: 1rem;">${icon("party-popper", 52)}</div>
           <h2 style="font-size: 1.8rem; font-weight: 900; color: var(--text-main); margin-bottom: 0.5rem;">
             Passengers are 100% FREE!
           </h2>
@@ -47,7 +48,7 @@ export const SubscriptionsView = {
             TransMove passenger accounts do not require a subscription. You can request transport, receive driver offers, negotiate fares, and travel freely across Zimbabwe without paying any subscription fees.
           </p>
           <a href="#customer" class="btn btn-primary btn-lg" style="display: inline-flex; align-items: center; gap: 0.5rem;">
-            🚗 Go to Passenger Dashboard
+          ${icon("car-front", 18)}<span>Go to Passenger Dashboard</span>
           </a>
         </div>
       `;
@@ -137,7 +138,7 @@ export const SubscriptionsView = {
       <!-- EcoCash Destination Channels Banner -->
       <div class="card" style="margin-bottom: 3rem; background: var(--bg-surface); border: 1px solid var(--border-light); padding: 1.75rem;">
         <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
-          <div style="font-size: 1.5rem;">📱</div>
+              <div class="feature-icon">${icon("smartphone", 24)}</div>
           <div>
             <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: var(--text-main);">Approved TransMove EcoCash Accounts</h3>
             <p style="margin: 0.2rem 0 0 0; font-size: 0.85rem; color: var(--text-muted);">
@@ -168,7 +169,7 @@ export const SubscriptionsView = {
       <div class="card">
         <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
           <div>
-            <h3 class="card-title" style="margin: 0;">💳 EcoCash Payment History &amp; Vouchers</h3>
+          <h3 class="card-title icon-label" style="margin: 0;">${icon("credit-card", 20)}<span>EcoCash Payment History &amp; Vouchers</span></h3>
             <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">All manual EcoCash submissions &amp; approval statuses</div>
           </div>
           <span class="badge badge-neutral">Admin Verified</span>
@@ -188,6 +189,7 @@ export const SubscriptionsView = {
                     <th style="padding: 0.75rem 0.5rem;">Reference</th>
                     <th style="padding: 0.75rem 0.5rem;">EcoCash Ref</th>
                     <th style="padding: 0.75rem 0.5rem;">Amount</th>
+                    <th style="padding: 0.75rem 0.5rem;">Plan</th>
                     <th style="padding: 0.75rem 0.5rem;">Recipient</th>
                     <th style="padding: 0.75rem 0.5rem;">Status</th>
                     <th style="padding: 0.75rem 0.5rem; text-align: right;">Action</th>
@@ -214,6 +216,9 @@ export const SubscriptionsView = {
                         <td style="padding: 0.75rem 0.5rem; font-weight: 800;">
                           $${Number(p.amount || 0).toFixed(2)} USD
                         </td>
+                        <td style="padding: 0.75rem 0.5rem; color: var(--text-main);">
+                          ${p.plan_name || p.subscription?.plan || "Subscription"}
+                        </td>
                         <td style="padding: 0.75rem 0.5rem; color: var(--text-muted);">
                           ${p.recipient_name ? `${p.recipient_name} (${p.recipient_number})` : "EcoCash"}
                         </td>
@@ -225,7 +230,7 @@ export const SubscriptionsView = {
                         </td>
                         <td style="padding: 0.75rem 0.5rem; text-align: right;">
                           <button class="btn btn-sm btn-outline btn-view-receipt" data-payment-id="${p.$id || p.id}" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;">
-                            📄 Receipt
+                ${icon("receipt-text", 16)}<span>Receipt</span>
                           </button>
                         </td>
                       </tr>
@@ -271,7 +276,7 @@ export const SubscriptionsView = {
           <ul style="list-style: none; padding: 0; margin: 0 0 1.5rem 0; display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem;">
             ${features.map(f => `
               <li style="display: flex; align-items: flex-start; gap: 0.5rem;">
-                <span style="color: #10b981; font-weight: 900;">✓</span>
+                <span style="color: #10b981; font-weight: 900;">${icon("check", 16)}</span>
                 <span style="color: var(--text-main);">${f}</span>
               </li>
             `).join("")}
@@ -314,7 +319,7 @@ export const SubscriptionsView = {
     const modalContent = `
       <div style="padding: 0.5rem;">
         <div style="text-align: center; margin-bottom: 1.5rem;">
-          <div style="font-size: 2.2rem; margin-bottom: 0.35rem;">📱</div>
+          <div class="feature-icon" style="margin-bottom: 0.35rem;">${icon("smartphone", 32)}</div>
           <h2 style="font-size: 1.4rem; font-weight: 900; color: var(--text-main); margin: 0;">
             Pay with EcoCash: ${plan.name}
           </h2>
@@ -322,6 +327,8 @@ export const SubscriptionsView = {
             $${plan.price} USD · ${plan.duration_days} Days Access
           </div>
         </div>
+
+        <form id="ecocash-submission-form" style="display: flex; flex-direction: column; gap: 0.85rem;">
 
         <!-- Step 1: Select EcoCash Destination -->
         <div style="margin-bottom: 1.25rem;">
@@ -332,7 +339,7 @@ export const SubscriptionsView = {
             ${this.destinations.map((dest, idx) => `
               <label style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border: 1px solid var(--border-light); border-radius: 8px; cursor: pointer; background: var(--bg-surface);" class="dest-radio-label">
                 <div style="display: flex; align-items: center; gap: 0.75rem;">
-                  <input type="radio" name="ecocash_destination" value="${dest.$id || dest.id}" ${idx === 0 ? "checked" : ""} />
+                  <input type="radio" name="ecocash_destination" value="${dest.$id || dest.id}" ${this.destinations.length === 1 ? "checked" : ""} />
                   <div>
                     <div style="font-weight: 700; font-size: 0.9rem; color: var(--text-main);">${dest.account_name}</div>
                     <div style="font-size: 0.8rem; color: var(--text-muted);">EcoCash Number: <strong style="color: var(--primary);">${dest.account_number}</strong></div>
@@ -354,7 +361,6 @@ export const SubscriptionsView = {
         </div>
 
         <!-- Step 2: Verification Details Form -->
-        <form id="ecocash-submission-form" style="display: flex; flex-direction: column; gap: 0.85rem;">
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
             <div>
               <label style="display: block; font-size: 0.75rem; font-weight: 700; margin-bottom: 0.25rem; color: var(--text-main);">
@@ -379,13 +385,14 @@ export const SubscriptionsView = {
 
           <div>
             <label style="display: block; font-size: 0.75rem; font-weight: 700; margin-bottom: 0.25rem; color: var(--text-main);">
-              Proof of Payment Screenshot * (SMS or EcoCash App Receipt, Max 5MB)
+              Proof of Payment * (JPG, PNG, or PDF, Max 5MB)
             </label>
-            <input type="file" id="eco-proof-file" accept="image/jpeg,image/png,image/webp" required style="width: 100%; font-size: 0.8rem;" />
+            <input type="file" id="eco-proof-file" accept="image/jpeg,image/png,application/pdf,.jpg,.jpeg,.png,.pdf" required style="width: 100%; font-size: 0.8rem;" />
+            <div id="eco-proof-file-name" style="font-size:0.75rem;color:var(--text-muted);margin-top:0.3rem;">No file selected</div>
           </div>
 
           <div style="background: #fffbeb; border: 1px solid #fef3c7; border-radius: 6px; padding: 0.75rem; font-size: 0.75rem; color: #92400e;">
-            ⚠️ <strong>Admin Verification Required:</strong> Payments are verified manually by TransMove Administrators before subscription activation. No automatic approvals.
+          ${icon("triangle-alert", 18)} <strong>Admin Verification Required:</strong> Payments are verified manually by TransMove Administrators before subscription activation. No automatic approvals.
           </div>
 
           <div id="eco-submit-error" style="color: var(--text-danger); font-size: 0.8rem; display: none;"></div>
@@ -402,6 +409,13 @@ export const SubscriptionsView = {
     const form = document.getElementById("ecocash-submission-form");
     const submitBtn = document.getElementById("btn-submit-ecocash");
     const errorDiv = document.getElementById("eco-submit-error");
+    const proofInput = document.getElementById("eco-proof-file");
+    const proofFileName = document.getElementById("eco-proof-file-name");
+
+    proofInput?.addEventListener("change", () => {
+      const file = proofInput.files?.[0];
+      if (proofFileName) proofFileName.textContent = file ? `${file.name} (${(file.size / 1024).toFixed(1)} KB)` : "No file selected";
+    });
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -465,10 +479,7 @@ export const SubscriptionsView = {
 
         Modal.close();
         await this.init();
-        Modal.open(
-          "Payment submitted successfully",
-          `<div style="padding: 0.5rem 0; color: var(--text-main);">Your EcoCash payment is awaiting admin approval.</div>`
-        );
+        Modal.open("Payment proof submitted", `<div style="padding:0.5rem 0;color:var(--text-main);">Your payment is awaiting admin review.</div>`);
       } catch (err) {
         console.error("Payment submission failure:", err);
         if (fileId) {

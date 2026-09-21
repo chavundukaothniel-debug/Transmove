@@ -5,6 +5,7 @@
 // ==============================================================================
 
 import { icon } from "./Icon.js";
+import { resolveAvatarUrl, avatarInitials } from "../utils/avatar.js";
 
 const sidebarIcon = (name, size = 21) => icon(name, size);
 
@@ -152,6 +153,8 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
   ];
 
   const navItems = (currentProfile && roleNavItems[activeRole]) ? roleNavItems[activeRole] : guestNavItems;
+  const avatarUrl = resolveAvatarUrl(currentProfile);
+  const initials = avatarInitials(currentProfile?.full_name || "Guest Account");
 
   return `
     <aside class="app-sidebar ${activeRole === "customer" ? "app-sidebar--passenger" : ""} ${isCollapsed ? "collapsed" : ""}" id="app-sidebar">
@@ -164,6 +167,9 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
 
           <button type="button" id="btn-toggle-sidebar" class="btn-sidebar-toggle" title="Collapse or expand sidebar" aria-label="${isCollapsed ? "Expand" : "Collapse"} sidebar">
             ${sidebarIcon(isCollapsed ? "chevron-right" : "chevron-left", 18)}
+          </button>
+          <button type="button" id="btn-close-mobile-sidebar" class="btn-close-mobile-sidebar" title="Close navigation" aria-label="Close navigation menu">
+            ${sidebarIcon("x", 22)}
           </button>
         </div>
         <div class="brand-text" style="font-size: 0.7rem; color: #9ca3af; margin-top: 0.25rem; font-weight: 500;">
@@ -204,7 +210,7 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
       <div class="sidebar-footer">
         <a href="${currentProfile ? "#profile" : "#login"}" class="sidebar-user-card" title="${currentProfile ? "Manage Account" : "Click to Sign In"}">
           <div class="user-avatar">
-            ${currentProfile?.full_name ? currentProfile.full_name.charAt(0).toUpperCase() : sidebarIcon("user-round", 20)}
+            ${avatarUrl ? `<img src="${avatarUrl}" alt="" onerror="this.remove();this.parentElement.textContent='${initials}'">` : initials}
           </div>
           <div class="user-info">
             <div class="user-name">${currentProfile?.full_name || "Guest Account"}</div>
@@ -212,6 +218,7 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
           </div>
         </a>
         <div class="brand-text" style="padding: 0.75rem 0.5rem 0.25rem 0.5rem; font-size: 0.7rem; color: #94a3b8; border-top: 1px solid rgba(255, 255, 255, 0.08); margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+          <span class="sidebar-country-icon">${sidebarIcon("map-pin", 18)}</span>
           <span style="font-size: 1.1rem;">🇿🇼</span>
           <div>
             <div style="font-weight: 700; color: #e2e8f0; font-size: 0.725rem;">Proudly Zimbabwean</div>

@@ -6,6 +6,7 @@
 import { getTrustedApiEndpoint } from "../config/appwrite.js";
 import { getAuthJwt, getSupabase } from "../config/supabase.js";
 import { AuthService } from "./auth.js";
+import { resolveAvatarUrl } from "../utils/avatar.js";
 
 export const VehicleService = {
   /**
@@ -97,7 +98,11 @@ export const VehicleService = {
     }
 
     const result = await res.json();
-    const photoUrl = result.photo_url || `/api/files/preview/${result.file_id}`;
+    const photoUrl = resolveAvatarUrl({
+      profile_image_id: result.file_id,
+      profile_photo_url: result.photo_url,
+      updated_at: result.profile?.updated_at || Date.now()
+    });
 
     AuthService.notifyAuthStateChange("USER_UPDATED", { user });
     return photoUrl;

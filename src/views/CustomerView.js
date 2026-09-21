@@ -18,6 +18,8 @@ import { SocialService } from "../services/social.js";
 import { SmartPopup } from "../components/SmartPopup.js";
 import { AdvertisingService } from "../services/advertising.js";
 import { icon } from "../components/Icon.js";
+import { resolveAvatarUrl } from "../utils/avatar.js";
+import { getFilePreviewUrl } from "../config/appwrite.js";
 
 const passengerIcon = (name, size = 20) => {
   const aliases = {
@@ -47,13 +49,11 @@ const ACTIVE_BOOKING_STATUSES = ["confirmed", "driver_arriving", "arrived", "in_
 
 const fileViewUrl = (fileId) => {
   if (!fileId) return "";
-  return `/api/files/preview/${encodeURIComponent(fileId)}`;
+  return getFilePreviewUrl(fileId);
 };
 
 const profileImageUrl = (profile) => {
-  const value = profile?.profile_image_id || profile?.profile_photo_url || "";
-  if (!value) return "";
-  return /^(?:https?:|data:|blob:|\/)/i.test(value) ? value : fileViewUrl(value);
+  return resolveAvatarUrl(profile);
 };
 
 const actionableBidAmount = (bid) => {
