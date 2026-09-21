@@ -14,6 +14,8 @@ import { NotificationService } from "../services/notifications.js";
 import { SmartPopup } from "../components/SmartPopup.js";
 import { DriverRequestCard } from "../components/DriverRequestCard.js";
 import { AdvertisingService } from "../services/advertising.js";
+import { DevicePermissionService } from "../services/device-permissions.js";
+import { LocationService } from "../services/location.js";
 import { icon, statusBadge } from "../components/Icon.js";
 
 const escapeHtml = (value) => {
@@ -71,6 +73,7 @@ export const DriverView = {
   dismissedRequestIds: new Set(),
   adPopupTimer: null,
   tripMap: null,
+  isDriverOnline: false,
   currentTab: "dashboard", // 'dashboard' | 'available' | 'offers' | 'vehicles' | 'earnings'
 
   async render() {
@@ -103,11 +106,11 @@ export const DriverView = {
           </div>
 
           <div style="display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap;">
-            <!-- Automatic Online/Offline Badge -->
-            <div id="hdr-online-pill" style="display: inline-flex; align-items: center; gap: 0.4rem; background: #ecfdf5; color: #059669; padding: 0.35rem 0.85rem; border-radius: 9999px; font-weight: 700; font-size: 0.85rem; border: 1px solid #a7f3d0;">
+            <!-- Driver Online/Offline Control -->
+            <button type="button" id="btn-driver-online-toggle" style="display: inline-flex; align-items: center; gap: 0.4rem; background: #f1f5f9; color: #475569; padding: 0.5rem 0.95rem; min-height:44px; border-radius: 9999px; font-weight: 800; font-size: 0.85rem; border: 1px solid #cbd5e1; cursor:pointer;">
               <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981;"></span>
-              Online
-            </div>
+              Go Online
+            </button>
           </div>
         </div>
 
@@ -484,13 +487,105 @@ export const DriverView = {
     `;
   },
 
+  updateOnlineControl() {
+    const button = document.getElementById("btn-driver-online-toggle");
+    const onlineValue = document.getElementById("card-online-status-val");
+    const mobileValue = document.getElementById("mobile-driver-presence");
+    const mobileDot = document.querySelector(".driver-mobile-status-dot");
+    if (button) {
+      button.style.background = this.isDriverOnline ? "#ecfdf5" : "#f1f5f9";
+      button.style.color = this.isDriverOnline ? "#047857" : "#475569";
+      button.style.borderColor = this.isDriverOnline ? "#a7f3d0" : "#cbd5e1";
+      button.innerHTML = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${this.isDriverOnline ? "#10b981" : "#94a3b8"};"></span>${this.isDriverOnline ? "Go Offline" : "Go Online"}`;
+    }
+    if (onlineValue) {
+      onlineValue.textContent = this.isDriverOnline ? "Online" : "Offline";
+      onlineValue.style.color = this.isDriverOnline ? "#10b981" : "#64748b";
+    }
+    if (mobileValue) mobileValue.textContent = this.isDriverOnline ? "Online" : "Offline";
+    mobileDot?.classList.toggle("is-offline", !this.isDriverOnline);
+  },
+
+  requestLocationForOnline() {
+    return new Promise((resolve) => {
+      document.getElementById("driver-location-permission-dialog")?.remove();
+      const dialog = document.createElement("dialog");
+      dialog.id = "driver-location-permission-dialog";
+      dialog.style.cssText = "width:min(calc(100% - 2rem),460px);border:0;border-radius:16px;padding:0;background:var(--bg-card,#fff);color:var(--text-main,#0f172a);box-shadow:0 24px 60px rgba(15,23,42,.3);";
+      dialog.innerHTML = `
+        <div style="padding:1.4rem;">
+          <div style="width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:var(--primary-light,#eff6ff);color:var(--primary,#2563eb);margin-bottom:0.85rem;">${icon("map-pin", 23)}</div>
+          <h2 style="font-size:1.25rem;margin:0 0 0.45rem;">Location access is required while you are online</h2>
+          <p style="color:var(--text-muted,#64748b);line-height:1.55;margin:0;">TransMove uses your current location to match nearby work and support active trips. Background location is not requested.</p>
+          <p id="driver-location-permission-error" role="status" style="display:none;color:#b91c1c;background:#fef2f2;padding:0.7rem;border-radius:9px;margin:0.85rem 0 0;"></p>
+          <div style="display:grid;gap:0.6rem;margin-top:1.15rem;">
+            <button type="button" id="btn-enable-driver-location" class="btn btn-primary" style="min-height:44px;font-weight:800;">Enable location</button>
+            <button type="button" id="btn-stay-driver-offline" class="btn btn-outline" style="min-height:44px;">Stay offline</button>
+          </div>
+        </div>`;
+      document.body.appendChild(dialog);
+      const close = (allowed) => {
+        if (typeof dialog.close === "function") dialog.close();
+        dialog.remove();
+        resolve(allowed);
+      };
+      dialog.querySelector("#btn-stay-driver-offline")?.addEventListener("click", () => close(false));
+      dialog.querySelector("#btn-enable-driver-location")?.addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        button.textContent = "Requesting access...";
+        const status = await DevicePermissionService.requestLocation();
+        if (status === "granted") {
+          close(true);
+          return;
+        }
+        const error = dialog.querySelector("#driver-location-permission-error");
+        if (error) {
+          error.textContent = "Location is still not allowed. Enable it in Android app settings, then try again.";
+          error.style.display = "block";
+        }
+        button.disabled = false;
+        button.textContent = "Try again";
+        await DevicePermissionService.openAppSettings();
+      });
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+    });
+  },
+
+  async bindOnlineControl() {
+    this.isDriverOnline = false;
+    await PresenceService.goOffline();
+    this.updateOnlineControl();
+    document.getElementById("btn-driver-online-toggle")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        if (this.isDriverOnline) {
+          await PresenceService.goOffline();
+          this.isDriverOnline = false;
+        } else {
+          let permission = await DevicePermissionService.checkLocation();
+          if (permission !== "granted") {
+            const allowed = await this.requestLocationForOnline();
+            if (!allowed) return;
+            permission = await DevicePermissionService.checkLocation();
+          }
+          if (permission !== "granted") return;
+          await PresenceService.startHeartbeat(this.driverProfile?.user_id || this.driverProfile?.id);
+          this.isDriverOnline = true;
+        }
+        this.updateOnlineControl();
+      } finally {
+        button.disabled = false;
+      }
+    });
+  },
+
   async init() {
     try {
       this.driverProfile = await AuthService.getCurrentProfile();
       if (this.driverProfile) {
-        // Start automatic presence heartbeat
-        await PresenceService.startHeartbeat(this.driverProfile.id);
-
         const displayName = this.driverProfile.full_name || "Driver";
         const nameEl = document.getElementById("driver-display-name");
 
@@ -501,6 +596,7 @@ export const DriverView = {
 
       // Fetch driver status, bookings, vehicles & limits
       await this.loadDriverData();
+      await this.bindOnlineControl();
       await this.loadDriverVehicles();
       await this.loadAvailableJobs();
       await this.loadRecentActivity();
@@ -734,12 +830,11 @@ export const DriverView = {
       const passengerMarker = window.L.marker([passengerLat, passengerLng], { icon: pulseIcon }).addTo(map);
       passengerMarker.bindPopup(`<strong>${hasLivePassenger ? "Passenger Live Location" : "Passenger Pickup"}</strong><br>${escapeHtml(booking.request?.pickup_location || "")}`);
 
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
+      LocationService.getCurrentPosition()
+        .then((coords) => {
             if (!this.tripMap) return;
-            const dLat = pos.coords.latitude;
-            const dLng = pos.coords.longitude;
+            const dLat = coords.lat;
+            const dLng = coords.lng;
 
             const driverIcon = window.L.divIcon({
               className: "driver-marker-wrapper",
@@ -753,13 +848,10 @@ export const DriverView = {
 
             const bounds = window.L.latLngBounds([[dLat, dLng], [passengerLat, passengerLng]]);
             map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
-          },
-          (err) => {
-            console.warn("Driver geolocation unavailable for map:", err.message);
-          },
-          { enableHighAccuracy: true, timeout: 8000 }
-        );
-      }
+        })
+        .catch((err) => {
+          console.warn("Driver geolocation unavailable for map:", err.message);
+        });
 
       if (booking.status === "in_progress" && booking.request?.destination_latitude && booking.request?.destination_longitude) {
         const dLat = Number(booking.request.destination_latitude);
@@ -2329,7 +2421,7 @@ export const DriverView = {
     this.stopRealtimeJobs();
     if (this.adPopupTimer) clearTimeout(this.adPopupTimer);
     this.adPopupTimer = null;
-    PresenceService.stopHeartbeat();
+    PresenceService.goOffline();
     this.journeyBaselineReady = false;
     this.knownAvailableRequestIds = new Set();
     this.knownBidStates = new Map();

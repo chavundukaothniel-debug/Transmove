@@ -3,7 +3,7 @@
 // Powered by Supabase Backend & Google Drive Storage via Trusted API
 // Zero client-side Appwrite writes.
 // ==============================================================================
-import { getTrustedApiEndpoint, getAppwriteDatabases, Query } from "../config/appwrite.js";
+import { getTrustedApiEndpoint } from "../config/appwrite.js";
 import { getAuthJwt } from "../config/supabase.js";
 import { AuthService } from "./auth.js";
 
@@ -175,16 +175,6 @@ export const RequestService = {
         if (Array.isArray(reqs)) {
           return reqs.map(doc => this._formatRequest(doc));
         }
-      } catch (_) {}
-
-      // Direct Appwrite SDK query as legacy read fallback only
-      try {
-        const databases = getAppwriteDatabases();
-        const res = await databases.listDocuments("transmove", "service_requests", [
-          Query.equal("passenger_id", user.$id || user.id),
-          Query.orderDesc("created_at")
-        ]);
-        return (res.documents || []).map(doc => this._formatRequest(doc));
       } catch (_) {}
 
       return [];

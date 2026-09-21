@@ -1,15 +1,24 @@
 // ==============================================================================
 // TRANSMOVE BIDS & BOOKINGS SERVICE
-// Powered by Appwrite via Trusted API (netlify/functions/trusted-api.js)
+// Powered by Supabase via Trusted API (netlify/functions/trusted-api.js)
 // All privileged mutations are server-side only. Client cannot spoof driver_id,
 // status, or entitlement counts.
 //
 // Legacy Supabase offer/booking modules remain on disk for unrelated fallback
 // audit only; this live passenger/driver workflow never imports or calls them.
 // ==============================================================================
-import { getAppwriteAccount, getAppwriteClient, getTrustedApiEndpoint } from "../config/appwrite.js";
-
 import { getSupabase } from "../config/supabase.js";
+
+const getTrustedApiEndpoint = () => {
+  if (typeof window !== "undefined") {
+    const isNative = Boolean(window.Capacitor?.isNativePlatform?.() || window.location?.protocol === "capacitor:");
+    if (isNative) return "https://transmove.onrender.com/.netlify/functions/trusted-api";
+    const storedBase = window.localStorage?.getItem("transmove_api_base")?.replace(/\/+$/, "");
+    const base = storedBase || window.location?.origin;
+    if (base) return `${base}/.netlify/functions/trusted-api`;
+  }
+  return "https://transmove.onrender.com/.netlify/functions/trusted-api";
+};
 
 // ---------------------------------------------------------------------------
 // INTERNAL: Call the trusted API with a JWT for authentication
@@ -29,17 +38,7 @@ async function callTrustedApi(action, data = {}, extraParams = {}) {
   if (!jwt) {
     jwt = localStorage.getItem("transmove_mock_jwt") || "";
   }
-  if (!jwt) {
-    try {
-      const account = getAppwriteAccount();
-      if (account) {
-        const jwtRes = await account.createJWT();
-        jwt = jwtRes.jwt || "";
-      }
-    } catch (e) {
-      console.warn("BidService: Could not obtain JWT:", e.message);
-    }
-  }
+  if (!jwt) throw new Error("A Supabase session is required.");
 
   const payload = { action, data, ...extraParams };
 
@@ -82,7 +81,7 @@ export const BidService = {
     const finalPrice = proposedPrice !== undefined && proposedPrice !== null ? proposedPrice : amount;
     const finalEta = estimatedArrivalMins || estimatedArrivalMinutes || 15;
     if (!requestId) throw new Error("requestId is required to submit a bid.");
-    if (finalPrice === undefined || finalPrice === null) throw new Error("proposedPrice is required.");
+    if (!Number.isFinite(Number(finalPrice)) || Number(finalPrice) <= 0) throw new Error("proposedPrice must be greater than zero.");
 
     const res = await callTrustedApi("create_bid", {
       request_id: requestId,
@@ -170,7 +169,7 @@ export const BidService = {
    */
   async counterBid({ bidId, counterAmount, message = "" }) {
     if (!bidId) throw new Error("bidId is required.");
-    if (counterAmount === undefined || counterAmount === null) throw new Error("counterAmount is required.");
+    if (!Number.isFinite(Number(counterAmount)) || Number(counterAmount) <= 0) throw new Error("counterAmount must be greater than zero.");
     return callTrustedApi("counter_bid", {
       bid_id: bidId,
       counter_amount: parseFloat(counterAmount),
@@ -194,37 +193,23 @@ export const BidService = {
     return callTrustedApi("decline_counter_offer", { bid_id: bidId });
   },
 
-  /**
-   * Subscribe to the protected journey collections. Appwrite only delivers
-   * rows the authenticated user can read; callers still reconcile through the
-   * trusted read endpoints so realtime is an accelerator, never the authority.
-   */
+  /** Subscribe to Supabase journey changes; trusted reads remain authoritative. */
   subscribeToJourneyUpdates(callback) {
     if (typeof callback !== "function") return { unsubscribe: () => {} };
 
-    let stopped = false;
-    let unsubscribe = null;
     try {
-      const client = getAppwriteClient();
-      unsubscribe = client.subscribe([
-        "databases.transmove.collections.service_requests.documents",
-        "databases.transmove.collections.bids.documents",
-        "databases.transmove.collections.bookings.documents"
-      ], (event) => {
-        if (!stopped) callback(event);
-      });
+      const supabase = getSupabase();
+      if (!supabase?.channel) return { unsubscribe: () => {} };
+      const channel = supabase.channel(`journey-updates-${Math.random().toString(36).slice(2)}`)
+        .on("postgres_changes", { event: "*", schema: "public", table: "service_requests" }, callback)
+        .on("postgres_changes", { event: "*", schema: "public", table: "bids" }, callback)
+        .on("postgres_changes", { event: "*", schema: "public", table: "bookings" }, callback)
+        .subscribe();
+      return { unsubscribe: () => { supabase.removeChannel(channel); } };
     } catch (error) {
       console.warn("Journey realtime unavailable; polling remains active:", error.message);
+      return { unsubscribe: () => {} };
     }
-
-    return {
-      unsubscribe: () => {
-        stopped = true;
-        if (typeof unsubscribe === "function") {
-          try { unsubscribe(); } catch (_) {}
-        }
-      }
-    };
   }
 };
 

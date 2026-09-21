@@ -1,6 +1,6 @@
 // ==============================================================================
 // TRANSMOVE PASSENGER DASHBOARD VIEW
-// Real Appwrite Data: Requests, Bids, Bookings, Wallet Ledger, Notifications
+// Supabase-backed requests, bids, and bookings via the trusted API.
 // ==============================================================================
 import { RequestService } from "../services/requests.js";
 import { BidService, BookingService } from "../services/bids.js";
@@ -41,7 +41,8 @@ const ratingIcons = (rating, size = 16) => {
   return `<span class="rating-icons" aria-label="${value} out of 5 stars">${Array.from({ length: 5 }, (_, index) => icon("star", size, { className: index < value ? "is-filled" : "" })).join("")}</span>`;
 };
 
-const OPEN_REQUEST_STATUSES = ["open_for_bids", "bids_received"];
+const OPEN_REQUEST_STATUSES = ["open_for_bids", "bids_received", "offers_received", "negotiating"];
+const JOURNEY_REQUEST_STATUSES = [...OPEN_REQUEST_STATUSES, "accepted"];
 const ACTIVE_BOOKING_STATUSES = ["confirmed", "driver_arriving", "arrived", "in_progress"];
 
 const fileViewUrl = (fileId) => {
@@ -56,7 +57,7 @@ const profileImageUrl = (profile) => {
 };
 
 const actionableBidAmount = (bid) => {
-  for (const value of [bid?.counter_amount, bid?.amount, bid?.proposed_price]) {
+  for (const value of [bid?.current_amount, bid?.counter_amount, bid?.amount, bid?.proposed_price]) {
     const amount = Number(value);
     if (Number.isFinite(amount) && amount > 0) return amount;
   }
@@ -1116,7 +1117,7 @@ export const CustomerView = {
       ]);
 
       const relevantRequests = (requests || []).filter((request) =>
-        ["open_for_bids", "bids_received", "accepted"].includes(request.status)
+        JOURNEY_REQUEST_STATUSES.includes(request.status)
       );
       const bidsByRequest = new Map();
       await Promise.all(relevantRequests.map(async (request) => {
@@ -1178,7 +1179,7 @@ export const CustomerView = {
       const changed = force || signature !== this.journeyStateSignature;
       this.journeyStateSignature = signature;
 
-      const shouldPoll = relevantRequests.some((request) => ["open_for_bids", "bids_received", "accepted"].includes(request.status))
+      const shouldPoll = relevantRequests.some((request) => JOURNEY_REQUEST_STATUSES.includes(request.status))
         || Boolean(activeBooking);
       if (shouldPoll && !this.journeyPollInterval) {
         this.journeyPollInterval = setInterval(() => {
@@ -2567,58 +2568,42 @@ export const CustomerView = {
           if (slider) slider.style.backgroundColor = isSharing ? "#059669" : "#cbd5e1";
 
           if (isSharing) {
-            if (!navigator.geolocation) {
-              alert("Geolocation is not supported by your browser.");
+            try {
+              const coords = await LocationService.getCurrentPosition();
+              await BookingService.updatePassengerLiveLocation({
+                bookingId: booking.id,
+                active: true,
+                latitude: coords.lat,
+                longitude: coords.lng
+              });
+              if (this.liveLocationWatchId) await LocationService.clearWatch(this.liveLocationWatchId);
+              this.liveLocationWatchId = await LocationService.watchPosition(
+                async (nextCoords) => {
+                  try {
+                    await BookingService.updatePassengerLiveLocation({
+                      bookingId: booking.id,
+                      active: true,
+                      latitude: nextCoords.lat,
+                      longitude: nextCoords.lng
+                    });
+                  } catch (err) {
+                    console.warn("Live location watch update error:", err.message);
+                  }
+                },
+                (err) => console.warn("Live location watch error:", err.message)
+              );
+            } catch (err) {
+              NotificationService.showToast("Location unavailable", `${err.message} You can continue using the address fields manually.`, "info");
               e.target.checked = false;
               if (slider) slider.style.backgroundColor = "#cbd5e1";
-              return;
             }
-
-            navigator.geolocation.getCurrentPosition(
-              async (pos) => {
-                try {
-                  await BookingService.updatePassengerLiveLocation(booking.id, {
-                    active: true,
-                    latitude: pos.coords.latitude,
-                    longitude: pos.coords.longitude
-                  });
-                } catch (err) {
-                  console.warn("Could not activate live location:", err.message);
-                }
-              },
-              (err) => {
-                alert("Location access denied or unavailable: " + err.message);
-                e.target.checked = false;
-                if (slider) slider.style.backgroundColor = "#cbd5e1";
-              },
-              { enableHighAccuracy: true, timeout: 10000 }
-            );
-
-            if (this.liveLocationWatchId) {
-              navigator.geolocation.clearWatch(this.liveLocationWatchId);
-            }
-            this.liveLocationWatchId = navigator.geolocation.watchPosition(
-              async (pos) => {
-                try {
-                  await BookingService.updatePassengerLiveLocation(booking.id, {
-                    active: true,
-                    latitude: pos.coords.latitude,
-                    longitude: pos.coords.longitude
-                  });
-                } catch (err) {
-                  console.warn("Live location watch update error:", err.message);
-                }
-              },
-              (err) => console.warn("Live location watch error:", err.message),
-              { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
-            );
           } else {
             if (this.liveLocationWatchId) {
-              navigator.geolocation.clearWatch(this.liveLocationWatchId);
+              await LocationService.clearWatch(this.liveLocationWatchId);
               this.liveLocationWatchId = null;
             }
             try {
-              await BookingService.updatePassengerLiveLocation(booking.id, { active: false });
+              await BookingService.updatePassengerLiveLocation({ bookingId: booking.id, active: false });
             } catch (err) {
               console.warn("Could not deactivate live location:", err.message);
             }
@@ -2627,7 +2612,7 @@ export const CustomerView = {
       }
 
       if (["in_progress", "completed", "cancelled"].includes(booking.status) && this.liveLocationWatchId) {
-        navigator.geolocation.clearWatch(this.liveLocationWatchId);
+        await LocationService.clearWatch(this.liveLocationWatchId);
         this.liveLocationWatchId = null;
       }
     } catch (error) {

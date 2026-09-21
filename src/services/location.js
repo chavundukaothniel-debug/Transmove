@@ -1,4 +1,13 @@
 import { getSupabase } from "../config/supabase.js";
+import { DevicePermissionService } from "./device-permissions.js";
+
+const ensureLocationPermission = async () => {
+  let status = await DevicePermissionService.checkLocation();
+  if (status === "prompt") status = await DevicePermissionService.requestLocation();
+  if (status !== "granted") {
+    throw new Error("Location access is not allowed. Enable it in app settings or enter the address manually.");
+  }
+};
 
 export const LocationService = {
   // Zimbabwe center defaults (Harare)
@@ -19,9 +28,19 @@ export const LocationService = {
    * Requests real browser geolocation.
    * Gracefully handles denied permissions or location timeouts.
    */
-  getCurrentPosition() {
+  async getCurrentPosition() {
+    await ensureLocationPermission();
+    if (DevicePermissionService.isAndroid()) {
+      const position = await DevicePermissionService.getNativeGeolocation().getCurrentPosition({ enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+      return {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: position.coords.accuracy
+      };
+    }
+
     return new Promise((resolve, reject) => {
-      if (!navigator.geolocation) {
+      if (typeof navigator === "undefined" || !navigator.geolocation) {
         reject(new Error("Geolocation is not supported by your browser."));
         return;
       }
@@ -57,13 +76,35 @@ export const LocationService = {
   /**
    * Starts real-time browser location tracking.
    */
-  watchPosition(onSuccess, onError) {
-    if (!navigator.geolocation) return null;
+  async watchPosition(onSuccess, onError) {
+    await ensureLocationPermission();
+    if (DevicePermissionService.isAndroid()) {
+      return DevicePermissionService.getNativeGeolocation().watchPosition(
+        { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 },
+        (position, error) => {
+          if (error) {
+            onError?.(error);
+            return;
+          }
+          if (position) onSuccess({ lat: position.coords.latitude, lng: position.coords.longitude, heading: position.coords.heading });
+        }
+      );
+    }
+    if (typeof navigator === "undefined" || !navigator.geolocation) return null;
     return navigator.geolocation.watchPosition(
       (pos) => onSuccess({ lat: pos.coords.latitude, lng: pos.coords.longitude, heading: pos.coords.heading }),
       onError,
       { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
     );
+  },
+
+  async clearWatch(watchId) {
+    if (watchId === null || watchId === undefined) return;
+    if (DevicePermissionService.isAndroid()) {
+      await DevicePermissionService.getNativeGeolocation().clearWatch({ id: String(watchId) });
+      return;
+    }
+    navigator.geolocation?.clearWatch(watchId);
   },
 
   /**
@@ -296,4 +337,3 @@ export const LocationService = {
     return true;
   }
 };
-

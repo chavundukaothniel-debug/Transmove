@@ -337,7 +337,9 @@ class SupabaseBackendEngine {
         : (latestNeg.sender_role === "driver" ? "countered_by_driver" : "countered_by_passenger");
     }
 
-    b.amount = positiveNumber(b.counter_amount) || positiveNumber(b.amount) || positiveNumber(b.proposed_price) || 0;
+    b.original_amount = positiveNumber(b.amount) || positiveNumber(b.proposed_price);
+    b.amount = positiveNumber(b.counter_amount) || b.original_amount;
+    b.current_amount = b.amount;
     const eta = Number.parseInt(b.estimated_arrival_minutes ?? b.estimated_arrival_mins ?? b.arrival_minutes ?? b.eta, 10);
     b.arrival_minutes = Number.isFinite(eta) && eta > 0 ? eta : 15;
     b.estimated_arrival_minutes = b.arrival_minutes;
@@ -379,6 +381,18 @@ class SupabaseBackendEngine {
         if (error) throw new Error(`Failed to resolve bid vehicle: ${error.message}`);
         vehicle = data?.[0] || null;
       }
+      if (vehicle) {
+        const { data: photos, error: photoError } = await this.supabaseAdmin
+          .from("vehicle_photos")
+          .select("id, vehicle_id, storage_provider, drive_file_id, original_filename, file_url, is_primary, created_at")
+          .eq("vehicle_id", vehicle.id)
+          .order("is_primary", { ascending: false })
+          .order("created_at", { ascending: true });
+        if (photoError) throw new Error(`Failed to hydrate bid vehicle photos: ${photoError.message}`);
+        vehicle.photos = photos || [];
+        vehicle.primary_photo = vehicle.photos.find((photo) => photo.is_primary) || vehicle.photos[0] || null;
+        vehicle.photo_url = vehicle.primary_photo?.file_url || null;
+      }
       b.vehicle = vehicle;
     } else {
       const localProfile = (this.db.profiles || []).find((p) => p.id === b.driver_id || p.user_id === b.driver_id);
@@ -391,6 +405,12 @@ class SupabaseBackendEngine {
       const localVehicles = (this.db.vehicles || []).filter((v) => v.driver_id === b.driver_id);
       b.vehicle = localVehicles.find((v) => v.id === b.vehicle_id) ||
         localVehicles.find((v) => v.is_primary) || localVehicles[0] || b.vehicle || null;
+      if (b.vehicle) {
+        const photos = (this.db.vehicle_photos || []).filter((photo) => photo.vehicle_id === b.vehicle.id);
+        b.vehicle.photos = photos;
+        b.vehicle.primary_photo = photos.find((photo) => photo.is_primary) || photos[0] || null;
+        b.vehicle.photo_url = b.vehicle.primary_photo?.file_url || null;
+      }
     }
 
     if (b.vehicle) b.vehicle.plate_number = b.vehicle.registration_number || b.vehicle.plate_number || "";
@@ -428,7 +448,7 @@ class SupabaseBackendEngine {
       try {
         const { data: { user }, error } = await this.supabaseAdmin.auth.getUser(jwt);
         if (!error && user) {
-          return { id: user.id, email: user.email, name: user.user_metadata?.full_name || "" };
+          return { id: user.id, email: user.email, name: user.user_metadata?.full_name || "", auth_source: "supabase" };
         }
       } catch (_) {}
     }
@@ -505,6 +525,9 @@ class SupabaseBackendEngine {
     }
 
     const userId = verifiedUser?.id || null;
+    const authoritativeCaller = Boolean(
+      verifiedUser?.auth_source === "supabase" && this.isLive && this.supabaseAdmin && isUuid(userId)
+    );
 
     // Helper: log activity
     const logActivity = async (activityType, title, description = "", relatedId = "") => {
@@ -1385,7 +1408,7 @@ class SupabaseBackendEngine {
       if (!data.destination) throw new Error("Destination location is required.");
 
       const newRequest = {
-        id: `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        id: authoritativeCaller ? randomUUID() : `req_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         passenger_id: userId,
         service_type: data.service_type || "ride",
         pickup_location: String(data.pickup_location).trim(),
@@ -1399,11 +1422,21 @@ class SupabaseBackendEngine {
         passenger_count: data.passenger_count || 1,
         goods_type: data.goods_type || "",
         details: data.details || "",
-        budget: data.budget !== undefined ? parseFloat(data.budget) : 0,
+        budget: data.budget !== undefined && data.budget !== null && data.budget !== "" ? parseFloat(data.budget) : null,
         status: "open_for_bids",
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
+
+      if (authoritativeCaller) {
+        const { data: insertedRequest, error: insertError } = await this.supabaseAdmin
+          .from("service_requests")
+          .insert(newRequest)
+          .select()
+          .single();
+        if (insertError) throw new Error(`Failed to create service request in Supabase: ${insertError.message}`);
+        Object.assign(newRequest, insertedRequest);
+      }
 
       this.db.service_requests.push(newRequest);
       this._persistLocalDb();
@@ -1413,11 +1446,22 @@ class SupabaseBackendEngine {
 
     if (action === "list_available_requests") {
       // Driver view: find open requests matching driver's vehicle category
-      const driverVehicles = this.db.vehicles.filter((v) => v.driver_id === userId && v.status === "active");
+      let driverVehicles = this.db.vehicles.filter((v) => v.driver_id === userId && v.status === "active");
+      let requestPool = this.db.service_requests;
+      if (authoritativeCaller) {
+        const [{ data: liveVehicles, error: vehicleError }, { data: liveRequests, error: requestError }] = await Promise.all([
+          this.supabaseAdmin.from("vehicles").select("*").eq("driver_id", userId).eq("status", "active"),
+          this.supabaseAdmin.from("service_requests").select("*").in("status", ["open_for_bids", "offers_received", "negotiating"])
+        ]);
+        if (vehicleError) throw new Error(`Failed to list driver vehicles from Supabase: ${vehicleError.message}`);
+        if (requestError) throw new Error(`Failed to list available requests from Supabase: ${requestError.message}`);
+        driverVehicles = liveVehicles || [];
+        requestPool = liveRequests || [];
+      }
       const allowedCategories = new Set(driverVehicles.map((v) => v.service_category));
 
       const openStatuses = ["open_for_bids", "offers_received", "negotiating"];
-      const matching = this.db.service_requests.filter((r) => {
+      const matching = requestPool.filter((r) => {
         if (!openStatuses.includes(r.status)) return false;
         if (allowedCategories.size === 0) return true; // Show all if no category restricted
         return Array.from(allowedCategories).some((cat) => isVehicleCompatibleWithRequest(cat, r.service_type));
@@ -1430,13 +1474,22 @@ class SupabaseBackendEngine {
 
     if (action === "get_service_request_details") {
       const targetReqId = request_id || data.request_id;
-      const req = this.db.service_requests.find((r) => r.id === targetReqId);
-      if (!req) throw new Error("Service request not found.");
-      return req;
+      const loadedRequest = await this._loadRequestRecord(targetReqId);
+      if (!loadedRequest) throw new Error("Service request not found.");
+      return loadedRequest.record;
     }
 
     if (action === "list_passenger_requests") {
-      const list = this.db.service_requests.filter((r) => r.passenger_id === userId);
+      let list = this.db.service_requests.filter((r) => r.passenger_id === userId);
+      if (authoritativeCaller) {
+        const { data: liveRequests, error } = await this.supabaseAdmin
+          .from("service_requests")
+          .select("*")
+          .eq("passenger_id", userId)
+          .order("created_at", { ascending: false });
+        if (error) throw new Error(`Failed to list passenger requests from Supabase: ${error.message}`);
+        list = liveRequests || [];
+      }
       return {
         requests: list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
       };
@@ -1444,20 +1497,32 @@ class SupabaseBackendEngine {
 
     if (action === "cancel_service_request") {
       const targetReqId = request_id || data.request_id;
-      const req = this.db.service_requests.find((r) => r.id === targetReqId);
-      if (!req) throw new Error("Service request not found.");
+      const loadedRequest = await this._loadRequestRecord(targetReqId);
+      if (!loadedRequest) throw new Error("Service request not found.");
+      const req = loadedRequest.record;
       if (req.passenger_id !== userId) throw new Error("Forbidden: You do not own this request.");
 
       req.status = "cancelled";
       req.updated_at = new Date().toISOString();
+      if (loadedRequest.authoritative) {
+        const { data: updatedRequest, error } = await this.supabaseAdmin
+          .from("service_requests")
+          .update({ status: req.status, updated_at: req.updated_at })
+          .eq("id", targetReqId)
+          .select()
+          .single();
+        if (error) throw new Error(`Failed to cancel service request in Supabase: ${error.message}`);
+        Object.assign(req, updatedRequest);
+      }
       this._persistLocalDb();
       return req;
     }
 
     if (action === "update_service_request") {
       const targetReqId = request_id || data.request_id;
-      const req = this.db.service_requests.find((r) => r.id === targetReqId);
-      if (!req) throw new Error("Service request not found.");
+      const loadedRequest = await this._loadRequestRecord(targetReqId);
+      if (!loadedRequest) throw new Error("Service request not found.");
+      const req = loadedRequest.record;
       if (req.passenger_id !== userId) throw new Error("Forbidden: You do not own this request.");
 
       if (data.pickup_location !== undefined) req.pickup_location = String(data.pickup_location).trim();
@@ -1468,6 +1533,27 @@ class SupabaseBackendEngine {
       if (data.goods_type !== undefined) req.goods_type = String(data.goods_type).trim();
       if (data.passenger_count !== undefined) req.passenger_count = parseInt(data.passenger_count, 10);
       req.updated_at = new Date().toISOString();
+
+      if (loadedRequest.authoritative) {
+        const allowedUpdates = {
+          pickup_location: req.pickup_location,
+          destination: req.destination,
+          service_type: req.service_type,
+          budget: req.budget,
+          details: req.details,
+          goods_type: req.goods_type,
+          passenger_count: req.passenger_count,
+          updated_at: req.updated_at
+        };
+        const { data: updatedRequest, error } = await this.supabaseAdmin
+          .from("service_requests")
+          .update(allowedUpdates)
+          .eq("id", targetReqId)
+          .select()
+          .single();
+        if (error) throw new Error(`Failed to update service request in Supabase: ${error.message}`);
+        Object.assign(req, updatedRequest);
+      }
 
       this._persistLocalDb();
       return req;
@@ -2700,6 +2786,27 @@ class SupabaseBackendEngine {
       }
       this._persistLocalDb();
       return { success: true, timestamp: now };
+    }
+
+    if (action === "driver_set_offline") {
+      const now = new Date().toISOString();
+      const existing = this.db.driver_presence.find((presence) => presence.driver_id === userId);
+      if (existing) {
+        existing.is_online = false;
+        existing.updated_at = now;
+      } else {
+        this.db.driver_presence.push({
+          driver_id: userId,
+          is_online: false,
+          last_seen_at: now,
+          current_lat: null,
+          current_lng: null,
+          created_at: now,
+          updated_at: now
+        });
+      }
+      this._persistLocalDb();
+      return { success: true, is_online: false };
     }
 
     if (action === "get_driver_presence") {

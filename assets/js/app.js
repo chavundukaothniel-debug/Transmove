@@ -7,6 +7,7 @@ import { renderSidebar } from "../../src/components/Sidebar.js";
 import { renderHeader, initHeaderNotifications, headerIcon } from "../../src/components/Header.js";
 import { renderMobileNav } from "../../src/components/MobileNav.js";
 import { ThemeService } from "../../src/services/theme.js";
+import { DevicePermissionService } from "../../src/services/device-permissions.js";
 
 // Views
 import { HomeView } from "../../src/views/HomeView.js";
@@ -29,6 +30,7 @@ import { ContactView } from "../../src/views/ContactView.js";
 import { SupportView } from "../../src/views/SupportView.js";
 import { LegalView } from "../../src/views/LegalView.js";
 import { BusinessView } from "../../src/views/BusinessView.js";
+import { OnboardingView } from "../../src/views/OnboardingView.js";
 
 class App {
   constructor() {
@@ -38,6 +40,7 @@ class App {
     this.verificationUnsubscribe = null;
     this.verificationRefreshTimer = null;
     this.activeViewModule = null;
+    this.onboardingActive = false;
   }
 
   async init() {
@@ -75,8 +78,9 @@ class App {
         if (this.verificationUnsubscribe) this.verificationUnsubscribe();
         this.verificationUnsubscribe = null;
         this.currentProfile = null;
-        window.location.hash = "#home";
-        this.render();
+        this.currentRoute = "home";
+        window.history.replaceState(null, "", "#home");
+        await this.render();
       }
     });
 
@@ -144,6 +148,23 @@ class App {
 
     // 8. Setup Android Back Button & Mobile Hardware Navigation
     this.setupAndroidBackButton();
+
+    // 9. First-run permission onboarding. It is always skippable.
+    if (!DevicePermissionService.hasSeenOnboarding()) {
+      this.onboardingActive = true;
+      const content = document.getElementById("app-root");
+      if (content) {
+        content.innerHTML = OnboardingView.render();
+        const completion = new Promise((resolve) => {
+          window.addEventListener("transmove:permissions-onboarding-complete", resolve, { once: true });
+        });
+        OnboardingView.init();
+        await completion;
+      } else {
+        DevicePermissionService.markOnboardingSeen();
+      }
+      this.onboardingActive = false;
+    }
 
     // Initial Route
     this.handleRoute();
@@ -260,6 +281,7 @@ class App {
   }
 
   async handleRoute() {
+    if (this.onboardingActive) return;
     const rawHash = window.location.hash.slice(1);
     let route = rawHash.split("?")[0];
 
@@ -298,7 +320,9 @@ class App {
         await AuthService.logout();
       } catch (_) {}
       this.currentProfile = null;
-      window.location.hash = "#home";
+      this.currentRoute = "home";
+      window.history.replaceState(null, "", "#home");
+      await this.render();
       return;
     }
 

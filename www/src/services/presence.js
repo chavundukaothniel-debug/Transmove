@@ -91,6 +91,15 @@ export const PresenceService = {
     }
   },
 
+  async goOffline() {
+    this.stopHeartbeat();
+    try {
+      await trustedCall("driver_set_offline", {});
+    } catch (err) {
+      console.warn("Offline status notice:", err.message);
+    }
+  },
+
   /**
    * Determines whether a driver is online based on last_seen_at / updated_at timestamp.
    * Driver is considered online if timestamp is within the last 3 minutes (180,000 ms).
@@ -109,7 +118,8 @@ export const PresenceService = {
   async getDriverPresence(driverId) {
     if (!driverId) return { driver_id: null, online: false, last_seen_at: null };
     try {
-      return await trustedCall("get_driver_presence", { driver_id: driverId });
+      const presence = await trustedCall("get_driver_presence", { driver_id: driverId });
+      return { ...presence, online: Boolean(presence.online ?? presence.is_online) };
     } catch (err) {
       return { driver_id: driverId, online: false, last_seen_at: null };
     }
