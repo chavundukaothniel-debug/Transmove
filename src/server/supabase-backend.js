@@ -502,6 +502,85 @@ class SupabaseBackendEngine {
     return localProf || null;
   }
 
+  /**
+   * _getDriverEntitlement
+   * Authoritative 5-free-completed-jobs check.
+   * Counts only bookings WHERE driver_id = userId AND status = 'completed'.
+   * Cancelled, in_progress, confirmed bookings do NOT count toward the limit.
+   * Active subscription (status='active', expires_at > now()) bypasses the wall.
+   */
+  async _getDriverEntitlement(userId, authoritativeCaller = false) {
+    const now = new Date();
+
+    // Count completed jobs
+    let completedCount = 0;
+    if (authoritativeCaller && this.isLive && this.supabaseAdmin && isUuid(userId)) {
+      const { data: completedBookings, error } = await this.supabaseAdmin
+        .from("bookings")
+        .select("id", { count: "exact" })
+        .eq("driver_id", userId)
+        .eq("status", "completed");
+      if (!error) {
+        completedCount = completedBookings?.length ?? 0;
+      } else {
+        // fallback to local db on error
+        completedCount = (this.db.bookings || []).filter(
+          (b) => b.driver_id === userId && b.status === "completed"
+        ).length;
+        console.warn("[entitlement] Supabase completed jobs lookup failed, using local:", error.message);
+      }
+    } else {
+      completedCount = (this.db.bookings || []).filter(
+        (b) => b.driver_id === userId && b.status === "completed"
+      ).length;
+    }
+
+    // Check active subscription
+    let activeSub = null;
+    if (authoritativeCaller && this.isLive && this.supabaseAdmin && isUuid(userId)) {
+      const { data: activeSubscriptions, error } = await this.supabaseAdmin
+        .from("subscriptions")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("status", "active")
+        .gt("expires_at", now.toISOString())
+        .order("expires_at", { ascending: false })
+        .limit(1);
+      if (!error) {
+        activeSub = activeSubscriptions?.[0] || null;
+      } else {
+        console.warn("[entitlement] Supabase subscription lookup failed:", error.message);
+        activeSub = (this.db.subscriptions || []).find(
+          (s) => s.user_id === userId && s.status === "active" && new Date(s.expires_at) > now
+        ) || null;
+      }
+    } else {
+      activeSub = (this.db.subscriptions || []).find(
+        (s) => s.user_id === userId && s.status === "active" && new Date(s.expires_at) > now
+      ) || null;
+    }
+
+    const freeJobsRemaining = Math.max(0, 5 - completedCount);
+    const isSubscriptionRequired = completedCount >= 5 && !activeSub;
+
+    return {
+      // canonical fields
+      completed_jobs: completedCount,
+      free_jobs_remaining: freeJobsRemaining,
+      is_subscription_required: isSubscriptionRequired,
+      has_active_subscription: Boolean(activeSub),
+      active_subscription: activeSub || null,
+      // legacy/compat aliases
+      active: Boolean(activeSub),
+      plan: activeSub?.plan || null,
+      expires_at: activeSub?.expires_at || null,
+      awarded_bookings_count: completedCount,
+      awarded_jobs: completedCount,
+      can_bid: !isSubscriptionRequired,
+      free_limit: 5
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // MAIN DISPATCHER
   // ---------------------------------------------------------------------------
@@ -1618,35 +1697,10 @@ class SupabaseBackendEngine {
     }
 
     // =========================================================================
-    // 5. BIDS & 5-FREE-JOBS ENFORCEMENT
+    // 5. BIDS & 5-FREE-COMPLETED-JOBS ENFORCEMENT
     // =========================================================================
     if (action === "check_driver_entitlement" || action === "get_subscription_status") {
-      const awardedCount = this.db.bookings.filter((b) => b.driver_id === userId).length;
-      const now = new Date();
-      let activeSub = this.db.subscriptions.find((s) => s.user_id === userId && s.status === "active" && new Date(s.expires_at) > now) || null;
-      if (authoritativeCaller) {
-        const { data: activeSubscriptions, error } = await this.supabaseAdmin
-          .from("subscriptions")
-          .select("*")
-          .eq("user_id", userId)
-          .eq("status", "active")
-          .gt("expires_at", now.toISOString())
-          .order("expires_at", { ascending: false })
-          .limit(1);
-        if (!error) activeSub = activeSubscriptions?.[0] || null;
-        else console.warn("[payments] Supabase active subscription lookup unavailable:", error.message);
-      }
-
-      return {
-        active: Boolean(activeSub),
-        plan: activeSub?.plan || null,
-        expires_at: activeSub?.expires_at || null,
-        awarded_bookings_count: awardedCount,
-        free_jobs_remaining: Math.max(0, 5 - awardedCount),
-        is_subscription_required: awardedCount >= 5 && !activeSub,
-        has_active_subscription: Boolean(activeSub),
-        active_subscription: activeSub || null
-      };
+      return await this._getDriverEntitlement(userId, authoritativeCaller);
     }
 
     if (action === "create_bid") {
@@ -1659,15 +1713,14 @@ class SupabaseBackendEngine {
       const authoritative = loadedRequest.authoritative;
       if (req.passenger_id === userId) throw new Error("Drivers cannot bid on their own requests.");
 
-      // Enforce 5 Free Awarded Bookings Rule
-      const awardedCount = this.db.bookings.filter((b) => b.driver_id === userId).length;
-      const now = new Date();
-      const activeSub = this.db.subscriptions.find((s) => s.user_id === userId && s.status === "active" && new Date(s.expires_at) > now);
-
-      if (awardedCount >= 5 && !activeSub) {
-        const err = new Error("DRIVER_SUBSCRIPTION_REQUIRED: You have completed your 5 free awarded jobs. Please subscribe to continue placing bids.");
+      // Enforce 5 Free Completed Jobs Rule (Server-Authoritative)
+      const entitlement = await this._getDriverEntitlement(userId, authoritative);
+      if (entitlement.is_subscription_required) {
+        const err = new Error("FREE_TRIAL_LIMIT_REACHED: You have completed all 5 free TransMove jobs. Activate a subscription to continue accepting jobs.");
         err.statusCode = 402;
-        err.awarded_count = awardedCount;
+        err.code = "FREE_TRIAL_LIMIT_REACHED";
+        err.completed_count = entitlement.completed_jobs;
+        err.awarded_count = entitlement.completed_jobs;
         throw err;
       }
 

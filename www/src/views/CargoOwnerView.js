@@ -7,6 +7,7 @@ import { BidService, BookingService } from "../services/bids.js";
 import { renderEmptyState } from "../components/EmptyState.js";
 import { LocationService } from "../services/location.js";
 import { AdPlacement } from "../components/AdPlacement.js";
+import { icon } from "../components/Icon.js";
 
 const escapeHtml = (value) => {
   if (value === null || value === undefined) return "";
@@ -86,7 +87,7 @@ export const CargoOwnerView = {
             </div>
             <div>
               <button id="btn-tab-create-cargo" class="btn btn-primary">
-                📦 Create Cargo Request
+                ${icon("package-plus", 18)}<span>Create Cargo Request</span>
               </button>
             </div>
           </div>
@@ -132,28 +133,28 @@ export const CargoOwnerView = {
             </div>
             <div style="display: flex; flex-direction: column; gap: 0.35rem;" id="cargo-nav-menu">
               <button data-tab="overview" class="btn btn-outline cargo-nav-btn active" style="justify-content: flex-start; text-align: left;">
-                📊 Dashboard
+                ${icon("layout-dashboard", 17)}<span>Dashboard</span>
               </button>
               <button data-tab="create" class="btn btn-outline cargo-nav-btn" style="justify-content: flex-start; text-align: left;">
-                ➕ Create Cargo Request
+                ${icon("circle-plus", 17)}<span>Create Cargo Request</span>
               </button>
               <button data-tab="requests" class="btn btn-outline cargo-nav-btn" style="justify-content: flex-start; text-align: left;">
-                📦 My Cargo Requests
+                ${icon("package", 17)}<span>My Cargo Requests</span>
               </button>
               <button data-tab="deliveries" class="btn btn-outline cargo-nav-btn" style="justify-content: flex-start; text-align: left;">
-                🚚 Active Deliveries
+                ${icon("truck", 17)}<span>Active Deliveries</span>
               </button>
               <button data-tab="history" class="btn btn-outline cargo-nav-btn" style="justify-content: flex-start; text-align: left;">
-                📜 Delivery History
+                ${icon("history", 17)}<span>Delivery History</span>
               </button>
               <button data-tab="payments" class="btn btn-outline cargo-nav-btn" style="justify-content: flex-start; text-align: left;">
-                💳 Payments &amp; Invoices
+                ${icon("credit-card", 17)}<span>Payments &amp; Invoices</span>
               </button>
               <a href="#messages" class="btn btn-outline" style="justify-content: flex-start; text-align: left;">
-                💬 Messages
+                ${icon("message-circle", 17)}<span>Messages</span>
               </a>
               <a href="#support" class="btn btn-outline" style="justify-content: flex-start; text-align: left;">
-                🎧 Support
+                ${icon("headphones", 17)}<span>Support</span>
               </a>
             </div>
           </div>
@@ -162,7 +163,7 @@ export const CargoOwnerView = {
           <div>
             <!-- Create Cargo Form Tab -->
             <div id="tab-sec-create" class="card cargo-tab-content" style="display: none;">
-              <h3 style="font-weight: 800; font-size: 1.25rem; margin-bottom: 1.25rem;">📦 Create New Cargo Transport Request</h3>
+              <h3 class="icon-label" style="font-weight: 800; font-size: 1.25rem; margin-bottom: 1.25rem;">${icon("package-plus", 21)}<span>Create New Cargo Transport Request</span></h3>
               <form id="cargo-request-form">
                 <div class="grid-2">
                   <div class="form-group">
@@ -221,7 +222,7 @@ export const CargoOwnerView = {
                 </div>
 
                 <button type="submit" id="btn-submit-cargo" class="btn btn-primary btn-full">
-                  Post Cargo Transport Request 📦
+                  ${icon("send", 18)}<span>Post Cargo Transport Request</span>
                 </button>
               </form>
             </div>
@@ -231,7 +232,7 @@ export const CargoOwnerView = {
               <div class="card" style="margin-bottom: 1.5rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                   <h3 style="font-weight: 800; font-size: 1.1rem; margin: 0;">Active Freight &amp; Cargo Requests</h3>
-                  <button id="btn-refresh-cargo" class="btn btn-outline btn-sm">🔄 Refresh</button>
+                <button id="btn-refresh-cargo" class="btn btn-outline btn-sm">${icon("refresh-cw", 16)}<span>Refresh</span></button>
                 </div>
                 <div id="cargo-requests-list">
                   <div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">
@@ -338,7 +339,7 @@ export const CargoOwnerView = {
         alert(friendlyError(err, "Could not post your cargo request"));
       } finally {
         submitBtn.disabled = false;
-        submitBtn.innerText = "Post Cargo Transport Request 📦";
+        submitBtn.innerHTML = `${icon("send", 18)}<span>Post Cargo Transport Request</span>`;
       }
     });
   },
@@ -458,7 +459,7 @@ export const CargoOwnerView = {
               <span class="badge badge-info" style="font-size: 0.75rem;">FREIGHT REQUEST</span>
               <h4 style="font-size: 1.05rem; font-weight: 700; margin: 0.35rem 0 0.15rem 0;">${escapeHtml(cargoLabel || "Commercial Freight Cargo")}</h4>
               <div style="font-size: 0.85rem; color: var(--text-muted);">
-                📍 <strong>Pickup:</strong> ${escapeHtml(r.pickup_location || r.pickup_address)} &rarr; 📍 <strong>Destination:</strong> ${escapeHtml(r.destination || r.destination_address)}
+            <span class="icon-label icon-label--inline">${icon("map-pin", 15)}<span><strong>Pickup:</strong> ${escapeHtml(r.pickup_location || r.pickup_address)}</span></span> &rarr; <span class="icon-label icon-label--inline">${icon("flag", 15)}<span><strong>Destination:</strong> ${escapeHtml(r.destination || r.destination_address)}</span></span>
               </div>
             </div>
             <div style="text-align: right;">
@@ -470,8 +471,8 @@ export const CargoOwnerView = {
           </div>
           ${detailsText || requestedOn ? `
             <div style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--text-muted); background: var(--bg-hover); padding: 0.5rem 0.75rem; border-radius: 4px; display: flex; gap: 1rem;">
-              ${detailsText ? `<span>📋 ${escapeHtml(detailsText)}</span>` : ""}
-              ${requestedOn ? `<span>📅 Posted: <strong>${escapeHtml(requestedOn)}</strong></span>` : ""}
+              ${detailsText ? `<span class="icon-label icon-label--inline">${icon("clipboard-list", 15)}<span>${escapeHtml(detailsText)}</span></span>` : ""}
+              ${requestedOn ? `<span class="icon-label icon-label--inline">${icon("calendar-days", 15)}<span>Posted: <strong>${escapeHtml(requestedOn)}</strong></span></span>` : ""}
             </div>
           ` : ""}
         </div>

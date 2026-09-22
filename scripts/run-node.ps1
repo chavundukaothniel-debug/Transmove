@@ -31,9 +31,10 @@ if (Test-Path $envFile) {
     Write-Warning "[run-node] .env file not found"
 }
 
-$nodeExe = "C:\Users\PC\AppData\Local\OpenAI\Codex\runtimes\cua_node\b474a88d5d105afa\bin\node.exe"
+$nodeItem = Get-ChildItem "C:\Users\PC\AppData\Local\OpenAI\Codex\runtimes\cua_node\*\bin\node.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+$nodeExe = if ($nodeItem) { $nodeItem.FullName } else { $null }
 
-if (-not (Test-Path $nodeExe)) {
+if (-not $nodeExe -or -not (Test-Path $nodeExe)) {
     $env:ELECTRON_RUN_AS_NODE = "1"
     $nodeExe = "C:\Users\PC\AppData\Local\Programs\Antigravity IDE\Antigravity IDE.exe"
 }

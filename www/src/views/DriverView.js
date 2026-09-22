@@ -14,6 +14,9 @@ import { NotificationService } from "../services/notifications.js";
 import { SmartPopup } from "../components/SmartPopup.js";
 import { DriverRequestCard } from "../components/DriverRequestCard.js";
 import { AdvertisingService } from "../services/advertising.js";
+import { DevicePermissionService } from "../services/device-permissions.js";
+import { LocationService } from "../services/location.js";
+import { icon, statusBadge } from "../components/Icon.js";
 
 const escapeHtml = (value) => {
   if (value === null || value === undefined) return "";
@@ -70,6 +73,7 @@ export const DriverView = {
   dismissedRequestIds: new Set(),
   adPopupTimer: null,
   tripMap: null,
+  isDriverOnline: false,
   currentTab: "dashboard", // 'dashboard' | 'available' | 'offers' | 'vehicles' | 'earnings'
 
   async render() {
@@ -94,7 +98,7 @@ export const DriverView = {
 
             <!-- Profile Completion Warning Banner -->
             <div id="driver-profile-warning-banner" style="display: none; margin-top: 0.75rem; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 6px; padding: 0.5rem 0.85rem; font-size: 0.8rem; color: #92400e; align-items: center; gap: 0.75rem;">
-              <span>⚠️ Complete your profile and register a vehicle to start accepting jobs.</span>
+              ${icon("triangle-alert", 17)}<span>Complete your profile and register a vehicle to start accepting jobs.</span>
               <a href="#profile" class="btn btn-sm" style="background: #2563eb; color: #ffffff; padding: 0.25rem 0.65rem; border-radius: 4px; font-weight: 700; text-decoration: none; font-size: 0.75rem;">
                 Complete Profile
               </a>
@@ -102,11 +106,11 @@ export const DriverView = {
           </div>
 
           <div style="display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap;">
-            <!-- Automatic Online/Offline Badge -->
-            <div id="hdr-online-pill" style="display: inline-flex; align-items: center; gap: 0.4rem; background: #ecfdf5; color: #059669; padding: 0.35rem 0.85rem; border-radius: 9999px; font-weight: 700; font-size: 0.85rem; border: 1px solid #a7f3d0;">
+            <!-- Driver Online/Offline Control -->
+            <button type="button" id="btn-driver-online-toggle" style="display: inline-flex; align-items: center; gap: 0.4rem; background: #f1f5f9; color: #475569; padding: 0.5rem 0.95rem; min-height:44px; border-radius: 9999px; font-weight: 800; font-size: 0.85rem; border: 1px solid #cbd5e1; cursor:pointer;">
               <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #10b981;"></span>
-              Online
-            </div>
+              Go Online
+            </button>
           </div>
         </div>
 
@@ -233,13 +237,13 @@ export const DriverView = {
         <!-- SECTION 3: VEHICLES SECTION (#driver?tab=vehicles) -->
         <div id="driver-vehicles-tab-section" style="${this.currentTab === "vehicles" ? "display: block;" : "display: none;"} margin-bottom: 2rem;">
           <div class="card" style="background: #ffffff; padding: 1.5rem; border-radius: 8px; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px rgba(0,0,0,0.02); margin-bottom: 1.5rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid #e2e8f0;">
+            <div class="driver-vehicles-section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid #e2e8f0;">
               <div>
                 <h2 style="font-size: 1.25rem; font-weight: 800; color: #0f172a; margin: 0;">My Vehicles</h2>
                 <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.2rem;">Manage your transport vehicles, photos, verification documents, and primary setting.</div>
               </div>
               <button id="btn-show-add-vehicle-form" class="btn btn-primary" style="background: #2563eb; color: #ffffff; border: none; padding: 0.5rem 1rem; border-radius: 6px; font-weight: 700; font-size: 0.85rem;">
-                + Add Vehicle
+                ${icon("plus", 17)}<span>Add Vehicle</span>
               </button>
             </div>
 
@@ -253,7 +257,7 @@ export const DriverView = {
           <div id="add-vehicle-modal-card" class="card" style="display: none; background: #ffffff; padding: 1.5rem; border-radius: 8px; border: 1px solid #cbd5e1; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 1.5rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
               <h3 style="font-size: 1.15rem; font-weight: 800; color: #0f172a; margin: 0;">Register New Vehicle</h3>
-              <button type="button" id="btn-hide-add-vehicle-form" style="border: none; background: transparent; font-size: 1.25rem; cursor: pointer; color: #64748b;">✕</button>
+              <button type="button" id="btn-hide-add-vehicle-form" class="icon-button" style="border: none; background: transparent; cursor: pointer; color: #64748b;" aria-label="Close add vehicle form" title="Close add vehicle form">${icon("x", 19)}</button>
             </div>
 
             <form id="driver-new-vehicle-form">
@@ -311,7 +315,7 @@ export const DriverView = {
 
               <div style="display: flex; gap: 0.75rem; justify-content: flex-end;">
                 <button type="submit" id="btn-save-new-vehicle" class="btn btn-primary" style="background: #2563eb; color: #ffffff; border: none; padding: 0.65rem 1.5rem; border-radius: 6px; font-weight: 700;">
-                  Save Vehicle 🚘
+              ${icon("car-front", 18)}<span>Save Vehicle</span>
                 </button>
               </div>
             </form>
@@ -347,11 +351,11 @@ export const DriverView = {
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem; text-align: left; margin-bottom: 1.5rem;">
               <div style="font-size: 0.85rem; font-weight: 700; color: #0f172a; margin-bottom: 0.5rem;">Benefits:</div>
               <ul style="margin: 0; padding-left: 1.25rem; font-size: 0.85rem; color: #334155; line-height: 1.6;">
-                <li>✓ Unlimited job bids</li>
-                <li>✓ Higher visibility to customers</li>
-                <li>✓ Priority access to new jobs</li>
-                <li>✓ Build your reputation</li>
-                <li>✓ Grow your earnings</li>
+                <li class="icon-label">${icon("check", 16)}<span>Unlimited job bids</span></li>
+                <li class="icon-label">${icon("check", 16)}<span>Higher visibility to customers</span></li>
+                <li class="icon-label">${icon("check", 16)}<span>Priority access to new jobs</span></li>
+                <li class="icon-label">${icon("check", 16)}<span>Build your reputation</span></li>
+                <li class="icon-label">${icon("check", 16)}<span>Grow your earnings</span></li>
               </ul>
             </div>
 
@@ -370,7 +374,7 @@ export const DriverView = {
         <div id="profile-incomplete-modal" class="modal-backdrop" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.7); z-index: 9999; justify-content: center; align-items: center; padding: 1rem;">
           <div style="background: #ffffff; border-radius: 12px; max-width: 440px; width: 100%; padding: 2rem; text-align: center; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);">
             <div style="width: 56px; height: 56px; border-radius: 50%; background: #fffbeb; color: #d97706; display: flex; align-items: center; justify-content: center; font-size: 1.75rem; font-weight: 900; margin: 0 auto 1.25rem auto; border: 2px solid #fde68a;">
-              ⚠️
+          ${icon("triangle-alert", 22)}
             </div>
             
             <h3 style="font-size: 1.3rem; font-weight: 800; color: #0f172a; margin: 0 0 0.5rem 0;">Complete Your Driver Profile</h3>
@@ -392,7 +396,7 @@ export const DriverView = {
         <!-- MODAL 4: EDIT VEHICLE MODAL -->
         <div id="edit-vehicle-modal" class="modal-backdrop" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); z-index: 9999; justify-content: center; align-items: center; padding: 1rem;">
           <div style="background: #ffffff; border-radius: 12px; max-width: 540px; width: 100%; padding: 1.75rem; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); position: relative; max-height: 90vh; overflow-y: auto;">
-            <button type="button" id="btn-close-edit-veh-modal" style="position: absolute; top: 1.25rem; right: 1.25rem; border: none; background: transparent; font-size: 1.25rem; color: #64748b; cursor: pointer;">✕</button>
+            <button type="button" id="btn-close-edit-veh-modal" class="icon-button" style="position: absolute; top: 1rem; right: 1rem; border: none; background: transparent; color: #64748b; cursor: pointer;" aria-label="Close edit vehicle dialog" title="Close dialog">${icon("x", 19)}</button>
             <h3 style="font-size: 1.25rem; font-weight: 800; color: #0f172a; margin: 0 0 1rem 0;">Edit Vehicle</h3>
             <form id="edit-vehicle-form">
               <input type="hidden" id="ev-id" />
@@ -431,7 +435,7 @@ export const DriverView = {
         <!-- MODAL 5: MANAGE VEHICLE PHOTOS MODAL -->
         <div id="manage-photos-modal" class="modal-backdrop" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); z-index: 9999; justify-content: center; align-items: center; padding: 1rem;">
           <div style="background: #ffffff; border-radius: 12px; max-width: 580px; width: 100%; padding: 1.75rem; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); position: relative; max-height: 90vh; overflow-y: auto;">
-            <button type="button" id="btn-close-photos-modal" style="position: absolute; top: 1.25rem; right: 1.25rem; border: none; background: transparent; font-size: 1.25rem; color: #64748b; cursor: pointer;">✕</button>
+            <button type="button" id="btn-close-photos-modal" class="icon-button" style="position: absolute; top: 1rem; right: 1rem; border: none; background: transparent; color: #64748b; cursor: pointer;" aria-label="Close vehicle photos dialog" title="Close dialog">${icon("x", 19)}</button>
             <h3 style="font-size: 1.25rem; font-weight: 800; color: #0f172a; margin: 0 0 0.5rem 0;">Vehicle Photos</h3>
             <div style="font-size: 0.85rem; color: #64748b; margin-bottom: 1.25rem;">Upload up to 5 photos. Customers see these photos when evaluating your quotations.</div>
 
@@ -452,7 +456,7 @@ export const DriverView = {
         <!-- MODAL 6: UPLOAD VERIFICATION DOCUMENT MODAL -->
         <div id="upload-doc-modal" class="modal-backdrop" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); z-index: 9999; justify-content: center; align-items: center; padding: 1rem;">
           <div style="background: #ffffff; border-radius: 12px; max-width: 480px; width: 100%; padding: 1.75rem; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); position: relative; max-height: 90vh; overflow-y: auto;">
-            <button type="button" id="btn-close-doc-modal" style="position: absolute; top: 1.25rem; right: 1.25rem; border: none; background: transparent; font-size: 1.25rem; color: #64748b; cursor: pointer;">✕</button>
+            <button type="button" id="btn-close-doc-modal" class="icon-button" style="position: absolute; top: 1rem; right: 1rem; border: none; background: transparent; color: #64748b; cursor: pointer;" aria-label="Close document upload dialog" title="Close dialog">${icon("x", 19)}</button>
             <h3 style="font-size: 1.25rem; font-weight: 800; color: #0f172a; margin: 0 0 0.5rem 0;">Upload Verification Document</h3>
             <div style="font-size: 0.85rem; color: #64748b; margin-bottom: 1.25rem;">Documents are reviewed confidentially by TransMove Admin.</div>
             <form id="upload-doc-form">
@@ -483,13 +487,105 @@ export const DriverView = {
     `;
   },
 
+  updateOnlineControl() {
+    const button = document.getElementById("btn-driver-online-toggle");
+    const onlineValue = document.getElementById("card-online-status-val");
+    const mobileValue = document.getElementById("mobile-driver-presence");
+    const mobileDot = document.querySelector(".driver-mobile-status-dot");
+    if (button) {
+      button.style.background = this.isDriverOnline ? "#ecfdf5" : "#f1f5f9";
+      button.style.color = this.isDriverOnline ? "#047857" : "#475569";
+      button.style.borderColor = this.isDriverOnline ? "#a7f3d0" : "#cbd5e1";
+      button.innerHTML = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${this.isDriverOnline ? "#10b981" : "#94a3b8"};"></span>${this.isDriverOnline ? "Go Offline" : "Go Online"}`;
+    }
+    if (onlineValue) {
+      onlineValue.textContent = this.isDriverOnline ? "Online" : "Offline";
+      onlineValue.style.color = this.isDriverOnline ? "#10b981" : "#64748b";
+    }
+    if (mobileValue) mobileValue.textContent = this.isDriverOnline ? "Online" : "Offline";
+    mobileDot?.classList.toggle("is-offline", !this.isDriverOnline);
+  },
+
+  requestLocationForOnline() {
+    return new Promise((resolve) => {
+      document.getElementById("driver-location-permission-dialog")?.remove();
+      const dialog = document.createElement("dialog");
+      dialog.id = "driver-location-permission-dialog";
+      dialog.style.cssText = "width:min(calc(100% - 2rem),460px);border:0;border-radius:16px;padding:0;background:var(--bg-card,#fff);color:var(--text-main,#0f172a);box-shadow:0 24px 60px rgba(15,23,42,.3);";
+      dialog.innerHTML = `
+        <div style="padding:1.4rem;">
+          <div style="width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:var(--primary-light,#eff6ff);color:var(--primary,#2563eb);margin-bottom:0.85rem;">${icon("map-pin", 23)}</div>
+          <h2 style="font-size:1.25rem;margin:0 0 0.45rem;">Location access is required while you are online</h2>
+          <p style="color:var(--text-muted,#64748b);line-height:1.55;margin:0;">TransMove uses your current location to match nearby work and support active trips. Background location is not requested.</p>
+          <p id="driver-location-permission-error" role="status" style="display:none;color:#b91c1c;background:#fef2f2;padding:0.7rem;border-radius:9px;margin:0.85rem 0 0;"></p>
+          <div style="display:grid;gap:0.6rem;margin-top:1.15rem;">
+            <button type="button" id="btn-enable-driver-location" class="btn btn-primary" style="min-height:44px;font-weight:800;">Enable location</button>
+            <button type="button" id="btn-stay-driver-offline" class="btn btn-outline" style="min-height:44px;">Stay offline</button>
+          </div>
+        </div>`;
+      document.body.appendChild(dialog);
+      const close = (allowed) => {
+        if (typeof dialog.close === "function") dialog.close();
+        dialog.remove();
+        resolve(allowed);
+      };
+      dialog.querySelector("#btn-stay-driver-offline")?.addEventListener("click", () => close(false));
+      dialog.querySelector("#btn-enable-driver-location")?.addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        button.textContent = "Requesting access...";
+        const status = await DevicePermissionService.requestLocation();
+        if (status === "granted") {
+          close(true);
+          return;
+        }
+        const error = dialog.querySelector("#driver-location-permission-error");
+        if (error) {
+          error.textContent = "Location is still not allowed. Enable it in Android app settings, then try again.";
+          error.style.display = "block";
+        }
+        button.disabled = false;
+        button.textContent = "Try again";
+        await DevicePermissionService.openAppSettings();
+      });
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+    });
+  },
+
+  async bindOnlineControl() {
+    this.isDriverOnline = false;
+    await PresenceService.goOffline();
+    this.updateOnlineControl();
+    document.getElementById("btn-driver-online-toggle")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        if (this.isDriverOnline) {
+          await PresenceService.goOffline();
+          this.isDriverOnline = false;
+        } else {
+          let permission = await DevicePermissionService.checkLocation();
+          if (permission !== "granted") {
+            const allowed = await this.requestLocationForOnline();
+            if (!allowed) return;
+            permission = await DevicePermissionService.checkLocation();
+          }
+          if (permission !== "granted") return;
+          await PresenceService.startHeartbeat(this.driverProfile?.user_id || this.driverProfile?.id);
+          this.isDriverOnline = true;
+        }
+        this.updateOnlineControl();
+      } finally {
+        button.disabled = false;
+      }
+    });
+  },
+
   async init() {
     try {
       this.driverProfile = await AuthService.getCurrentProfile();
       if (this.driverProfile) {
-        // Start automatic presence heartbeat
-        await PresenceService.startHeartbeat(this.driverProfile.id);
-
         const displayName = this.driverProfile.full_name || "Driver";
         const nameEl = document.getElementById("driver-display-name");
 
@@ -500,6 +596,7 @@ export const DriverView = {
 
       // Fetch driver status, bookings, vehicles & limits
       await this.loadDriverData();
+      await this.bindOnlineControl();
       await this.loadDriverVehicles();
       await this.loadAvailableJobs();
       await this.loadRecentActivity();
@@ -546,7 +643,7 @@ export const DriverView = {
             color: document.getElementById("nv-color").value
           });
 
-          alert("🚘 Vehicle registered successfully!");
+        alert("Vehicle registered successfully!");
           document.getElementById("driver-new-vehicle-form").reset();
           document.getElementById("add-vehicle-modal-card").style.display = "none";
           await this.loadDriverVehicles();
@@ -554,7 +651,7 @@ export const DriverView = {
           alert("Error registering vehicle: " + err.message);
         } finally {
           btn.disabled = false;
-          btn.innerText = "Save Vehicle 🚘";
+        btn.innerHTML = `${icon("car-front", 18)}<span>Save Vehicle</span>`;
         }
       });
 
@@ -679,7 +776,8 @@ export const DriverView = {
         BidService.getDriverBids().catch(() => [])
       ]);
       this.isSubscribed = Boolean(entitlement.has_active_subscription);
-      this.freeJobsUsed = Number(entitlement.awarded_jobs || 0);
+      this.freeJobsUsed = Number(entitlement.completed_jobs ?? entitlement.awarded_jobs ?? 0);
+      this.isFreeLimitReached = entitlement.is_subscription_required === true;
       this.monthEarnings = Number(earnings.month || 0);
       this.driverBookings = bookings || [];
       this.driverBids = bids || [];
@@ -722,7 +820,7 @@ export const DriverView = {
           <div class="passenger-pulse-marker-container">
             <div class="passenger-pulse-ring"></div>
             <div class="passenger-pulse-ring-outer"></div>
-            <div class="passenger-marker-dot">👤</div>
+            <div class="passenger-marker-dot">${icon("user-round", 15)}</div>
             <div class="passenger-marker-label">${hasLivePassenger ? "Passenger (Live)" : "Passenger pickup"}</div>
           </div>
         `,
@@ -733,16 +831,15 @@ export const DriverView = {
       const passengerMarker = window.L.marker([passengerLat, passengerLng], { icon: pulseIcon }).addTo(map);
       passengerMarker.bindPopup(`<strong>${hasLivePassenger ? "Passenger Live Location" : "Passenger Pickup"}</strong><br>${escapeHtml(booking.request?.pickup_location || "")}`);
 
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (pos) => {
+      LocationService.getCurrentPosition()
+        .then((coords) => {
             if (!this.tripMap) return;
-            const dLat = pos.coords.latitude;
-            const dLng = pos.coords.longitude;
+            const dLat = coords.lat;
+            const dLng = coords.lng;
 
             const driverIcon = window.L.divIcon({
               className: "driver-marker-wrapper",
-              html: `<div class="driver-gps-marker">🚗</div>`,
+              html: `<div class="driver-gps-marker">${icon("car-front", 15)}</div>`,
               iconSize: [26, 26],
               iconAnchor: [13, 13]
             });
@@ -752,13 +849,10 @@ export const DriverView = {
 
             const bounds = window.L.latLngBounds([[dLat, dLng], [passengerLat, passengerLng]]);
             map.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
-          },
-          (err) => {
-            console.warn("Driver geolocation unavailable for map:", err.message);
-          },
-          { enableHighAccuracy: true, timeout: 8000 }
-        );
-      }
+        })
+        .catch((err) => {
+          console.warn("Driver geolocation unavailable for map:", err.message);
+        });
 
       if (booking.status === "in_progress" && booking.request?.destination_latitude && booking.request?.destination_longitude) {
         const dLat = Number(booking.request.destination_latitude);
@@ -791,7 +885,7 @@ export const DriverView = {
           <div class="card" style="background: #ffffff; padding: 1.25rem 1.5rem; border-radius: 8px; border: 2px solid #10b981; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 1.25rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.75rem;">
               <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span style="font-size: 1.3rem;">🎉</span>
+                <span class="feature-icon">${icon("party-popper", 21)}</span>
                 <h3 style="font-size: 1.1rem; font-weight: 800; color: #0f172a; margin: 0;">Trip Completed · Payment Settlement</h3>
               </div>
               <span class="settlement-badge-pending">AWAITING PAYMENT CONFIRMATION</span>
@@ -808,7 +902,7 @@ export const DriverView = {
               </div>
               <div>
                 <button type="button" class="btn btn-primary btn-confirm-trip-payment" data-booking-id="${unconfirmedBooking.id}" style="background: #059669; color: #ffffff; padding: 0.55rem 1.25rem; border-radius: 6px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem;">
-                  ✓ CONFIRM PAYMENT RECEIVED
+                  ${icon("circle-check", 18)}<span>CONFIRM PAYMENT RECEIVED</span>
                 </button>
               </div>
             </div>
@@ -858,28 +952,28 @@ export const DriverView = {
     if (booking.status === "confirmed") {
       nextActionBlock = `
         <button type="button" class="btn btn-primary btn-advance-status" data-booking-id="${booking.id}" data-next-status="driver_arriving" style="background: #2563eb; color: #ffffff; padding: 0.6rem 1.25rem; border-radius: 6px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem;">
-          START DRIVING TO PASSENGER 🚗
+          ${icon("navigation", 18)}<span>Start heading to pickup</span>
         </button>
       `;
     } else if (booking.status === "driver_arriving") {
       nextActionBlock = `
         <button type="button" class="btn btn-primary btn-advance-status" data-booking-id="${booking.id}" data-next-status="arrived" style="background: #059669; color: #ffffff; padding: 0.6rem 1.25rem; border-radius: 6px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem;">
-          I'VE ARRIVED 📍
+          ${icon("map-pin-check", 18)}<span>I have arrived</span>
         </button>
       `;
     } else if (booking.status === "arrived") {
       nextActionBlock = `
         <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-          <input type="text" id="driver-pin-input" maxlength="4" placeholder="PIN" style="width: 85px; font-size: 1.25rem; font-weight: 900; letter-spacing: 4px; text-align: center; padding: 0.45rem 0.5rem; border-radius: 6px; border: 2px solid #2563eb; font-family: monospace; box-sizing: border-box;">
+          <input type="text" id="driver-pin-input" maxlength="4" placeholder="PIN" style="width: 85px; font-size: 1.25rem; font-weight: 900; letter-spacing: 4px; text-align: center; padding: 0.45rem 0.5rem; border-radius: 6px; border: 2px solid #2563eb; font-family: monospace; box-sizing: border-box;" aria-label="Enter 4-digit trip PIN">
           <button type="button" class="btn btn-primary btn-verify-start-trip" data-booking-id="${booking.id}" style="background: #2563eb; color: #ffffff; padding: 0.6rem 1.25rem; border-radius: 6px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem;">
-            VERIFY PIN &amp; START JOURNEY 🏁
+            ${icon("shield-check", 18)}<span>Enter trip PIN</span>
           </button>
         </div>
       `;
     } else if (booking.status === "in_progress") {
       nextActionBlock = `
         <button type="button" class="btn btn-primary btn-advance-status" data-booking-id="${booking.id}" data-next-status="completed" style="background: #059669; color: #ffffff; padding: 0.6rem 1.25rem; border-radius: 6px; font-weight: 700; border: none; cursor: pointer; font-size: 0.95rem;">
-          COMPLETE JOURNEY ✓
+          ${icon("circle-check", 18)}<span>Complete trip</span>
         </button>
       `;
     }
@@ -888,7 +982,7 @@ export const DriverView = {
       <div class="card" style="background: #ffffff; padding: 1.25rem 1.5rem; border-radius: 8px; border: 2px solid #2563eb; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 1.25rem;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.75rem;">
           <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <span style="font-size: 1.3rem;">🚗</span>
+            <span class="feature-icon">${icon("car-front", 21)}</span>
             <h3 style="font-size: 1.1rem; font-weight: 800; color: #0f172a; margin: 0;">Active Assigned Trip</h3>
           </div>
           <span style="font-size: 0.75rem; font-weight: 800; padding: 0.35rem 0.75rem; border-radius: 9999px; background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe;">
@@ -907,10 +1001,10 @@ export const DriverView = {
           </div>
           <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
             <a href="#messages?booking=${booking.id}" class="btn btn-outline btn-sm" style="border: 1px solid #cbd5e1; color: #475569; padding: 0.45rem 0.85rem; border-radius: 6px; font-weight: 600; text-decoration: none;">
-              💬 Message
+              ${icon("message-circle", 17)}<span>Message</span>
             </a>
             <a href="https://www.google.com/maps/dir/?api=1&destination=${navLat},${navLng}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="border: 1.5px solid #2563eb; color: #2563eb; padding: 0.45rem 0.85rem; border-radius: 6px; font-weight: 700; text-decoration: none; background: #eff6ff; display: inline-flex; align-items: center; gap: 0.35rem;">
-              📍 OPEN IN MAPS
+              ${icon("map-pin", 17)}<span>OPEN IN MAPS</span>
             </a>
           </div>
         </div>
@@ -920,7 +1014,7 @@ export const DriverView = {
 
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; padding-top: 0.25rem;">
           <div style="font-size: 0.8rem; color: #64748b;">
-            ${hasLivePassenger ? `<span style="color: #059669; font-weight: 700;">🟢 Passenger is sharing live location</span>` : `<span>📍 Map centered on pickup coordinates</span>`}
+            ${hasLivePassenger ? `<span class="icon-label" style="color: #059669; font-weight: 700;">${icon("radio", 15)}<span>Passenger is sharing live location</span></span>` : `<span class="icon-label">${icon("map-pin", 15)}<span>Map centered on pickup coordinates</span></span>`}
           </div>
           <div>
             ${nextActionBlock}
@@ -938,19 +1032,22 @@ export const DriverView = {
         if (!bId || !nextStatus) return;
 
         const actionBtn = e.currentTarget;
-        const originalLabel = actionBtn.innerText;
+        const originalLabel = actionBtn.innerHTML;
         actionBtn.disabled = true;
         actionBtn.innerText = "Updating...";
 
         try {
-          await BookingService.updateBookingStatus(bId, nextStatus);
+          const res = await BookingService.updateBookingStatus(bId, nextStatus);
+          const updated = res?.booking || res;
+          this.activeBooking = { ...this.activeBooking, ...updated, status: nextStatus };
+          this.renderActiveTripCard();
           await this.loadDriverData();
           await this.loadRecentActivity();
           if (this.currentTab === "offers") await this.renderOffersTab();
         } catch (err) {
           alert("Could not update trip status: " + err.message);
           actionBtn.disabled = false;
-          actionBtn.innerText = originalLabel;
+          actionBtn.innerHTML = originalLabel;
         }
       });
     });
@@ -968,19 +1065,23 @@ export const DriverView = {
         }
 
         const actionBtn = e.currentTarget;
+        const originalLabel = actionBtn.innerHTML;
         actionBtn.disabled = true;
         actionBtn.innerText = "Verifying PIN...";
 
         try {
-          await BookingService.updateBookingStatus(bId, "in_progress", { pin });
+          const res = await BookingService.updateBookingStatus(bId, "in_progress", { pin });
+          const updated = res?.booking || res;
+          this.activeBooking = { ...this.activeBooking, ...updated, status: "in_progress" };
           alert("Trip PIN verified! Journey is now in progress.");
+          this.renderActiveTripCard();
           await this.loadDriverData();
           await this.loadRecentActivity();
           if (this.currentTab === "offers") await this.renderOffersTab();
         } catch (err) {
           alert("Could not start journey: " + err.message);
           actionBtn.disabled = false;
-          actionBtn.innerText = "VERIFY PIN & START JOURNEY 🏁";
+          actionBtn.innerHTML = originalLabel;
         }
       });
     }
@@ -1016,11 +1117,11 @@ export const DriverView = {
     if (this.driverVehicles.length === 0) {
       container.innerHTML = `
         <div style="grid-column: 1 / -1; padding: 2.5rem; text-align: center; color: #64748b; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;">
-          <div style="font-size: 2rem; margin-bottom: 0.5rem;">🚘</div>
+          <div class="feature-icon" style="margin-bottom: 0.5rem;">${icon("car-front", 30)}</div>
           <div style="font-weight: 700; font-size: 1rem; color: #0f172a; margin-bottom: 0.25rem;">No vehicles added yet.</div>
           <div style="font-size: 0.85rem; color: #64748b; margin-bottom: 1rem;">Add your first vehicle to start receiving and accepting suitable jobs.</div>
           <button type="button" class="btn btn-primary" onclick="document.getElementById('add-vehicle-modal-card').style.display='block'" style="background: #2563eb; color: #ffffff; border: none; padding: 0.5rem 1.25rem; border-radius: 6px; font-weight: 700;">
-            + Add Vehicle
+            ${icon("plus", 17)}<span>Add Vehicle</span>
           </button>
         </div>
       `;
@@ -1032,16 +1133,15 @@ export const DriverView = {
       const photoCount = veh.photos?.length || 0;
 
       return `
-        <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.25rem; background: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.02); display: flex; flex-direction: column; justify-content: space-between;">
+        <div class="driver-vehicle-card" style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.25rem; background: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.02); display: flex; flex-direction: column; justify-content: space-between;">
           <div>
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
-              <div>
+            ${veh.photos?.[0] ? `<img class="driver-vehicle-photo" src="${escapeHtml(veh.photos[0])}" alt="${escapeHtml(`${veh.make} ${veh.model}`)}" loading="lazy" />` : ""}
+            <div class="driver-vehicle-heading" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+              <div class="driver-vehicle-title">
                 <div style="font-size: 1.1rem; font-weight: 800; color: #0f172a;">${escapeHtml(veh.make)} ${escapeHtml(veh.model)} (${escapeHtml(veh.year)})</div>
                 <div style="font-size: 0.85rem; color: #64748b; font-weight: 600;">Plate: <strong>${escapeHtml(veh.registration_number)}</strong>${veh.color ? ` • ${escapeHtml(veh.color)}` : ""}</div>
               </div>
-              <span class="badge" style="font-size: 0.75rem; font-weight: 700; padding: 0.25rem 0.6rem; border-radius: 4px; ${veh.verification_status === "approved" ? "background: #dcfce7; color: #15803d;" : veh.verification_status === "rejected" ? "background:#fee2e2;color:#b91c1c;" : "background: #fef3c7; color: #92400e;"}">
-                ${escapeHtml((veh.verification_status || "unverified").toUpperCase())}
-              </span>
+              ${statusBadge(veh.verification_status || "unverified")}
             </div>
 
             <div style="font-size: 0.8rem; color: #475569; margin-bottom: 0.75rem;">
@@ -1050,26 +1150,29 @@ export const DriverView = {
             ${veh.rejection_reason ? `<div style="font-size:0.8rem;color:#b91c1c;background:#fef2f2;padding:0.5rem;border-radius:5px;margin-bottom:0.75rem;">Needs attention: ${escapeHtml(veh.rejection_reason)}</div>` : ""}
 
             ${isPrimary ? `
-              <div style="display: inline-block; background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px; margin-bottom: 0.75rem;">
-                ★ Primary Vehicle
+              <div class="icon-label" style="display: inline-flex; background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.5rem; border-radius: 4px; margin-bottom: 0.75rem;">
+                ${icon("badge-check", 15)}<span>Primary Vehicle</span>
               </div>
             ` : ""}
           </div>
 
-          <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; border-top: 1px solid #f1f5f9; padding-top: 0.75rem; margin-top: 0.75rem;">
+          <div class="action-group driver-vehicle-actions" style="border-top: 1px solid #f1f5f9; padding-top: 0.75rem; margin-top: 0.75rem;">
             ${!isPrimary ? `
               <button type="button" class="btn btn-outline btn-sm btn-set-primary-veh" data-veh-id="${veh.id}" style="border: 1px solid #2563eb; color: #2563eb; padding: 0.35rem 0.65rem; font-size: 0.8rem; border-radius: 4px; font-weight: 700;">
-                ★ Set Primary
+                ${icon("badge-check", 16)}<span>Set Primary</span>
               </button>
             ` : ""}
             <button type="button" class="btn btn-outline btn-sm btn-edit-veh" data-veh-id="${veh.id}" style="border: 1px solid #cbd5e1; color: #475569; padding: 0.35rem 0.65rem; font-size: 0.8rem; border-radius: 4px;">
-              Edit
+              ${icon("pencil", 16)}<span>Edit</span>
             </button>
             <button type="button" class="btn btn-outline btn-sm btn-photos-veh" data-veh-id="${veh.id}" style="border: 1px solid #cbd5e1; color: #475569; padding: 0.35rem 0.65rem; font-size: 0.8rem; border-radius: 4px;">
-              Photos (${photoCount})
+              ${icon("images", 16)}<span>Photos (${photoCount})</span>
             </button>
             <button type="button" class="btn btn-outline btn-sm btn-doc-veh" data-veh-id="${veh.id}" style="border: 1px solid #cbd5e1; color: #475569; padding: 0.35rem 0.65rem; font-size: 0.8rem; border-radius: 4px;">
-              📄 Upload Doc
+              ${icon("file-up", 16)}<span>Upload Doc</span>
+            </button>
+            <button type="button" class="btn btn-danger btn-sm btn-delete-veh icon-button" data-veh-id="${veh.id}" aria-label="Delete ${escapeHtml(`${veh.make} ${veh.model}`)}" title="Delete vehicle">
+              ${icon("trash-2", 16)}
             </button>
           </div>
         </div>
@@ -1125,6 +1228,21 @@ export const DriverView = {
         document.getElementById("upload-doc-modal").style.display = "flex";
       });
     });
+
+    container.querySelectorAll(".btn-delete-veh").forEach((btn) => {
+      btn.addEventListener("click", async (event) => {
+        const vehicleId = event.currentTarget.getAttribute("data-veh-id");
+        if (!vehicleId || !confirm("Delete this vehicle and its photos? This cannot be undone.")) return;
+        event.currentTarget.disabled = true;
+        try {
+          await VehicleService.deleteVehicle(vehicleId);
+          await this.loadDriverVehicles();
+        } catch (error) {
+          alert("Could not delete vehicle: " + error.message);
+          event.currentTarget.disabled = false;
+        }
+      });
+    });
   },
 
   openPhotosModal(veh) {
@@ -1143,9 +1261,9 @@ export const DriverView = {
         const url = photoUrls[idx] || "";
         return `
           <div style="position: relative; border-radius: 6px; overflow: hidden; border: 1px solid #e2e8f0; height: 100px; background: #f1f5f9;">
-            ${url ? `<img src="${url}" alt="Photo" style="width: 100%; height: 100%; object-fit: cover;" />` : `<div style="display: flex; align-items: center; justify-content: center; height: 100%;">📷</div>`}
-            <button type="button" class="btn-del-photo" data-photo-id="${p.$id || p.id}" style="position: absolute; top: 4px; right: 4px; background: rgba(239, 68, 68, 0.9); color: #ffffff; border: none; border-radius: 4px; padding: 2px 6px; font-size: 0.75rem; cursor: pointer;">
-              ✕
+            ${url ? `<img src="${url}" alt="Photo" style="width: 100%; height: 100%; object-fit: cover;" />` : `<div style="display: flex; align-items: center; justify-content: center; height: 100%;">${icon("camera", 22)}</div>`}
+            <button type="button" class="btn-del-photo icon-button" data-photo-id="${p.$id || p.id}" style="position: absolute; top: 4px; right: 4px; width: 44px; height: 44px; background: rgba(239, 68, 68, 0.9); color: #ffffff; border: none; border-radius: 8px; cursor: pointer;" aria-label="Delete vehicle photo" title="Delete vehicle photo">
+              ${icon("trash-2", 16)}
             </button>
           </div>
         `;
@@ -1205,7 +1323,7 @@ export const DriverView = {
                 </div>
                 <div style="display: flex; gap: 0.5rem; align-items: center;">
                   <span class="badge badge-primary" style="background: #2563eb; color: #ffffff; padding: 0.25rem 0.6rem; border-radius: 4px; font-weight: 700; font-size: 0.75rem;">${b.status.replace("_", " ").toUpperCase()}</span>
-                  <a href="#messages?booking=${b.id}" class="btn btn-outline btn-sm" style="border: 1px solid #93c5fd; color: #1e40af; padding: 0.35rem 0.75rem; font-size: 0.8rem; border-radius: 4px; text-decoration: none;">💬 Message</a>
+              <a href="#messages?booking=${b.id}" class="btn btn-outline btn-sm" style="border: 1px solid #93c5fd; color: #1e40af; padding: 0.35rem 0.75rem; font-size: 0.8rem; border-radius: 4px; text-decoration: none;">${icon("message-circle", 16)}<span>Message</span></a>
                 </div>
               </div>
             `;
@@ -1244,7 +1362,7 @@ export const DriverView = {
                 ${isCounteredByPassenger ? `
                   <div style="margin-top: 0.75rem; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 0.65rem 0.85rem;">
                     <div style="font-weight: 800; color: #166534; font-size: 0.88rem;">
-                      💬 Passenger proposed counter fare: <strong>$${Number.parseFloat(bid.counter_amount || 0).toFixed(2)}</strong>
+                ${icon("message-circle", 16)}<span>Passenger proposed counter fare: <strong>$${Number.parseFloat(bid.counter_amount || 0).toFixed(2)}</strong></span>
                     </div>
                     ${bid.counter_message ? `<div style="font-size: 0.8rem; color: #15803d; margin-top: 0.2rem;">“${escapeHtml(bid.counter_message)}”</div>` : ""}
                     <div style="display: flex; gap: 0.4rem; margin-top: 0.5rem; flex-wrap: wrap;">
@@ -1261,7 +1379,7 @@ export const DriverView = {
                   </div>
                 ` : isCounteredByDriver ? `
                   <div style="margin-top: 0.5rem; font-size: 0.8rem; color: #1e40af; background: #eff6ff; padding: 0.4rem 0.75rem; border-radius: 6px; border: 1px solid #bfdbfe;">
-                    ⏳ You countered with: <strong>$${Number.parseFloat(bid.counter_amount || 0).toFixed(2)}</strong> (Awaiting passenger response)
+                ${icon("clock-3", 16)}<span>You countered with: <strong>$${Number.parseFloat(bid.counter_amount || 0).toFixed(2)}</strong> (Awaiting passenger response)</span>
                   </div>
                 ` : ""}
               </div>
@@ -1289,12 +1407,12 @@ export const DriverView = {
                   <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.2rem;">Fare: <strong>$${Number.parseFloat(b.amount || 0).toFixed(2)}</strong> · Passenger: <strong>${passenger}</strong> · Completed ${timeAgo(b.completed_at || b.updated_at)}</div>
                 </div>
                 <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-                  <span class="badge" style="background: #dcfce7; color: #15803d; padding: 0.25rem 0.6rem; border-radius: 4px; font-weight: 700; font-size: 0.75rem;">COMPLETED ✓</span>
+                  <span class="badge badge-success">${icon("circle-check", 15)}<span>Completed</span></span>
                   ${isSettled ? `
-                    <span class="settlement-badge-received">✓ Payment Confirmed</span>
+                    <span class="settlement-badge-received icon-label">${icon("circle-check", 15)}<span>Payment Confirmed</span></span>
                   ` : `
                     <button type="button" class="btn btn-sm btn-confirm-payment-list" data-booking-id="${escapeHtml(b.id)}" data-amount="${escapeHtml(b.amount)}" data-passenger="${passenger}" style="background: #059669; color: #ffffff; border: none; font-weight: 700; padding: 0.35rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 0.82rem;">
-                      ✓ Confirm Payment Received
+                      ${icon("circle-check", 16)}<span>Confirm Payment Received</span>
                     </button>
                   `}
                 </div>
@@ -1408,12 +1526,15 @@ export const DriverView = {
   async updateSummaryCardsUI() {
     const completedValEl = document.getElementById("card-jobs-completed-val");
     const progressBarEl = document.getElementById("card-jobs-progress-bar");
+    const limitReached = this.isFreeLimitReached || (!this.isSubscribed && this.freeJobsUsed >= 5);
     if (completedValEl) {
       completedValEl.innerText = `${Math.min(this.freeJobsUsed, 5)} / 5`;
+      if (limitReached) completedValEl.style.color = "#b91c1c";
     }
     if (progressBarEl) {
       const pct = Math.min(100, Math.round((this.freeJobsUsed / 5) * 100));
       progressBarEl.style.width = `${pct}%`;
+      progressBarEl.style.background = limitReached ? "#b91c1c" : "#2563eb";
     }
 
     const earningsValEl = document.getElementById("card-total-earnings-val");
@@ -1431,6 +1552,29 @@ export const DriverView = {
     if (this.isSubscribed) {
       if (statusValEl) statusValEl.innerText = "Professional";
       if (statusSubEl) statusSubEl.innerText = "Active subscription";
+    } else if (limitReached) {
+      if (statusValEl) { statusValEl.innerText = "Free Trial Complete"; statusValEl.style.color = "#b91c1c"; }
+      if (statusSubEl) {
+        statusSubEl.innerHTML = `<a href="#subscriptions" style="color:#2563eb;font-weight:700;text-decoration:underline;">Subscribe to continue</a>`;
+      }
+      // Show subscription prompt if not already shown this session
+      if (!this._subPromptShown) {
+        this._subPromptShown = true;
+        const existing = document.getElementById("driver-free-trial-expired-banner");
+        if (!existing) {
+          const banner = document.createElement("div");
+          banner.id = "driver-free-trial-expired-banner";
+          banner.style.cssText = "position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#b91c1c;color:#fff;padding:0.85rem 1.25rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;box-shadow:0 -2px 12px rgba(0,0,0,0.18);";
+          banner.innerHTML = `
+            <div style="font-weight:700;font-size:0.95rem;">🚫 Free trial complete. You have used all 5 free jobs.</div>
+            <div style="display:flex;gap:0.75rem;align-items:center;flex-shrink:0;">
+              <a href="#subscriptions" style="background:#fff;color:#b91c1c;font-weight:800;padding:0.45rem 1.1rem;border-radius:6px;text-decoration:none;font-size:0.9rem;">Subscribe Now</a>
+              <button type="button" style="background:transparent;border:none;color:#fff;cursor:pointer;font-size:1.2rem;line-height:1;" onclick="this.closest('#driver-free-trial-expired-banner').remove()">✕</button>
+            </div>
+          `;
+          document.body.appendChild(banner);
+        }
+      }
     } else {
       if (statusValEl) statusValEl.innerText = "Free Driver";
       const remaining = Math.max(0, 5 - this.freeJobsUsed);
@@ -1498,7 +1642,7 @@ export const DriverView = {
         <div class="job-row" style="display: flex; align-items: center; justify-content: space-between; padding: 0.85rem 0; border-bottom: 1px solid #f1f5f9; gap: 1rem; flex-wrap: wrap;">
           <div style="display: flex; align-items: center; gap: 0.85rem; flex: 1; min-width: 220px;">
             <div style="width: 44px; height: 44px; border-radius: 6px; background: #f8fafc; border: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: center; font-size: 1.35rem; flex-shrink: 0;">
-              📦
+              ${icon("package", 21)}
             </div>
             <div>
               <div style="font-weight: 700; font-size: 0.95rem; color: #0f172a; margin-bottom: 0.15rem;">
@@ -1567,7 +1711,7 @@ export const DriverView = {
             title: "Bid accepted",
             desc,
             time: bid.updated_at || bid.created_at,
-            icon: "🔒",
+            icon: icon("lock-keyhole", 14),
             color: "#3b82f6"
           });
         } else if (bid.status === "pending") {
@@ -1576,7 +1720,7 @@ export const DriverView = {
             title: `Bid placed · $${Number.parseFloat(bid.amount || 0).toFixed(2)}`,
             desc,
             time: bid.created_at,
-            icon: "✓",
+            icon: icon("check", 14),
             color: "#10b981"
           });
         }
@@ -1589,7 +1733,7 @@ export const DriverView = {
             title: "Job completed",
             desc: describe(booking.request),
             time: booking.completed_at || booking.updated_at || booking.created_at,
-            icon: "✓",
+            icon: icon("check", 14),
             color: "#10b981"
           });
         }
@@ -1675,7 +1819,7 @@ export const DriverView = {
         ? (bookings || []).filter((booking) => {
             const id = booking.id || booking.$id;
             const previous = this.knownBookingStates.get(id);
-            return booking.status === "confirmed" && previous?.status !== "confirmed";
+            return booking.status === "confirmed" && previous?.status !== "confirmed" && !this.knownConfirmedBookingPopups?.has(id);
           })
         : [];
       const completedBookings = this.journeyBaselineReady
@@ -1689,9 +1833,23 @@ export const DriverView = {
       this.availableJobs = visibleJobs;
       this.driverBids = bids || [];
       this.driverBookings = bookings || [];
-      this.activeBooking = this.driverBookings.find((booking) =>
+
+      // Anti-flicker: Never let stale polling roll back an active booking to an earlier status
+      const activeCandidate = this.driverBookings.find((booking) =>
         ["confirmed", "driver_arriving", "arrived", "in_progress"].includes(booking.status)
       ) || null;
+
+      if (this.activeBooking && activeCandidate && (activeCandidate.id || activeCandidate.$id) === (this.activeBooking.id || this.activeBooking.$id)) {
+        const STATUS_ORDER = { confirmed: 1, driver_arriving: 2, arrived: 3, in_progress: 4, completed: 5 };
+        const curOrder = STATUS_ORDER[this.activeBooking.status] || 0;
+        const candOrder = STATUS_ORDER[activeCandidate.status] || 0;
+        if (candOrder < curOrder) {
+          activeCandidate.status = this.activeBooking.status;
+        }
+        this.activeBooking = { ...this.activeBooking, ...activeCandidate, status: this.activeBooking.status };
+      } else {
+        this.activeBooking = activeCandidate;
+      }
 
       const currentFlowMatch = String(SmartPopup.current?.flowKey || "").match(/^driver-request:(.+)$/);
       const currentFlowRequestId = currentFlowMatch?.[1] || null;
@@ -1713,7 +1871,11 @@ export const DriverView = {
       this.seedJourneyBaseline();
       newJobs.forEach((job) => this.showNewRequestPopup(job));
       counteredBids.forEach((bid) => this.showCounterOfferPopup(bid));
-      confirmedBookings.forEach((booking) => this.showJobConfirmedPopup(booking));
+      confirmedBookings.forEach((booking) => {
+        this.knownConfirmedBookingPopups = this.knownConfirmedBookingPopups || new Set();
+        this.knownConfirmedBookingPopups.add(booking.id || booking.$id);
+        this.showJobConfirmedPopup(booking);
+      });
       completedBookings.forEach((booking) => this.showPaymentReceivedPopup(booking));
     } finally {
       this.syncBusy = false;
@@ -2010,14 +2172,14 @@ export const DriverView = {
               pillText: `$${counterAmount.toFixed(2)} accepted • Waiting`,
               html: `
                 <div class="smart-sheet-status-box">
-                  <div class="smart-sheet-success-badge">✓</div>
-                  <h3 class="smart-sheet-status-heading">✓ $${counterAmount.toFixed(2)} accepted</h3>
+                  <div class="smart-sheet-success-badge">${icon("check", 20)}</div>
+                  <h3 class="smart-sheet-status-heading icon-label">${icon("circle-check", 20)}<span>$${counterAmount.toFixed(2)} accepted</span></h3>
                   <p class="smart-sheet-waiting-text" style="margin-top: 0.85rem; font-size: 0.95rem;">Waiting for passenger to confirm driver</p>
                 </div>
               `,
               actions: []
             });
-            NotificationService.showToast("Counter accepted ✓", "Waiting for passenger confirmation.", "success");
+            NotificationService.showToast("Counter accepted", "Waiting for passenger confirmation.", "success");
             await this.syncDriverJourneyState();
             return false;
           }
@@ -2105,7 +2267,7 @@ export const DriverView = {
             if (counterAmount <= 0) throw new Error("Enter a valid counter amount.");
             await BidService.counterBid({ bidId: id, counterAmount, message });
             this.showDriverOfferSentState(bid, counterAmount);
-            NotificationService.showToast("Counter sent ✓", "Waiting for passenger response.", "success");
+            NotificationService.showToast("Counter sent", "Waiting for passenger response.", "success");
             await this.syncDriverJourneyState();
             return false;
           }
@@ -2130,7 +2292,7 @@ export const DriverView = {
       autoMinimizeAfter: 2000,
       html: `
         <div class="smart-sheet-status-box">
-          <div class="smart-sheet-success-badge">✓</div>
+          <div class="smart-sheet-success-badge">${icon("check", 20)}</div>
           <h3 class="smart-sheet-status-heading">Offer sent!</h3>
           <div class="smart-sheet-status-price-card">
             <div style="font-size: 0.85rem; color: var(--text-muted); font-weight: 700;">Your offer</div>
@@ -2155,14 +2317,14 @@ export const DriverView = {
       eventKey: force ? undefined : `job-confirmed:${id}`,
       flowKey: `driver-request:${requestId}`,
       state: "job_confirmed",
-      eyebrow: "🎉 Booking confirmed",
+      eyebrow: "Booking confirmed",
       title: "You got the job",
       minimizable: true,
       pillText: `Job confirmed • $${amount.toFixed(2)}`,
       html: `
         <div class="smart-sheet-status-box">
-          <div style="font-size: 2.8rem; margin-bottom: 0.5rem;">🎉</div>
-          <h3 class="smart-sheet-status-heading">🎉 You got the job</h3>
+          <div class="feature-icon" style="margin-bottom: 0.5rem;">${icon("party-popper", 42)}</div>
+          <h3 class="smart-sheet-status-heading icon-label">${icon("circle-check", 21)}<span>You got the job</span></h3>
           <div class="smart-sheet-status-price-card">
             <div style="font-size: 0.82rem; color: var(--text-muted); font-weight: 700;">Agreed fare</div>
             <div style="font-size: 2.2rem; font-weight: 900; color: #059669; margin-top: 0.2rem;">$${amount.toFixed(2)}</div>
@@ -2182,8 +2344,24 @@ export const DriverView = {
         {
           label: "Start heading to pickup",
           primary: true,
-          onClick: () => {
-            window.location.hash = `#driver`;
+          busyLabel: "Updating...",
+          onClick: async (e) => {
+            const btn = e?.currentTarget;
+            if (btn) btn.disabled = true;
+            try {
+              const res = await BookingService.updateBookingStatus(id, "driver_arriving");
+              const updated = res?.booking || res;
+              this.activeBooking = { ...booking, ...updated, status: "driver_arriving" };
+              this.renderActiveTripCard();
+              await this.loadDriverData();
+              this.showActiveJobSheet(this.activeBooking);
+              window.location.hash = "#driver";
+              return true;
+            } catch (err) {
+              alert("Could not start heading to pickup: " + err.message);
+              if (btn) btn.disabled = false;
+              return false;
+            }
           }
         }
       ]
@@ -2270,7 +2448,7 @@ export const DriverView = {
     this.stopRealtimeJobs();
     if (this.adPopupTimer) clearTimeout(this.adPopupTimer);
     this.adPopupTimer = null;
-    PresenceService.stopHeartbeat();
+    PresenceService.goOffline();
     this.journeyBaselineReady = false;
     this.knownAvailableRequestIds = new Set();
     this.knownBidStates = new Map();
@@ -2398,7 +2576,7 @@ export const DriverView = {
           }
           this.showDriverOfferSentState(job, price);
           DriverRequestCard.onQuotationClosed();
-          NotificationService.showToast("Quotation sent ✓", "Waiting for passenger response", "success");
+          NotificationService.showToast("Quotation sent", "Waiting for passenger response", "success");
           await Promise.allSettled([
             this.loadDriverData(),
             this.loadRecentActivity(),
@@ -2468,7 +2646,7 @@ export const DriverView = {
       }
 
       this.closeBidModal();
-      NotificationService.showToast("Quotation sent ✓", "Waiting for passenger response.", "success");
+      NotificationService.showToast("Quotation sent", "Waiting for passenger response.", "success");
       await this.loadDriverData();
       await this.loadRecentActivity();
       await this.loadAvailableJobs();
@@ -2482,7 +2660,7 @@ export const DriverView = {
     } finally {
       if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.innerText = "Submit Bid ⚡";
+      submitBtn.innerHTML = `${icon("send", 17)}<span>Submit Bid</span>`;
       }
     }
   }

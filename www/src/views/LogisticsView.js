@@ -7,6 +7,7 @@ import { BidService, BookingService } from "../services/bids.js";
 import { VehicleService } from "../services/vehicles.js";
 import { renderEmptyState } from "../components/EmptyState.js";
 import { AdPlacement } from "../components/AdPlacement.js";
+import { icon } from "../components/Icon.js";
 
 const escapeHtml = (value) => {
   if (value === null || value === undefined) return "";
@@ -67,7 +68,7 @@ export const LogisticsView = {
             </div>
             <div>
               <button id="btn-refresh-logistics" class="btn btn-primary btn-sm">
-                🔄 Sync Live Cargo Jobs
+            ${icon("refresh-cw", 17)}<span>Sync Live Cargo Jobs</span>
               </button>
             </div>
           </div>
@@ -109,7 +110,7 @@ export const LogisticsView = {
           <!-- Available Commercial Cargo Jobs -->
           <div class="card">
             <h3 style="font-size: 1.15rem; font-weight: 800; margin-bottom: 1rem; display: flex; align-items: center; justify-content: space-between;">
-              <span>📦 Available Cargo Jobs</span>
+            <span class="icon-label">${icon("package-search", 19)}<span>Available Cargo Jobs</span></span>
               <span class="badge badge-info" style="font-weight: 600;">LIVE MARKET</span>
             </h3>
             <div id="available-cargo-jobs-list">
@@ -122,7 +123,7 @@ export const LogisticsView = {
           <!-- My Bids & Active Dispatch -->
           <div class="card">
             <h3 style="font-size: 1.15rem; font-weight: 800; margin-bottom: 1rem;">
-              🚚 Active Freight Dispatches &amp; Offers
+          ${icon("truck", 19)}<span>Active Freight Dispatches &amp; Offers</span>
             </h3>
             <div id="my-logistics-offers-list">
               <div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">
@@ -202,13 +203,13 @@ export const LogisticsView = {
                 <span class="badge badge-info" style="font-size: 0.7rem;">${escapeHtml(goodsLabel)}</span>
                 <h4 style="font-size: 0.95rem; font-weight: 700; margin: 0.25rem 0;">${escapeHtml(title)}</h4>
                 <div style="font-size: 0.8rem; color: var(--text-muted);">
-                  📍 ${escapeHtml(job.pickup_location || job.pickup_address)} &rarr; 📍 ${escapeHtml(job.destination || job.destination_address)}
+                <span class="icon-label icon-label--inline">${icon("map-pin", 15)}<span>${escapeHtml(job.pickup_location || job.pickup_address)}</span></span> &rarr; <span class="icon-label icon-label--inline">${icon("flag", 15)}<span>${escapeHtml(job.destination || job.destination_address)}</span></span>
                 </div>
               </div>
               <div style="text-align: right;">
                 <div style="font-weight: 800; color: var(--primary); font-size: 1.1rem;">${formatMoney(budget)}</div>
                 <button class="btn btn-primary btn-sm btn-bid-cargo" data-id="${escapeHtml(job.id)}" data-price="${budget}" style="margin-top: 0.35rem; padding: 0.25rem 0.65rem; font-size: 0.75rem;">
-                  Submit Bid 💬
+              ${icon("message-square-plus", 17)}<span>Submit Bid</span>
                 </button>
               </div>
             </div>

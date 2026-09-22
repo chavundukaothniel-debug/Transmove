@@ -2,6 +2,7 @@
 // TRANSMOVE OFFICIAL CONTACT PAGE VIEW
 // ==============================================================================
 import { SocialService } from "../services/social.js";
+import { icon } from "../components/Icon.js";
 
 export const ContactView = {
   async render() {
@@ -22,7 +23,7 @@ export const ContactView = {
             <!-- Head Office Card -->
             <div class="card" style="padding: 1.75rem;">
               <div style="width: 44px; height: 44px; border-radius: var(--radius-md); background: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; font-weight: 800; margin-bottom: 1rem;">
-                🏢
+              ${icon("building-2", 31)}
               </div>
               <h3 style="font-size: 1.2rem; font-weight: 800; margin-bottom: 0.5rem;">Head Office</h3>
               <div style="color: var(--text-main); font-size: 0.95rem; line-height: 1.6; font-weight: 500;">
@@ -35,17 +36,17 @@ export const ContactView = {
             <!-- General Enquiries Contact Card -->
             <div class="card" style="padding: 1.75rem;">
               <div style="width: 44px; height: 44px; border-radius: var(--radius-md); background: var(--secondary-light); color: var(--secondary); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; font-weight: 800; margin-bottom: 1rem;">
-                👤
+              ${icon("user-round", 27)}
               </div>
               <h3 style="font-size: 1.15rem; font-weight: 800; margin-bottom: 0.35rem;">General Enquiries</h3>
               <div style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">Primary Business Contact</div>
 
               <div style="display: flex; flex-direction: column; gap: 0.65rem;">
                 <a href="mailto:martintapiwa16@gmail.com" class="btn btn-outline btn-sm" style="justify-content: flex-start;">
-                  ✉️ martintapiwa16@gmail.com
+              ${icon("mail", 16)}<span>martintapiwa16@gmail.com</span>
                 </a>
                 <a href="tel:0780963653" class="btn btn-outline btn-sm" style="justify-content: flex-start;">
-                  📞 0780963653
+              ${icon("phone", 16)}<span>0780963653</span>
                 </a>
               </div>
             </div>
@@ -53,24 +54,24 @@ export const ContactView = {
             <!-- Additional Contact Card -->
             <div class="card" style="padding: 1.75rem;">
               <div style="width: 44px; height: 44px; border-radius: var(--radius-md); background: var(--accent-amber-light); color: var(--accent-amber); display: flex; align-items: center; justify-content: center; font-size: 1.25rem; font-weight: 800; margin-bottom: 1rem;">
-                🤝
+              ${icon("handshake", 27)}
               </div>
               <h3 style="font-size: 1.15rem; font-weight: 800; margin-bottom: 0.35rem;">Additional Contact</h3>
               <div style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">Operations &amp; Support</div>
 
               <div style="display: flex; flex-direction: column; gap: 0.65rem;">
                 <a href="mailto:takudzwagmhuwira@gmail.com" class="btn btn-outline btn-sm" style="justify-content: flex-start;">
-                  ✉️ takudzwagmhuwira@gmail.com
+              ${icon("mail", 16)}<span>takudzwagmhuwira@gmail.com</span>
                 </a>
                 <a href="tel:0781664661" class="btn btn-outline btn-sm" style="justify-content: flex-start;">
-                  📞 078 166 4661
+              ${icon("phone", 16)}<span>078 166 4661</span>
                 </a>
               </div>
             </div>
 
             <!-- Direct WhatsApp Support Button Card -->
             <div class="card" style="padding: 1.5rem; background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(16, 185, 129, 0.05)); border: 1px solid rgba(34, 197, 94, 0.3);">
-              <div style="font-weight: 800; font-size: 1.1rem; color: #15803d; margin-bottom: 0.35rem;">💬 Live WhatsApp Support</div>
+            <div class="icon-label" style="font-weight: 800; font-size: 1.1rem; color: #15803d; margin-bottom: 0.35rem;">${icon("message-circle", 19)}<span>Live WhatsApp Support</span></div>
               <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">Connect directly with TransMove support (+263780266401)</div>
               <button id="btn-contact-whatsapp" class="btn btn-primary btn-full" style="background: #22c55e; border: none;">
                 Chat on WhatsApp (+263780266401)
@@ -122,7 +123,7 @@ export const ContactView = {
               </div>
 
               <button type="submit" id="btn-cnt-submit" class="btn btn-primary btn-lg btn-full" disabled title="The contact form is temporarily unavailable — please use WhatsApp (+263 78 026 6401) or email">
-                Submit Message 🚀
+            ${icon("send", 18)}<span>Submit Message</span>
               </button>
             </form>
 
@@ -158,7 +159,7 @@ export const ContactView = {
       banner.style.background = "var(--danger-light)";
       banner.style.color = "#ef4444";
       banner.style.border = "1px solid #ef4444";
-      banner.innerHTML = `❌ <strong>Message not delivered.</strong> ${honestNotice}`;
+        banner.innerHTML = `${icon("circle-x", 18)} <strong>Message not delivered.</strong> ${honestNotice}`;
     });
   }
 };

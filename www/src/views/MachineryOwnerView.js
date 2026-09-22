@@ -5,6 +5,7 @@
 import { EquipmentService } from "../services/equipment.js";
 import { renderEmptyState } from "../components/EmptyState.js";
 import { AdPlacement } from "../components/AdPlacement.js";
+import { icon } from "../components/Icon.js";
 
 const escapeHtml = (value) => {
   if (value === null || value === undefined) return "";
@@ -63,7 +64,7 @@ export const MachineryOwnerView = {
         <div class="grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
           <!-- Publish Machinery Form -->
           <div class="card" id="machinery-owner-section-add">
-            <h3 style="font-size: 1.15rem; font-weight: 800; margin-bottom: 1.25rem;">🚜 Add Heavy Machinery Listing</h3>
+            <h3 class="icon-label" style="font-size: 1.15rem; font-weight: 800; margin-bottom: 1.25rem;">${icon("tractor", 20)}<span>Add Heavy Machinery Listing</span></h3>
             <form id="machinery-owner-form">
               <div class="form-group">
                 <label class="form-label">Equipment Title</label>
@@ -108,14 +109,14 @@ export const MachineryOwnerView = {
               </div>
 
               <button type="submit" id="btn-save-machinery" class="btn btn-primary btn-full">
-                Publish Machinery Listing 🚜
+                ${icon("plus", 18)}<span>Publish Machinery Listing</span>
               </button>
             </form>
           </div>
 
           <!-- Listed Machinery List -->
           <div class="card" id="machinery-owner-section-fleet">
-            <h3 style="font-size: 1.15rem; font-weight: 800; margin-bottom: 1.25rem;">🚜 Active Heavy Machinery Fleet</h3>
+            <h3 class="icon-label" style="font-size: 1.15rem; font-weight: 800; margin-bottom: 1.25rem;">${icon("tractor", 20)}<span>Active Heavy Machinery Fleet</span></h3>
             <div id="machinery-owner-list">
               <div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">
                 Loading heavy machinery...
@@ -169,7 +170,7 @@ export const MachineryOwnerView = {
         alert("Could not publish machinery: " + err.message);
       } finally {
         saveBtn.disabled = false;
-        saveBtn.innerText = "Publish Machinery Listing 🚜";
+        saveBtn.innerHTML = `${icon("plus", 18)}<span>Publish Machinery Listing</span>`;
       }
     });
   },

@@ -1879,19 +1879,18 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       throw new Error("Forbidden: You must have an active registered vehicle to bid on jobs.");
     }
 
-    // 6. SERVER-SIDE 5 FREE JOB ENFORCEMENT
-    // Count all bookings (confirmed / in_progress / completed) for this driver
+    // 6. SERVER-SIDE 5 FREE COMPLETED JOBS ENFORCEMENT
+    // Count ONLY completed bookings for this driver (not active/in_progress)
     const bookQ1 = buildEqualQuery("driver_id", driverId);
+    const bookQ2 = buildEqualQuery("status", "completed");
     const bookingsRes = await fetch(
-      `${creds.endpoint}/databases/transmove/collections/bookings/documents?queries[]=${bookQ1}`,
+      `${creds.endpoint}/databases/transmove/collections/bookings/documents?queries[]=${bookQ1}&queries[]=${bookQ2}`,
       { headers: serverHeaders }
     );
     const bookingsData = await bookingsRes.json();
-    const totalAwardedJobs = (bookingsData.documents || []).filter((b) =>
-      ["confirmed", "driver_arriving", "arrived", "in_progress", "completed"].includes(b.status)
-    ).length;
+    const totalCompletedJobs = (bookingsData.documents || []).length;
 
-    if (totalAwardedJobs >= 5) {
+    if (totalCompletedJobs >= 5) {
       // 7. Check active subscription (subscriptions table uses user_id, not driver_id)
       const subQ = buildEqualQuery("user_id", driverId);
       const subRes = await fetch(
@@ -1905,7 +1904,7 @@ export async function executeTrustedOperation({ action, data = {}, vehicle_id, r
       );
 
       if (!hasActiveSub) {
-        throw new Error("SUBSCRIPTION_REQUIRED: You have used all 5 free jobs. Subscribe to bid on more jobs.");
+        throw new Error("FREE_TRIAL_LIMIT_REACHED: You have completed all 5 free TransMove jobs. Activate a subscription to continue accepting jobs.");
       }
     }
 
@@ -6748,6 +6747,7 @@ export async function handler(event, context) {
       err.message.includes("Conflict") ||
       err.message.includes("is required") ||
       err.message.includes("SUBSCRIPTION_REQUIRED") ||
+      err.message.includes("FREE_TRIAL_LIMIT_REACHED") ||
       err.message.includes("DRIVER_SUBSCRIPTION_REQUIRED") ||
       err.message.includes("Cannot bid") ||
       err.message.includes("Cannot accept") ||
@@ -6773,7 +6773,7 @@ export async function handler(event, context) {
           : isForbidden ? 403
           : err.message.includes("not found") ? 404
           : err.message.includes("Conflict") ? 409
-          : err.message.includes("SUBSCRIPTION_REQUIRED") || err.message.includes("DRIVER_SUBSCRIPTION_REQUIRED") ? 402
+          : err.message.includes("SUBSCRIPTION_REQUIRED") || err.message.includes("FREE_TRIAL_LIMIT_REACHED") || err.message.includes("DRIVER_SUBSCRIPTION_REQUIRED") ? 402
           : 400
         : 500,
       headers,

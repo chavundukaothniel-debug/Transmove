@@ -7,7 +7,7 @@ import { BidService, BookingService } from "../services/bids.js";
 import { LocationService } from "../services/location.js";
 import { NotificationService } from "../services/notifications.js";
 import { AuthService } from "../services/auth.js";
-import { WalletService } from "../services/wallet.js";
+import { PaymentService } from "../services/payments.js";
 import { renderEmptyState } from "../components/EmptyState.js";
 import { ReviewService } from "../services/reviews.js";
 import { FavouritesService } from "../services/favourites.js";
@@ -2653,7 +2653,7 @@ export const CustomerView = {
     try {
       const profile = await AuthService.getCurrentProfile();
       const [transactions, bookings] = await Promise.all([
-        profile?.id ? WalletService.getTransactionHistory(profile.id) : [],
+        profile?.id ? PaymentService.getUserPayments() : [],
         BookingService.getUserBookings()
       ]);
       const completed = (bookings || []).filter((booking) => booking.status === "completed");
@@ -2665,12 +2665,12 @@ export const CustomerView = {
           <article class="payment-summary-card"><span class="summary-icon-circle icon-green">${passengerIcon("check", 23)}</span><div><small>Completed Trips</small><strong>${completed.length}</strong><em>Successfully delivered</em></div></article>
         </div>
         <section class="passenger-list-card payment-history-card">
-          <div class="passenger-list-heading"><h3>Transaction History</h3><span>Wallet ledger</span></div>
+          <div class="passenger-list-heading"><h3>Transaction History</h3><span>Payment records</span></div>
           ${!transactions?.length ? `<div class="compact-empty-state"><span class="summary-icon-circle icon-blue">${passengerIcon("wallet", 23)}</span><div><strong>No payment records</strong><p>Verified transactions will appear here when recorded.</p></div></div>` : transactions.map((transaction) => `
             <div class="payment-history-row">
-              <div><strong>${transaction.description || transaction.category || "Transaction"}</strong><small>${transaction.created_at ? new Date(transaction.created_at).toLocaleDateString("en-GB", { dateStyle: "medium" }) : "Date unavailable"}</small></div>
-              <strong class="payment-amount ${transaction.transaction_type === "credit" ? "credit" : ""}">${transaction.transaction_type === "credit" ? "+" : "−"}$${Math.abs(Number.parseFloat(transaction.amount || 0)).toFixed(2)}</strong>
-              <span class="badge ${transaction.transaction_type === "credit" ? "badge-success" : "badge-info"}">${transaction.transaction_type || "recorded"}</span>
+              <div><strong>${escapeHtml(transaction.plan?.name || transaction.plan_name || transaction.payment_type || "Payment")}</strong><small>${transaction.created_at ? new Date(transaction.created_at).toLocaleDateString("en-GB", { dateStyle: "medium" }) : "Date unavailable"}</small></div>
+              <strong class="payment-amount">$${Math.abs(Number.parseFloat(transaction.amount ?? transaction.amount_declared ?? 0)).toFixed(2)}</strong>
+              <span class="badge ${transaction.status === "approved" ? "badge-success" : "badge-info"}">${escapeHtml(transaction.status || "pending_review")}</span>
             </div>`).join("")}
         </section>`;
     } catch (error) {

@@ -1,6 +1,7 @@
 // ==============================================================================
 // TRANSMOVE LEGAL CENTRE & POLICIES VIEW
 // ==============================================================================
+import { icon } from "../components/Icon.js";
 
 export const LegalView = {
   activeDoc: "terms", // 'terms' | 'privacy' | 'cancellation' | 'refund' | 'driver-terms' | 'customer-terms' | 'advertising' | 'machinery'
@@ -24,28 +25,28 @@ export const LegalView = {
             </div>
             <div style="display: flex; flex-direction: column; gap: 0.25rem;">
               <button class="btn btn-outline btn-sm legal-nav-btn ${this.activeDoc === "terms" ? "active" : ""}" data-doc="terms" style="justify-content: flex-start; text-align: left;">
-                📜 Terms of Service
+            ${icon("scroll-text", 17)}<span>Terms of Service</span>
               </button>
               <button class="btn btn-outline btn-sm legal-nav-btn ${this.activeDoc === "privacy" ? "active" : ""}" data-doc="privacy" style="justify-content: flex-start; text-align: left;">
-                🔒 Privacy Policy
+            ${icon("lock-keyhole", 17)}<span>Privacy Policy</span>
               </button>
               <button class="btn btn-outline btn-sm legal-nav-btn ${this.activeDoc === "cancellation" ? "active" : ""}" data-doc="cancellation" style="justify-content: flex-start; text-align: left;">
-                ❌ Cancellation Policy
+            ${icon("circle-x", 17)}<span>Cancellation Policy</span>
               </button>
               <button class="btn btn-outline btn-sm legal-nav-btn ${this.activeDoc === "refund" ? "active" : ""}" data-doc="refund" style="justify-content: flex-start; text-align: left;">
-                💰 Refund Policy
+            ${icon("badge-dollar-sign", 17)}<span>Refund Policy</span>
               </button>
               <button class="btn btn-outline btn-sm legal-nav-btn ${this.activeDoc === "driver-terms" ? "active" : ""}" data-doc="driver-terms" style="justify-content: flex-start; text-align: left;">
-                🚗 Driver Terms
+            ${icon("car-front", 17)}<span>Driver Terms</span>
               </button>
               <button class="btn btn-outline btn-sm legal-nav-btn ${this.activeDoc === "customer-terms" ? "active" : ""}" data-doc="customer-terms" style="justify-content: flex-start; text-align: left;">
-                👤 Customer Terms
+            ${icon("user-round", 17)}<span>Customer Terms</span>
               </button>
               <button class="btn btn-outline btn-sm legal-nav-btn ${this.activeDoc === "advertising" ? "active" : ""}" data-doc="advertising" style="justify-content: flex-start; text-align: left;">
-                📢 Advertising Terms
+            ${icon("megaphone", 17)}<span>Advertising Terms</span>
               </button>
               <button class="btn btn-outline btn-sm legal-nav-btn ${this.activeDoc === "machinery" ? "active" : ""}" data-doc="machinery" style="justify-content: flex-start; text-align: left;">
-                🚜 Machinery Rental Terms
+            ${icon("tractor", 17)}<span>Machinery Rental Terms</span>
               </button>
             </div>
           </div>

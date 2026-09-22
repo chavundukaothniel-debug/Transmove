@@ -5,6 +5,7 @@
 import { EquipmentService } from "../services/equipment.js";
 import { AuthService } from "../services/auth.js";
 import { renderEmptyState } from "../components/EmptyState.js";
+import { icon } from "../components/Icon.js";
 
 const escapeHtml = (value) => {
   if (value === null || value === undefined) return "";
@@ -30,7 +31,7 @@ export const OwnerView = {
         <div class="grid-2">
           <!-- Add Machinery Form -->
           <div class="card">
-            <h3 class="card-title" style="margin-bottom: 1.25rem;">🚜 List New Equipment</h3>
+          <h3 class="card-title icon-label" style="margin-bottom: 1.25rem;">${icon("tractor", 20)}<span>List New Equipment</span></h3>
             <form id="add-equipment-form">
               <div class="form-group">
                 <label class="form-label">Equipment Title</label>
@@ -85,7 +86,7 @@ export const OwnerView = {
               </div>
 
               <button type="submit" id="btn-save-eq" class="btn btn-primary btn-full">
-                Publish Equipment Listing 🚜
+              ${icon("plus", 18)}<span>Publish Equipment Listing</span>
               </button>
             </form>
           </div>
@@ -153,7 +154,7 @@ export const OwnerView = {
         alert("Could not publish listing: " + err.message);
       } finally {
         btn.disabled = false;
-        btn.innerText = "Publish Equipment Listing 🚜";
+        btn.innerHTML = `${icon("plus", 18)}<span>Publish Equipment Listing</span>`;
       }
     });
   },

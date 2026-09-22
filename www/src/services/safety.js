@@ -10,13 +10,13 @@ export const SafetyService = {
    */
   async triggerSOS(userId, bookingId = null, currentCoords = null) {
     const supabase = getSupabase();
-    console.warn(`🚨 SOS Emergency triggered by user: ${userId}`);
+    console.warn(`[SOS] Emergency triggered by user: ${userId}`);
 
     if (supabase) {
       await supabase.from("notifications").insert([
         {
           user_id: userId,
-          title: "🚨 SOS EMERGENCY ACTIVATED",
+      title: "SOS EMERGENCY ACTIVATED",
           body: `Emergency alert raised. Location: ${currentCoords ? `${currentCoords.lat}, ${currentCoords.lng}` : "Unknown"}. Support notified.`,
           type: "sos_alert",
           reference_id: bookingId

@@ -59,8 +59,10 @@ async function callTrustedApi(action, data = {}, extraParams = {}) {
     err.status = res.status;
     err.subscriptionRequired =
       errMsg.includes("SUBSCRIPTION_REQUIRED") ||
+      errMsg.includes("FREE_TRIAL_LIMIT_REACHED") ||
       errMsg.includes("DRIVER_SUBSCRIPTION_REQUIRED") ||
       res.status === 402;
+    err.freeLimitReached = errMsg.includes("FREE_TRIAL_LIMIT_REACHED");
     throw err;
   }
 

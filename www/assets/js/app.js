@@ -44,6 +44,8 @@ class App {
   }
 
   async init() {
+    await this.configureNativeInsets();
+
     // 1. Initial auth state fetch & approved roles hydration
     try {
       this.currentProfile = await AuthService.getCurrentProfile();
@@ -168,6 +170,22 @@ class App {
 
     // Initial Route
     this.handleRoute();
+  }
+
+  async configureNativeInsets() {
+    const capacitor = window.Capacitor;
+    if (!capacitor?.isNativePlatform?.()) return;
+
+    document.documentElement.classList.add("native-app-shell");
+    try {
+      const info = await capacitor.Plugins?.StatusBar?.getInfo?.();
+      const height = Number(info?.height);
+      if (Number.isFinite(height) && height > 0) {
+        document.documentElement.style.setProperty("--native-status-bar-inset", `${height}px`);
+      }
+    } catch (_) {
+      // The CSS fallback remains safe when status-bar information is unavailable.
+    }
   }
 
   setupAndroidBackButton() {

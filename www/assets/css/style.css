@@ -5692,6 +5692,25 @@ html[data-theme="dark"] body .recent-booking-main span {
   color: #a6b2be !important;
 }
 
+html[data-theme="dark"] body .passenger-list-heading h3,
+html[data-theme="dark"] body .compact-empty-state strong,
+html[data-theme="dark"] body .payment-history-row > div strong,
+html[data-theme="dark"] body .payment-amount {
+  color: #f8fbff !important;
+}
+
+html[data-theme="dark"] body .passenger-list-heading span,
+html[data-theme="dark"] body .compact-empty-state p,
+html[data-theme="dark"] body .payment-history-row > div small {
+  color: #a6b2be !important;
+}
+
+@media (max-width: 768px) {
+  html.native-app-shell body {
+    padding-top: var(--native-status-bar-inset, 24px);
+  }
+}
+
 /* Reference-aligned shared marketplace controls. These remain in the web DOM
    used by both browsers and Capacitor; mobile only changes their arrangement. */
 .passenger-place-shortcuts,

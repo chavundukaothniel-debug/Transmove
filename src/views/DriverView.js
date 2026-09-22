@@ -776,7 +776,8 @@ export const DriverView = {
         BidService.getDriverBids().catch(() => [])
       ]);
       this.isSubscribed = Boolean(entitlement.has_active_subscription);
-      this.freeJobsUsed = Number(entitlement.awarded_jobs || 0);
+      this.freeJobsUsed = Number(entitlement.completed_jobs ?? entitlement.awarded_jobs ?? 0);
+      this.isFreeLimitReached = entitlement.is_subscription_required === true;
       this.monthEarnings = Number(earnings.month || 0);
       this.driverBookings = bookings || [];
       this.driverBids = bids || [];
@@ -1525,12 +1526,15 @@ export const DriverView = {
   async updateSummaryCardsUI() {
     const completedValEl = document.getElementById("card-jobs-completed-val");
     const progressBarEl = document.getElementById("card-jobs-progress-bar");
+    const limitReached = this.isFreeLimitReached || (!this.isSubscribed && this.freeJobsUsed >= 5);
     if (completedValEl) {
       completedValEl.innerText = `${Math.min(this.freeJobsUsed, 5)} / 5`;
+      if (limitReached) completedValEl.style.color = "#b91c1c";
     }
     if (progressBarEl) {
       const pct = Math.min(100, Math.round((this.freeJobsUsed / 5) * 100));
       progressBarEl.style.width = `${pct}%`;
+      progressBarEl.style.background = limitReached ? "#b91c1c" : "#2563eb";
     }
 
     const earningsValEl = document.getElementById("card-total-earnings-val");
@@ -1548,6 +1552,29 @@ export const DriverView = {
     if (this.isSubscribed) {
       if (statusValEl) statusValEl.innerText = "Professional";
       if (statusSubEl) statusSubEl.innerText = "Active subscription";
+    } else if (limitReached) {
+      if (statusValEl) { statusValEl.innerText = "Free Trial Complete"; statusValEl.style.color = "#b91c1c"; }
+      if (statusSubEl) {
+        statusSubEl.innerHTML = `<a href="#subscriptions" style="color:#2563eb;font-weight:700;text-decoration:underline;">Subscribe to continue</a>`;
+      }
+      // Show subscription prompt if not already shown this session
+      if (!this._subPromptShown) {
+        this._subPromptShown = true;
+        const existing = document.getElementById("driver-free-trial-expired-banner");
+        if (!existing) {
+          const banner = document.createElement("div");
+          banner.id = "driver-free-trial-expired-banner";
+          banner.style.cssText = "position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#b91c1c;color:#fff;padding:0.85rem 1.25rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;box-shadow:0 -2px 12px rgba(0,0,0,0.18);";
+          banner.innerHTML = `
+            <div style="font-weight:700;font-size:0.95rem;">🚫 Free trial complete. You have used all 5 free jobs.</div>
+            <div style="display:flex;gap:0.75rem;align-items:center;flex-shrink:0;">
+              <a href="#subscriptions" style="background:#fff;color:#b91c1c;font-weight:800;padding:0.45rem 1.1rem;border-radius:6px;text-decoration:none;font-size:0.9rem;">Subscribe Now</a>
+              <button type="button" style="background:transparent;border:none;color:#fff;cursor:pointer;font-size:1.2rem;line-height:1;" onclick="this.closest('#driver-free-trial-expired-banner').remove()">✕</button>
+            </div>
+          `;
+          document.body.appendChild(banner);
+        }
+      }
     } else {
       if (statusValEl) statusValEl.innerText = "Free Driver";
       const remaining = Math.max(0, 5 - this.freeJobsUsed);

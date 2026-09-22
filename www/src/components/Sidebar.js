@@ -43,6 +43,7 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
       { route: "driver", label: "Dashboard", icon: "layout-dashboard" },
       { route: "driver?tab=available", label: "Available Jobs", icon: "radio-tower" },
       { route: "driver?tab=offers", label: "My Jobs", icon: "briefcase-business" },
+      { route: "messages", label: "Messages", icon: "message-circle" },
       { route: "driver?tab=vehicles", label: "Vehicles", icon: "car-front" },
       { route: "driver?tab=earnings", label: "Earnings", icon: "wallet-cards" },
       { route: "subscriptions", label: "Subscription", icon: "credit-card" },

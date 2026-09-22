@@ -10,7 +10,7 @@ import { BookingService } from "./booking.js";
 
 export async function runFullMarketplaceLifecycleTest() {
   console.log("==================================================");
-  console.log("🚀 TRANSMOVE MARKETPLACE END-TO-END LIFECYCLE TEST");
+    console.log("[START] TRANSMOVE MARKETPLACE END-TO-END LIFECYCLE TEST");
   console.log("==================================================");
 
   const supabase = getSupabase();
@@ -64,7 +64,7 @@ export async function runFullMarketplaceLifecycleTest() {
     }
 
     createdRecords.push({ table: "public.ride_requests", id: requestRecord.id, status: requestRecord.status.toUpperCase() });
-    console.log(`✅ [CREATED] public.ride_requests Record ID: ${requestRecord.id}`);
+      console.log(`[CREATED] public.ride_requests Record ID: ${requestRecord.id}`);
     console.log(`   Status: REQUESTED ('${requestRecord.status}')`);
     console.log(`   Route: ${requestRecord.pickup_address} -> ${requestRecord.destination_address}`);
 
@@ -88,13 +88,13 @@ export async function runFullMarketplaceLifecycleTest() {
 
     if (offerErr) throw offerErr;
     createdRecords.push({ table: "public.offers", id: offerRecord.id, status: "PENDING" });
-    console.log(`✅ [CREATED] public.offers Record ID: ${offerRecord.id}`);
+      console.log(`[CREATED] public.offers Record ID: ${offerRecord.id}`);
     console.log(`   Price: $${offerRecord.proposed_price}, Status: PENDING`);
 
     // Update request status to QUOTED
     await supabase.from("ride_requests").update({ status: "offers_received", updated_at: new Date().toISOString() }).eq("id", requestRecord.id);
     updatedRecords.push({ table: "public.ride_requests", id: requestRecord.id, field: "status", newValue: "QUOTED ('offers_received')" });
-    console.log(`✅ [UPDATED] public.ride_requests Record ID: ${requestRecord.id} -> Status: QUOTED ('offers_received')`);
+      console.log(`[UPDATED] public.ride_requests Record ID: ${requestRecord.id} -> Status: QUOTED ('offers_received')`);
 
     // -------------------------------------------------------------
     // STEP 3: SECOND PROVIDER SENDS COMPETING QUOTATION
@@ -116,7 +116,7 @@ export async function runFullMarketplaceLifecycleTest() {
 
     if (offer2Record) {
       createdRecords.push({ table: "public.offers", id: offer2Record.id, status: "PENDING" });
-      console.log(`✅ [CREATED] public.offers Record ID: ${offer2Record.id}`);
+      console.log(`[CREATED] public.offers Record ID: ${offer2Record.id}`);
     }
 
     // -------------------------------------------------------------
@@ -127,19 +127,19 @@ export async function runFullMarketplaceLifecycleTest() {
     // Lock offer
     await supabase.from("offers").update({ status: "accepted" }).eq("id", offerRecord.id);
     updatedRecords.push({ table: "public.offers", id: offerRecord.id, field: "status", newValue: "ACCEPTED" });
-    console.log(`✅ [UPDATED] public.offers ID: ${offerRecord.id} -> Status: ACCEPTED`);
+      console.log(`[UPDATED] public.offers ID: ${offerRecord.id} -> Status: ACCEPTED`);
 
     // Reject all other offers for this request (single provider lock)
     await supabase.from("offers").update({ status: "rejected" }).eq("request_id", requestRecord.id).neq("id", offerRecord.id);
     if (offer2Record) {
       updatedRecords.push({ table: "public.offers", id: offer2Record.id, field: "status", newValue: "REJECTED (Declined/Closed)" });
-      console.log(`✅ [UPDATED] public.offers ID: ${offer2Record.id} -> Status: REJECTED (Declined/Closed)`);
+      console.log(`[UPDATED] public.offers ID: ${offer2Record.id} -> Status: REJECTED (Declined/Closed)`);
     }
 
     // Update request status to ACCEPTED
     await supabase.from("ride_requests").update({ status: "accepted", accepted_offer_id: offerRecord.id }).eq("id", requestRecord.id);
     updatedRecords.push({ table: "public.ride_requests", id: requestRecord.id, field: "status", newValue: "ACCEPTED ('accepted')" });
-    console.log(`✅ [UPDATED] public.ride_requests ID: ${requestRecord.id} -> Status: ACCEPTED`);
+      console.log(`[UPDATED] public.ride_requests ID: ${requestRecord.id} -> Status: ACCEPTED`);
 
     // Create confirmed booking
     const { data: bookingRecord, error: bookErr } = await supabase
@@ -159,7 +159,7 @@ export async function runFullMarketplaceLifecycleTest() {
 
     if (bookErr) throw bookErr;
     createdRecords.push({ table: "public.bookings", id: bookingRecord.id, status: "ACCEPTED ('confirmed')" });
-    console.log(`✅ [CREATED] public.bookings Record ID: ${bookingRecord.id}`);
+      console.log(`[CREATED] public.bookings Record ID: ${bookingRecord.id}`);
     console.log(`   Fare: $${bookingRecord.final_price}, PIN: ${bookingRecord.trip_pin}, Status: ACCEPTED ('confirmed')`);
 
     // -------------------------------------------------------------
@@ -168,7 +168,7 @@ export async function runFullMarketplaceLifecycleTest() {
     console.log("\n5️⃣ STEP 5: Provider Starts Job (PIN Verification & In Progress)");
     await supabase.from("bookings").update({ status: "in_progress", start_time: new Date().toISOString() }).eq("id", bookingRecord.id);
     updatedRecords.push({ table: "public.bookings", id: bookingRecord.id, field: "status", newValue: "IN_PROGRESS ('in_progress')" });
-    console.log(`✅ [UPDATED] public.bookings ID: ${bookingRecord.id} -> Status: IN_PROGRESS`);
+      console.log(`[UPDATED] public.bookings ID: ${bookingRecord.id} -> Status: IN_PROGRESS`);
 
     // -------------------------------------------------------------
     // STEP 6: PROVIDER COMPLETES JOB
@@ -176,11 +176,11 @@ export async function runFullMarketplaceLifecycleTest() {
     console.log("\n6️⃣ STEP 6: Provider Completes Job");
     await supabase.from("bookings").update({ status: "completed", completed_time: new Date().toISOString() }).eq("id", bookingRecord.id);
     updatedRecords.push({ table: "public.bookings", id: bookingRecord.id, field: "status", newValue: "COMPLETED ('completed')" });
-    console.log(`✅ [UPDATED] public.bookings ID: ${bookingRecord.id} -> Status: COMPLETED`);
+      console.log(`[UPDATED] public.bookings ID: ${bookingRecord.id} -> Status: COMPLETED`);
 
     await supabase.from("ride_requests").update({ status: "completed" }).eq("id", requestRecord.id);
     updatedRecords.push({ table: "public.ride_requests", id: requestRecord.id, field: "field", newValue: "COMPLETED" });
-    console.log(`✅ [UPDATED] public.ride_requests ID: ${requestRecord.id} -> Status: COMPLETED`);
+      console.log(`[UPDATED] public.ride_requests ID: ${requestRecord.id} -> Status: COMPLETED`);
 
     // -------------------------------------------------------------
     // STEP 7: PASSENGER REVIEWS AND RATES PROVIDER
@@ -200,11 +200,11 @@ export async function runFullMarketplaceLifecycleTest() {
 
     if (!revErr && reviewRecord) {
       createdRecords.push({ table: "public.reviews", id: reviewRecord.id, rating: "5/5 Stars" });
-      console.log(`✅ [CREATED] public.reviews Record ID: ${reviewRecord.id} (Rating: 5/5 Stars)`);
+      console.log(`[CREATED] public.reviews Record ID: ${reviewRecord.id} (Rating: 5/5 Stars)`);
     }
 
     console.log("\n==================================================");
-    console.log("🎉 TRANSMOVE FULL MARKETPLACE LIFECYCLE SUMMARY");
+    console.log("[SUMMARY] TRANSMOVE FULL MARKETPLACE LIFECYCLE SUMMARY");
     console.log("==================================================");
     console.log("CREATED RECORDS:");
     console.table(createdRecords);

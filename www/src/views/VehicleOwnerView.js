@@ -5,6 +5,7 @@
 import { VehicleService } from "../services/vehicles.js";
 import { renderEmptyState } from "../components/EmptyState.js";
 import { AdPlacement } from "../components/AdPlacement.js";
+import { icon, statusBadge } from "../components/Icon.js";
 
 const escapeHtml = (value) => {
   if (value === null || value === undefined) return "";
@@ -63,7 +64,7 @@ export const VehicleOwnerView = {
         <div class="grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
           <!-- Add Vehicle Form -->
           <div class="card" id="vehicle-owner-section-add">
-            <h3 style="font-size: 1.15rem; font-weight: 800; margin-bottom: 1.25rem;">🚗 Register New Rental Vehicle</h3>
+            <h3 class="icon-label" style="font-size: 1.15rem; font-weight: 800; margin-bottom: 1.25rem;">${icon("car-front", 20)}<span>Register New Rental Vehicle</span></h3>
             <form id="add-vehicle-form">
               <div class="grid-2">
                 <div class="form-group">
@@ -110,14 +111,14 @@ export const VehicleOwnerView = {
               </div>
 
               <button type="submit" id="btn-save-vehicle" class="btn btn-primary btn-full">
-                Register &amp; Submit Vehicle for Verification 🚗
+                ${icon("car-front", 18)}<span>Register &amp; Submit Vehicle for Verification</span>
               </button>
             </form>
           </div>
 
           <!-- Listed Vehicles List -->
           <div class="card" id="vehicle-owner-section-fleet">
-            <h3 style="font-size: 1.15rem; font-weight: 800; margin-bottom: 1.25rem;">🚘 Registered Vehicles Fleet</h3>
+            <h3 class="icon-label" style="font-size: 1.15rem; font-weight: 800; margin-bottom: 1.25rem;">${icon("car-front", 20)}<span>Registered Vehicles Fleet</span></h3>
             <div id="vehicle-owner-list">
               <div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">
                 Loading vehicle fleet...
@@ -176,7 +177,7 @@ export const VehicleOwnerView = {
         alert("Could not register vehicle: " + err.message);
       } finally {
         saveBtn.disabled = false;
-        saveBtn.innerText = "Register & Submit Vehicle for Verification 🚗";
+        saveBtn.innerHTML = `${icon("car-front", 18)}<span>Register &amp; Submit Vehicle for Verification</span>`;
       }
     });
   },
@@ -203,9 +204,7 @@ export const VehicleOwnerView = {
         <div style="border: 1px solid var(--border-light); padding: 1rem; border-radius: var(--radius-md); margin-bottom: 0.75rem;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <div style="font-weight: 700; font-size: 1rem;">${escapeHtml(v.make)} ${escapeHtml(v.model)} (${escapeHtml(v.year)})</div>
-            <span class="badge ${v.verification_status === "approved" ? "badge-success" : "badge-warning"}">
-              ${escapeHtml((v.verification_status || "unverified").toUpperCase())}
-            </span>
+            ${statusBadge(v.verification_status || "unverified")}
           </div>
           <div style="font-size: 0.85rem; color: var(--text-muted); margin: 0.25rem 0;">
             Reg: <strong>${escapeHtml(v.registration_number)}</strong>${v.operating_area ? ` • Location: ${escapeHtml(v.operating_area)}` : ""}

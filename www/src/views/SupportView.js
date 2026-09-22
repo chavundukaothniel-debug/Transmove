@@ -4,6 +4,7 @@
 import { BookingService } from "../services/bids.js";
 import { getAppwriteAccount } from "../config/appwrite.js";
 import { renderEmptyState } from "../components/EmptyState.js";
+import { icon } from "../components/Icon.js";
 
 export const SupportView = {
   activeTab: "tickets", // 'tickets' | 'safety' | 'help' | 'status'
@@ -31,7 +32,7 @@ export const SupportView = {
             </button>`).join("")}
         </section>
         <section class="support-contact-card">
-          <span class="support-contact-icon">🎧</span>
+          <span class="support-contact-icon">${icon("headphones", 24)}</span>
           <div><h3>Still need help?</h3><p>Support tickets are temporarily unavailable. Reach our team directly on WhatsApp (+263 78 026 6401), email, or the Contact page.</p></div>
           <button type="button" id="btn-open-passenger-support" class="btn btn-primary">Contact Support</button>
         </section>
@@ -76,16 +77,16 @@ export const SupportView = {
 
           <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
             <button class="btn btn-outline btn-sm sup-tab-btn ${this.activeTab === "tickets" ? "active" : ""}" data-tab="tickets">
-              🎫 Support Tickets
+            ${icon("ticket-check", 17)}<span>Support Tickets</span>
             </button>
             <button class="btn btn-outline btn-sm sup-tab-btn ${this.activeTab === "safety" ? "active" : ""}" data-tab="safety">
-              🛡️ Safety Centre
+            ${icon("shield-check", 17)}<span>Safety Centre</span>
             </button>
             <button class="btn btn-outline btn-sm sup-tab-btn ${this.activeTab === "help" ? "active" : ""}" data-tab="help">
-              📚 Help Centre
+            ${icon("book-open-text", 17)}<span>Help Centre</span>
             </button>
             <button class="btn btn-outline btn-sm sup-tab-btn ${this.activeTab === "status" ? "active" : ""}" data-tab="status">
-              ⚡ System Status
+            ${icon("activity", 17)}<span>System Status</span>
             </button>
           </div>
         </div>
@@ -141,7 +142,7 @@ export const SupportView = {
                 </div>
 
                 <button type="submit" id="btn-submit-ticket" class="btn btn-primary btn-lg btn-full" disabled title="Support tickets are not available yet — use WhatsApp (+263 78 026 6401) or the Contact page">
-                  Create Support Ticket 🎫
+              ${icon("ticket-plus", 18)}<span>Create Support Ticket</span>
                 </button>
               </form>
             </div>
@@ -162,7 +163,7 @@ export const SupportView = {
           <div class="grid-2" style="gap: 2rem;">
             <div class="card">
               <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; border-radius: var(--radius-md); padding: 1.5rem; margin-bottom: 1.5rem;">
-                <h3 style="color: #ef4444; font-weight: 800; font-size: 1.25rem; margin-bottom: 0.5rem;">🚨 Emergency SOS Alert</h3>
+        <h3 class="icon-label" style="color: #ef4444; font-weight: 800; font-size: 1.25rem; margin-bottom: 0.5rem;">${icon("siren", 21)}<span>Emergency SOS Alert</span></h3>
                 <p style="font-size: 0.9rem; color: var(--text-main); margin-bottom: 1rem;">
                   Automated SOS alerts are not available yet — this button does not broadcast anything. If you are in immediate danger, contact the police first, then call TransMove support on 0780963653 / 078 166 4661 so we can assist.
                 </p>
@@ -173,10 +174,10 @@ export const SupportView = {
 
               <h4 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem;">Safety Guidelines</h4>
               <ul style="line-height: 1.6; font-size: 0.9rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 0.5rem;">
-                <li>✓ Verify driver profile and vehicle registration number before entering vehicle.</li>
-                <li>✓ Share your trip details link with family or friends when you have an active booking.</li>
-                <li>✓ Agree on the pickup point and fare with your driver in the booking chat before departure.</li>
-                <li>✓ Report any suspicious or unsafe behavior immediately.</li>
+                <li class="icon-label">${icon("check", 16)}<span>Verify driver profile and vehicle registration number before entering vehicle.</span></li>
+                <li class="icon-label">${icon("check", 16)}<span>Share your trip details link with family or friends when you have an active booking.</span></li>
+                <li class="icon-label">${icon("check", 16)}<span>Agree on the pickup point and fare with your driver in the booking chat before departure.</span></li>
+                <li class="icon-label">${icon("check", 16)}<span>Report any suspicious or unsafe behavior immediately.</span></li>
               </ul>
             </div>
 
@@ -187,7 +188,7 @@ export const SupportView = {
               </p>
 
               <button id="btn-generate-share-link" class="btn btn-outline btn-full" style="margin-bottom: 1.5rem;" disabled title="Checking for an active trip…">
-                🔗 Generate Shareable Trip Link
+            ${icon("link", 18)}<span>Generate Shareable Trip Link</span>
               </button>
 
               <div style="background: var(--bg-subtle); padding: 1.25rem; border-radius: var(--radius-md); font-size: 0.85rem; color: var(--text-muted);">
@@ -210,27 +211,27 @@ export const SupportView = {
 
             <div class="grid-3" id="help-topics-container">
               <div class="card" style="padding: 1.25rem;">
-                <h4 style="font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem;">🚀 Getting Started</h4>
+              <h4 class="icon-label" style="font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem;">${icon("rocket", 18)}<span>Getting Started</span></h4>
                 <p style="font-size: 0.85rem; color: var(--text-muted);">How to create an account, complete profile setup, and switch between customer, driver, and owner roles.</p>
               </div>
               <div class="card" style="padding: 1.25rem;">
-                <h4 style="font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem;">🚗 Bidding &amp; Offers</h4>
+              <h4 class="icon-label" style="font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem;">${icon("car-front", 18)}<span>Bidding &amp; Offers</span></h4>
                 <p style="font-size: 0.85rem; color: var(--text-muted);">Understanding fair driver offers, submitting counter-offers, and accepting confirmed trips.</p>
               </div>
               <div class="card" style="padding: 1.25rem;">
-                <h4 style="font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem;">📱 EcoCash Payments</h4>
+              <h4 class="icon-label" style="font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem;">${icon("smartphone", 18)}<span>EcoCash Payments</span></h4>
                 <p style="font-size: 0.85rem; color: var(--text-muted);">Pay easily via manual EcoCash transfer to verified TransMove admin accounts. Submit your transaction reference and screenshot for prompt admin verification.</p>
               </div>
               <div class="card" style="padding: 1.25rem;">
-                <h4 style="font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem;">📦 Logistics &amp; Freight</h4>
+              <h4 class="icon-label" style="font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem;">${icon("package", 18)}<span>Logistics &amp; Freight</span></h4>
                 <p style="font-size: 0.85rem; color: var(--text-muted);">Moving cargo, agricultural goods, and specifying load dimensions with security delivery tracking.</p>
               </div>
               <div class="card" style="padding: 1.25rem;">
-                <h4 style="font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem;">🚜 Heavy Machinery</h4>
+              <h4 class="icon-label" style="font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem;">${icon("tractor", 18)}<span>Heavy Machinery</span></h4>
                 <p style="font-size: 0.85rem; color: var(--text-muted);">Listing excavators, tractors, and tipper trucks for daily or hourly hire by verified equipment owners.</p>
               </div>
               <div class="card" style="padding: 1.25rem;">
-                <h4 style="font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem;">📢 Advertising</h4>
+              <h4 class="icon-label" style="font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem;">${icon("megaphone", 18)}<span>Advertising</span></h4>
                 <p style="font-size: 0.85rem; color: var(--text-muted);">Creating business ad campaigns, targeting audiences, and tracking impressions on TransMove.</p>
               </div>
             </div>

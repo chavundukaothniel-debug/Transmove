@@ -215,7 +215,7 @@ export function getAppwriteStorage() {
     rawStorage.getFileView = function (bucketId, fileId) {
       const provider = getStoredValue("transmove_file_storage_provider", "google_drive");
       if (provider === "google_drive" && fileId) {
-        return `/api/files/preview/${encodeURIComponent(fileId)}`;
+        return getFilePreviewUrl(fileId);
       }
       return rawStorage._originalGetFileView(bucketId, fileId);
     };
@@ -224,25 +224,43 @@ export function getAppwriteStorage() {
   return storageInstance;
 }
 
-export function getTrustedApiEndpoint() {
+export function getApiBaseUrl() {
   if (typeof window !== "undefined") {
-    const isCapacitor = Boolean(window.Capacitor?.isNativePlatform?.() || window.location?.protocol === "capacitor:");
+    const isCapacitor = Boolean(
+      window.Capacitor?.isNativePlatform?.() ||
+      window.location?.protocol === "capacitor:" ||
+      window.location?.origin === "https://localhost" ||
+      (window.location?.hostname === "localhost" && (!window.location?.port || window.location?.port === "443" || window.location?.port === "80"))
+    );
     if (isCapacitor) {
-      return "https://transmove.onrender.com/.netlify/functions/trusted-api";
+      const storedBase = getStoredValue("transmove_api_base", null);
+      if (storedBase) return storedBase.replace(/\/+$/, "");
+      return "https://transmove.onrender.com";
     }
 
     if (window.location && window.location.origin) {
       if (window.location.origin === "http://localhost:3000" || window.location.origin === "http://localhost:8080") {
-        return `${window.location.origin}/.netlify/functions/trusted-api`;
+        return window.location.origin;
       }
       const storedBase = getStoredValue("transmove_api_base", null);
       if (storedBase) {
-        return `${storedBase.replace(/\/+$/, "")}/.netlify/functions/trusted-api`;
+        return storedBase.replace(/\/+$/, "");
       }
-      return `${window.location.origin}/.netlify/functions/trusted-api`;
+      return window.location.origin;
     }
   }
-  return "http://localhost:8080/.netlify/functions/trusted-api";
+  return "https://transmove.onrender.com";
+}
+
+export function getFilePreviewUrl(fileId) {
+  if (!fileId) return "";
+  const base = getApiBaseUrl();
+  return `${base}/api/files/preview/${encodeURIComponent(fileId)}`;
+}
+
+export function getTrustedApiEndpoint() {
+  const base = getApiBaseUrl();
+  return `${base}/.netlify/functions/trusted-api`;
 }
 
 export { Storage, ID, Query, Permission, Role };

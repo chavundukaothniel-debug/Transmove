@@ -8,6 +8,7 @@ import { DisputeService } from "../services/disputes.js";
 import { PaymentService } from "../services/payments.js";
 import { Modal } from "../components/Modal.js";
 import { renderEmptyState } from "../components/EmptyState.js";
+import { icon } from "../components/Icon.js";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -17,7 +18,7 @@ export const AdminView = {
       <div style="max-width: 440px; margin: 3rem auto; padding: 0 1rem;">
         <div class="card" style="padding: 2.25rem 2rem; border-top: 4px solid var(--danger); box-shadow: var(--shadow-lg);">
           <div style="text-align: center; margin-bottom: 2rem;">
-            <div style="font-size: 2.2rem; margin-bottom: 0.5rem;">🛡️</div>
+            <div class="feature-icon" style="margin-bottom: 0.5rem;">${icon("shield-check", 34)}</div>
             <h2 style="font-size: 1.6rem; font-weight: 900; color: var(--text-main); margin-bottom: 0.25rem;">TransMove Admin Portal</h2>
             <p style="color: var(--text-muted); font-size: 0.875rem;">Restricted Operations Command Center</p>
           </div>
@@ -34,7 +35,7 @@ export const AdminView = {
             </div>
 
             <button type="submit" id="btn-submit-admin-login" class="btn btn-primary btn-full btn-lg" style="background: var(--danger); border-color: var(--danger); color: #ffffff;">
-              Authenticate Administrator 🛡️
+              ${icon("shield-check", 18)}<span>Authenticate Administrator</span>
             </button>
           </form>
 
@@ -66,7 +67,7 @@ export const AdminView = {
       } catch (err) {
         alert("Admin Authentication Failed: " + (err.message || "Invalid credentials."));
         submitBtn.disabled = false;
-        submitBtn.innerText = "Authenticate Administrator 🛡️";
+          submitBtn.innerHTML = `${icon("shield-check", 18)}<span>Authenticate Administrator</span>`;
       }
     });
   },
@@ -76,7 +77,7 @@ export const AdminView = {
       <div class="admin-portal">
         <div class="card-header admin-portal-heading" style="margin-bottom: 1.5rem;">
           <div>
-            <h2 style="font-size: 1.5rem; font-weight: 800; color: var(--transmove-red);">🛡️ TransMove Operations</h2>
+          <h2 class="icon-label" style="font-size: 1.5rem; font-weight: 800; color: var(--transmove-red);">${icon("shield-check", 24)}<span>TransMove Operations</span></h2>
             <p style="color: var(--text-muted); font-size: 0.9rem;">Real-time database analytics, driver document approvals, live trip monitoring, dispute resolution &amp; audit trails</p>
           </div>
           <span class="badge badge-danger">ADMINISTRATOR</span>
@@ -84,18 +85,18 @@ export const AdminView = {
 
         <!-- Admin Sub-tabs -->
         <div class="admin-tab-strip" style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; overflow-x: auto; padding-bottom: 0.5rem;">
-          <button class="btn btn-outline btn-sm adm-tab-btn active" data-tab="analytics">📊 Analytics &amp; KPIs</button>
-          <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="approvals">📋 Driver Approvals</button>
-          <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="users">👥 Users</button>
-          <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="machinery">🚜 Machinery</button>
-          <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="trips">🚗 Live Trip Monitor</button>
-          <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="financials">💳 EcoCash Payments</button>
-          <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="plans">📦 Subscription Plans</button>
-          <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="destinations">📱 EcoCash Channels</button>
-          <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="ads">📢 Advertising</button>
-          <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="settings">⚙️ Social &amp; Contact</button>
-          <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="disputes">⚠️ Support &amp; Disputes</button>
-          <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="audit">🛡️ Audit Log</button>
+        <button class="btn btn-outline btn-sm adm-tab-btn active" data-tab="analytics">${icon("chart-no-axes-combined", 17)}<span>Analytics &amp; KPIs</span></button>
+        <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="approvals">${icon("clipboard-check", 17)}<span>Driver Approvals</span></button>
+        <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="users">${icon("users-round", 17)}<span>Users</span></button>
+        <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="machinery">${icon("tractor", 17)}<span>Machinery</span></button>
+        <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="trips">${icon("car-front", 17)}<span>Live Trip Monitor</span></button>
+        <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="financials">${icon("credit-card", 17)}<span>EcoCash Payments</span></button>
+        <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="plans">${icon("package", 17)}<span>Subscription Plans</span></button>
+        <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="destinations">${icon("smartphone", 17)}<span>EcoCash Channels</span></button>
+        <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="ads">${icon("megaphone", 17)}<span>Advertising</span></button>
+        <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="settings">${icon("settings", 17)}<span>Social &amp; Contact</span></button>
+        <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="disputes">${icon("triangle-alert", 17)}<span>Support &amp; Disputes</span></button>
+        <button class="btn btn-outline btn-sm adm-tab-btn" data-tab="audit">${icon("shield-check", 17)}<span>Audit Log</span></button>
         </div>
 
         <!-- TAB 1: ANALYTICS -->
@@ -173,7 +174,7 @@ export const AdminView = {
           <div class="card">
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
               <div>
-                <h3 class="card-title">📋 Driver &amp; Owner Document Verification Queue</h3>
+            <h3 class="card-title icon-label">${icon("clipboard-check", 20)}<span>Driver &amp; Owner Document Verification Queue</span></h3>
                 <span id="admin-verification-filter-label" class="badge badge-warning">Pending Review</span>
               </div>
               <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap;">
@@ -186,7 +187,7 @@ export const AdminView = {
                   <option value="all">All</option>
                 </select>
                 <button type="button" class="btn btn-outline btn-sm" id="btn-audit-expiries">
-                  🔍 Audit Expiries &amp; Notify Providers
+              ${icon("search-check", 17)}<span>Audit Expiries &amp; Notify Providers</span>
                 </button>
               </div>
             </div>
@@ -200,7 +201,7 @@ export const AdminView = {
         <div id="adm-tab-users" style="display: none;">
           <div class="card">
             <div class="card-header">
-              <h3 class="card-title">👥 Registered User Directory</h3>
+          <h3 class="card-title icon-label">${icon("users-round", 20)}<span>Registered User Directory</span></h3>
               <span class="badge badge-info">All Profiles</span>
             </div>
             <div id="admin-users-container">
@@ -213,7 +214,7 @@ export const AdminView = {
         <div id="adm-tab-machinery" style="display: none;">
           <div class="card">
             <div class="card-header">
-              <h3 class="card-title">🚜 Machinery Verification</h3>
+          <h3 class="card-title icon-label">${icon("tractor", 20)}<span>Machinery Verification</span></h3>
               <span class="badge badge-neutral">Backend Pending</span>
             </div>
             ${renderEmptyState({
@@ -228,7 +229,7 @@ export const AdminView = {
         <div id="adm-tab-trips" style="display: none;">
           <div class="card">
             <div class="card-header">
-              <h3 class="card-title">🚗 Live Rides &amp; Cargo Freight Monitor</h3>
+          <h3 class="card-title icon-label">${icon("car-front", 20)}<span>Live Rides &amp; Cargo Freight Monitor</span></h3>
               <span class="badge badge-info">Active Operations</span>
             </div>
             <div id="admin-trips-container">
@@ -242,7 +243,7 @@ export const AdminView = {
           <div class="card">
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
               <div>
-                <h3 class="card-title">💳 EcoCash Payment Verification Queue</h3>
+            <h3 class="card-title icon-label">${icon("credit-card", 20)}<span>EcoCash Payment Verification Queue</span></h3>
                 <span class="badge badge-warning">Admin Verification Desk</span>
               </div>
               <div style="display: flex; gap: 0.5rem; align-items: center;">
@@ -253,7 +254,7 @@ export const AdminView = {
                   <option value="rejected">Rejected</option>
                   <option value="">All Payments</option>
                 </select>
-                <button id="btn-refresh-payments" class="btn btn-outline btn-sm">🔄 Refresh</button>
+            <button id="btn-refresh-payments" class="btn btn-outline btn-sm">${icon("refresh-cw", 16)}<span>Refresh</span></button>
               </div>
             </div>
             <div id="admin-transactions-container">
@@ -267,10 +268,10 @@ export const AdminView = {
           <div class="card">
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
               <div>
-                <h3 class="card-title">📦 Provider Subscription Plans</h3>
+            <h3 class="card-title icon-label">${icon("package", 20)}<span>Provider Subscription Plans</span></h3>
                 <span class="badge badge-info">Multi-Tier Pricing</span>
               </div>
-              <button id="btn-admin-add-plan" class="btn btn-primary btn-sm">+ Add New Plan</button>
+              <button id="btn-admin-add-plan" class="btn btn-primary btn-sm">${icon("plus", 16)}<span>Add New Plan</span></button>
             </div>
             <div id="admin-plans-container">
               <div style="padding: 2rem; text-align: center; color: var(--text-muted);">Loading subscription plans...</div>
@@ -283,10 +284,10 @@ export const AdminView = {
           <div class="card">
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
               <div>
-                <h3 class="card-title">📱 EcoCash Payment Destination Accounts</h3>
+            <h3 class="card-title icon-label">${icon("smartphone", 20)}<span>EcoCash Payment Destination Accounts</span></h3>
                 <span class="badge badge-success">Admin Accounts</span>
               </div>
-              <button id="btn-admin-add-destination" class="btn btn-primary btn-sm">+ Add Destination</button>
+              <button id="btn-admin-add-destination" class="btn btn-primary btn-sm">${icon("plus", 16)}<span>Add Destination</span></button>
             </div>
             <div id="admin-destinations-container">
               <div style="padding: 2rem; text-align: center; color: var(--text-muted);">Loading destinations...</div>
@@ -299,7 +300,7 @@ export const AdminView = {
           <div class="card">
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
               <div>
-                <h3 class="card-title">📢 Advertising Campaign Moderation</h3>
+            <h3 class="card-title icon-label">${icon("megaphone", 20)}<span>Advertising Campaign Moderation</span></h3>
                 <span class="badge badge-info">Commercial Ads</span>
               </div>
               <div style="display: flex; gap: 0.5rem; align-items: center;">
@@ -311,7 +312,7 @@ export const AdminView = {
                   <option value="approved">Approved</option>
                   <option value="rejected">Rejected</option>
                 </select>
-                <button id="btn-refresh-admin-ads" class="btn btn-outline btn-sm">🔄 Refresh</button>
+            <button id="btn-refresh-admin-ads" class="btn btn-outline btn-sm">${icon("refresh-cw", 16)}<span>Refresh</span></button>
               </div>
             </div>
             <div id="admin-ads-container">
@@ -324,28 +325,28 @@ export const AdminView = {
         <div id="adm-tab-settings" style="display: none;">
           <div class="card" style="margin-bottom: 1.5rem;">
             <div class="card-header">
-              <h3 class="card-title">🛡️ System Integration Status</h3>
+          <h3 class="card-title icon-label">${icon("shield-check", 20)}<span>System Integration Status</span></h3>
               <span class="badge badge-neutral">Live Client Checks</span>
             </div>
             <div class="grid-4" style="margin-top: 1rem;">
               <div style="background: var(--bg-subtle); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-light);">
                 <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700;">ECOCASH PAYMENTS</div>
-                <div style="font-weight: 800; color: #10b981; margin-top: 0.25rem;">🟢 Active Manual Flow</div>
+              <div class="icon-label" style="font-weight: 800; color: #10b981; margin-top: 0.25rem;">${icon("circle-check", 16)}<span>Active Manual Flow</span></div>
                 <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;">Admin verification enabled</div>
               </div>
               <div style="background: var(--bg-subtle); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-light);">
                 <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700;">APPWRITE ENGINE</div>
-                <div id="sys-status-appwrite" style="font-weight: 800; color: #64748b; margin-top: 0.25rem;">⚪ Checking…</div>
+              <div id="sys-status-appwrite" class="icon-label" style="font-weight: 800; color: #64748b; margin-top: 0.25rem;">${icon("loader-circle", 16)}<span>Checking…</span></div>
                 <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;">Cloud database &amp; auth</div>
               </div>
               <div style="background: var(--bg-subtle); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-light);">
                 <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700;">EMAIL SERVICE</div>
-                <div style="font-weight: 800; color: #64748b; margin-top: 0.25rem;">⚪ Not Verified</div>
+              <div class="icon-label" style="font-weight: 800; color: #64748b; margin-top: 0.25rem;">${icon("circle-help", 16)}<span>Not Verified</span></div>
                 <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;">Cannot be checked from the client</div>
               </div>
               <div style="background: var(--bg-subtle); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-light);">
                 <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700;">MAP CONFIGURATION</div>
-                <div id="sys-status-map" style="font-weight: 800; color: #64748b; margin-top: 0.25rem;">⚪ Checking…</div>
+              <div id="sys-status-map" class="icon-label" style="font-weight: 800; color: #64748b; margin-top: 0.25rem;">${icon("loader-circle", 16)}<span>Checking…</span></div>
                 <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;">Nominatim &amp; Leaflet engine</div>
               </div>
             </div>
@@ -353,7 +354,7 @@ export const AdminView = {
 
           <div class="card">
             <div class="card-header">
-              <h3 class="card-title">⚙️ Official Social Media &amp; Support WhatsApp Setup</h3>
+          <h3 class="card-title icon-label">${icon("settings", 20)}<span>Official Social Media &amp; Support WhatsApp Setup</span></h3>
               <span class="badge badge-neutral">Platform Config</span>
             </div>
             <form id="admin-social-form" style="padding: 1rem 0;">
@@ -395,7 +396,7 @@ export const AdminView = {
         <div id="adm-tab-disputes" style="display: none;">
           <div class="card">
             <div class="card-header">
-              <h3 class="card-title">⚠️ Support Ticket &amp; Dispute Resolution Desk</h3>
+          <h3 class="card-title icon-label">${icon("triangle-alert", 20)}<span>Support Ticket &amp; Dispute Resolution Desk</span></h3>
               <span class="badge badge-danger">Customer Issues</span>
             </div>
             <div id="admin-disputes-container">
@@ -408,7 +409,7 @@ export const AdminView = {
         <div id="adm-tab-audit" style="display: none;">
           <div class="card">
             <div class="card-header">
-              <h3 class="card-title">🛡️ System Privilege &amp; Activity Audit Log</h3>
+          <h3 class="card-title icon-label">${icon("shield-check", 20)}<span>System Privilege &amp; Activity Audit Log</span></h3>
               <span class="badge badge-info">Immutable Security Records</span>
             </div>
             <div id="admin-audit-container">
@@ -588,28 +589,28 @@ export const AdminView = {
   },
 
   async loadSystemStatus() {
-    const setStatus = (id, text, color) => {
+    const setStatus = (id, iconName, text, color) => {
       const el = document.getElementById(id);
       if (el) {
-        el.innerText = text;
+        el.innerHTML = `${icon(iconName, 16)}<span>${text}</span>`;
         el.style.color = color;
       }
     };
 
     try {
       await getAppwriteAccount().get();
-      setStatus("sys-status-appwrite", "🟢 Connected", "#10b981");
+      setStatus("sys-status-appwrite", "circle-check", "Connected", "#10b981");
     } catch (err) {
       if (err && typeof err.code === "number") {
-        setStatus("sys-status-appwrite", "🟢 Reachable", "#10b981");
+        setStatus("sys-status-appwrite", "circle-check", "Reachable", "#10b981");
       } else {
         console.warn("Appwrite reachability check:", err);
-        setStatus("sys-status-appwrite", "🔴 Unreachable", "#ef4444");
+        setStatus("sys-status-appwrite", "circle-x", "Unreachable", "#ef4444");
       }
     }
 
     const mapsLoaded = typeof window.L !== "undefined";
-    setStatus("sys-status-map", mapsLoaded ? "🟢 Active" : "🔴 Not Loaded", mapsLoaded ? "#10b981" : "#ef4444");
+    setStatus("sys-status-map", mapsLoaded ? "circle-check" : "circle-x", mapsLoaded ? "Active" : "Not Loaded", mapsLoaded ? "#10b981" : "#ef4444");
   },
 
   async loadLiveTrips() {
@@ -706,7 +707,7 @@ export const AdminView = {
                   <td style="padding: 0.75rem;">
                     ${d.status !== "resolved" ? `
                       <button type="button" class="btn btn-primary btn-sm btn-resolve-dispute" data-dispute-id="${d.$id || d.id}">
-                        ✓ Resolve
+                        ${icon("circle-check", 16)}<span>Resolve</span>
                       </button>
                     ` : `<span style="color: #10b981; font-weight: 700;">Resolved</span>`}
                   </td>
@@ -1074,7 +1075,7 @@ export const AdminView = {
                     <td style="padding: 0.75rem;">
                       ${hasProof ? `
                         <button type="button" class="btn btn-outline btn-sm btn-view-payment-proof" data-payment-id="${paymentId}" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">
-                          🔍 View Proof
+                ${icon("search", 16)}<span>View Proof</span>
                         </button>
                       ` : `<span style="font-size: 0.8rem; color: var(--text-muted);">No file</span>`}
                     </td>
@@ -1091,10 +1092,10 @@ export const AdminView = {
                       ${isPending ? `
                         <div style="display: flex; gap: 0.35rem; justify-content: flex-end;">
                           <button type="button" class="btn btn-primary btn-sm btn-approve-payment" data-payment-id="${paymentId}" style="padding: 0.35rem 0.6rem; font-size: 0.8rem;">
-                            ✓ Approve
+                            ${icon("circle-check", 16)}<span>Approve</span>
                           </button>
                           <button type="button" class="btn btn-danger btn-sm btn-reject-payment" data-payment-id="${paymentId}" style="padding: 0.35rem 0.6rem; font-size: 0.8rem;">
-                            ✗ Reject
+                            ${icon("circle-x", 16)}<span>Reject</span>
                           </button>
                         </div>
                       ` : `<span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">Processed</span>`}
@@ -1145,7 +1146,7 @@ export const AdminView = {
           } catch (err) {
             alert("Failed to approve payment: " + err.message);
             e.currentTarget.disabled = false;
-            e.currentTarget.innerText = "✓ Approve";
+            e.currentTarget.innerHTML = `${icon("circle-check", 16)}<span>Approve</span>`;
           }
         });
       });
@@ -1169,7 +1170,7 @@ export const AdminView = {
           } catch (err) {
             alert("Failed to reject payment: " + err.message);
             e.currentTarget.disabled = false;
-            e.currentTarget.innerText = "✗ Reject";
+            e.currentTarget.innerHTML = `${icon("circle-x", 16)}<span>Reject</span>`;
           }
         });
       });
@@ -1235,13 +1236,13 @@ export const AdminView = {
 
                 <div style="display: flex; gap: 0.5rem; justify-content: flex-end; border-top: 1px solid var(--border-light); padding-top: 0.75rem; margin-top: 0.5rem;">
                   <button type="button" class="btn btn-outline btn-sm btn-edit-plan" data-plan='${escapeHtml(JSON.stringify(p))}'>
-                    ✏️ Edit
+                    ${icon("pencil", 16)}<span>Edit</span>
                   </button>
                   <button type="button" class="btn btn-outline btn-sm btn-toggle-plan" data-plan-id="${planId}">
                     ${p.active ? "Deactivate" : "Activate"}
                   </button>
-                  <button type="button" class="btn btn-danger btn-sm btn-delete-plan" data-plan-id="${planId}">
-                    🗑️
+                  <button type="button" class="btn btn-danger btn-sm btn-delete-plan icon-button" data-plan-id="${planId}" aria-label="Delete subscription plan" title="Delete subscription plan">
+                    ${icon("trash-2", 17)}
                   </button>
                 </div>
               </div>
@@ -1347,7 +1348,7 @@ export const AdminView = {
     `;
 
     Modal.open({
-      title: isEdit ? "✏️ Edit Subscription Plan" : "📦 Create Subscription Plan",
+      title: isEdit ? "Edit Subscription Plan" : "Create Subscription Plan",
       content
     });
 
@@ -1421,7 +1422,7 @@ export const AdminView = {
 
                   <h4 style="font-weight: 800; font-size: 1.15rem; margin-bottom: 0.25rem;">${escapeHtml(d.account_name)}</h4>
                   <div style="font-size: 1.2rem; font-weight: 800; font-family: monospace; color: #0284c7; margin-bottom: 0.5rem;">
-                    📱 ${escapeHtml(d.account_number)}
+                    <span class="icon-label">${icon("smartphone", 18)}<span>${escapeHtml(d.account_number)}</span></span>
                   </div>
 
                   <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
@@ -1435,13 +1436,13 @@ export const AdminView = {
 
                 <div style="display: flex; gap: 0.5rem; justify-content: flex-end; border-top: 1px solid var(--border-light); padding-top: 0.75rem; margin-top: 1rem;">
                   <button type="button" class="btn btn-outline btn-sm btn-edit-dest" data-dest='${escapeHtml(JSON.stringify(d))}'>
-                    ✏️ Edit
+                    ${icon("pencil", 16)}<span>Edit</span>
                   </button>
                   <button type="button" class="btn btn-outline btn-sm btn-toggle-dest" data-dest-id="${destId}">
                     ${d.active ? "Deactivate" : "Activate"}
                   </button>
-                  <button type="button" class="btn btn-danger btn-sm btn-delete-dest" data-dest-id="${destId}">
-                    🗑️
+                  <button type="button" class="btn btn-danger btn-sm btn-delete-dest icon-button" data-dest-id="${destId}" aria-label="Delete EcoCash destination" title="Delete EcoCash destination">
+                    ${icon("trash-2", 17)}
                   </button>
                 </div>
               </div>
@@ -1547,7 +1548,7 @@ export const AdminView = {
     `;
 
     Modal.open({
-      title: isEdit ? "✏️ Edit EcoCash Destination" : "📱 Add EcoCash Destination",
+      title: isEdit ? "Edit EcoCash Destination" : "Add EcoCash Destination",
       content
     });
 
@@ -1655,7 +1656,7 @@ export const AdminView = {
                           <img src="${escapeHtml(imageUrl)}" alt="Ad Creative" style="width: 50px; height: 35px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-light);" />
                         </a>
                       ` : `<span style="font-size: 0.75rem; color: var(--text-muted);">Text only</span>`}
-                      ${c.target_url ? `<div style="font-size: 0.75rem; margin-top: 0.2rem;"><a href="${escapeHtml(c.target_url)}" target="_blank" rel="noopener noreferrer" style="color: #0284c7;">Link ↗</a></div>` : ""}
+                  ${c.target_url ? `<div style="font-size: 0.75rem; margin-top: 0.2rem;"><a class="icon-label icon-label--inline" href="${escapeHtml(c.target_url)}" target="_blank" rel="noopener noreferrer" style="color: #0284c7;"><span>Link</span>${icon("external-link", 14)}</a></div>` : ""}
                     </td>
                     <td style="padding: 0.75rem;">
                       <span class="badge ${statusBadge}">${escapeHtml(String(c.status || "pending_review").replace(/_/g, " ").toUpperCase())}</span>
@@ -1665,10 +1666,10 @@ export const AdminView = {
                       ${isPending ? `
                         <div style="display: flex; gap: 0.35rem; justify-content: flex-end;">
                           <button type="button" class="btn btn-primary btn-sm btn-approve-ad" data-ad-id="${campId}" style="padding: 0.35rem 0.6rem; font-size: 0.8rem;">
-                            ✓ Approve
+                            ${icon("circle-check", 16)}<span>Approve</span>
                           </button>
                           <button type="button" class="btn btn-danger btn-sm btn-reject-ad" data-ad-id="${campId}" style="padding: 0.35rem 0.6rem; font-size: 0.8rem;">
-                            ✗ Reject
+                            ${icon("circle-x", 16)}<span>Reject</span>
                           </button>
                         </div>
                       ` : `<span style="font-size: 0.8rem; color: var(--text-muted);">Moderated</span>`}

@@ -150,16 +150,15 @@ async function runAdminNetworkPathTest() {
     assert(Boolean(customerToken && customerToken.length > 50), "Customer signed in with Supabase Auth and received access_token");
 
     // -------------------------------------------------------------------------
-    // 3. ADMIN HTTP CALL TO TRUSTED API (WITH SUPABASE BEARER TOKEN)
+    // 3. TEST A: ADMIN HTTP CALL TO /api/trusted-api (WITH SUPABASE BEARER TOKEN)
     // -------------------------------------------------------------------------
-    console.log("\n--- STEP 3: HTTP POST WITH SUPABASE BEARER TOKEN (NO APPWRITE JWT) ---");
+    console.log("\n--- TEST A: ADMIN HTTP POST TO /api/trusted-api WITH SUPABASE BEARER TOKEN ---");
 
-    const adminResponse = await fetch(`http://localhost:${PORT}/.netlify/functions/trusted-api`, {
+    const adminResponse = await fetch(`http://localhost:${PORT}/api/trusted-api`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${adminToken}`
-        // Notice: NO Appwrite header, NO X-Appwrite-JWT
       },
       body: JSON.stringify({
         action: "admin_get_platform_stats",
@@ -168,16 +167,18 @@ async function runAdminNetworkPathTest() {
     });
 
     const adminResult = await adminResponse.json();
+    console.log("  [HTTP STATUS]:", adminResponse.status);
+    console.log("  [HTTP RESPONSE]:", JSON.stringify(adminResult));
     assert(adminResponse.status === 200, `Admin request returned HTTP 200 OK (Status: ${adminResponse.status})`);
     assert(adminResult && adminResult.totalUsers !== undefined, "Admin received platform stats payload successfully");
     assert(!adminResponse.headers.get("x-appwrite-jwt"), "Response confirmed no Appwrite dependency");
 
     // -------------------------------------------------------------------------
-    // 4. NON-ADMIN HTTP CALL TO TRUSTED API (ACCESS MUST BE DENIED)
+    // 4. TEST B: NON-ADMIN HTTP CALL TO /api/trusted-api (MUST BE DENIED 403)
     // -------------------------------------------------------------------------
-    console.log("\n--- STEP 4: NON-ADMIN HTTP CALL (STRICTLY DENIED) ---");
+    console.log("\n--- TEST B: NON-ADMIN HTTP POST TO /api/trusted-api (STRICTLY DENIED) ---");
 
-    const customerResponse = await fetch(`http://localhost:${PORT}/.netlify/functions/trusted-api`, {
+    const customerResponse = await fetch(`http://localhost:${PORT}/api/trusted-api`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -190,6 +191,8 @@ async function runAdminNetworkPathTest() {
     });
 
     const customerResult = await customerResponse.json();
+    console.log("  [HTTP STATUS]:", customerResponse.status);
+    console.log("  [HTTP RESPONSE]:", JSON.stringify(customerResult));
     assert(customerResponse.status === 403, `Non-admin request correctly returned HTTP 403 Forbidden (Status: ${customerResponse.status})`);
     assert(
       customerResult.error && customerResult.error.includes("Active administrator privileges required"),
@@ -197,11 +200,11 @@ async function runAdminNetworkPathTest() {
     );
 
     // -------------------------------------------------------------------------
-    // 5. UNCOMMITTED/MISSING TOKEN (MUST BE 401 UNAUTHORIZED)
+    // 5. TEST C: MISSING/UNAUTHENTICATED TOKEN (MUST BE 401 UNAUTHORIZED)
     // -------------------------------------------------------------------------
-    console.log("\n--- STEP 5: UNAUTHENTICATED REQUEST (STRICTLY DENIED) ---");
+    console.log("\n--- TEST C: UNAUTHENTICATED REQUEST TO /api/trusted-api (STRICTLY DENIED) ---");
 
-    const unauthResponse = await fetch(`http://localhost:${PORT}/.netlify/functions/trusted-api`, {
+    const unauthResponse = await fetch(`http://localhost:${PORT}/api/trusted-api`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
@@ -213,6 +216,8 @@ async function runAdminNetworkPathTest() {
     });
 
     const unauthResult = await unauthResponse.json();
+    console.log("  [HTTP STATUS]:", unauthResponse.status);
+    console.log("  [HTTP RESPONSE]:", JSON.stringify(unauthResult));
     assert(unauthResponse.status === 401, `Unauthenticated request returned HTTP 401 Unauthorized (Status: ${unauthResponse.status})`);
 
     // -------------------------------------------------------------------------

@@ -5,6 +5,7 @@
 import { EquipmentService } from "../services/equipment.js";
 import { renderEmptyState } from "../components/EmptyState.js";
 import { Modal } from "../components/Modal.js";
+import { icon } from "../components/Icon.js";
 
 const escapeHtml = (value) => {
   if (value === null || value === undefined) return "";
@@ -28,7 +29,7 @@ export const EquipmentView = {
             <p style="color: var(--text-muted); font-size: 0.95rem;">Hire verified agricultural, earthmoving and haulage machinery directly from real owners</p>
           </div>
           <a href="#owner" class="btn btn-primary btn-sm">
-            🚜 List Your Equipment
+          ${icon("tractor", 18)}<span>List Your Equipment</span>
           </a>
         </div>
 
@@ -92,7 +93,7 @@ export const EquipmentView = {
 
               <h3 style="font-size: 1.2rem; font-weight: 800; margin-bottom: 0.25rem;">${escapeHtml(item.title)}</h3>
               <div style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 0.75rem;">
-                ${escapeHtml(item.make)} ${escapeHtml(item.model)} • 📍 ${escapeHtml(item.location_name)}
+                  ${escapeHtml(item.make)} ${escapeHtml(item.model)} <span class="icon-label icon-label--inline">${icon("map-pin", 15)}<span>${escapeHtml(item.location_name)}</span></span>
               </div>
 
               <p style="color: var(--text-muted); font-size: 0.9rem; flex: 1; margin-bottom: 1.25rem;">
@@ -106,7 +107,7 @@ export const EquipmentView = {
                 </div>
 
                 <button class="btn btn-primary btn-sm" disabled title="Equipment hire is not available on TransMove yet">
-                  Hire Machine 🚜
+                  ${icon("calendar-check", 17)}<span>Hire Machine</span>
                 </button>
               </div>
             </div>

@@ -4,6 +4,7 @@
 // Connected to Appwrite Web SDK Authentication
 // ==============================================================================
 import { AuthService } from "../services/auth.js";
+import { icon } from "../components/Icon.js";
 
 export const AuthView = {
   render(type = "login") {
@@ -26,7 +27,7 @@ export const AuthView = {
         <div class="login-left-panel">
           <div class="login-left-brand">
             <div class="login-brand-logo">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>
+              ${icon("car-front", 32)}
               <span>Trans<span style="color: #60a5fa;">Move</span></span>
             </div>
             <div class="login-brand-tagline">People. Goods. Opportunities.</div>
@@ -40,15 +41,15 @@ export const AuthView = {
 
             <div class="login-benefits-list">
               <div class="login-benefit-item">
-                <div class="login-benefit-icon">👥</div>
+                <div class="login-benefit-icon">${icon("users-round", 24)}</div>
                 <span>Move People</span>
               </div>
               <div class="login-benefit-item">
-                <div class="login-benefit-icon">📦</div>
+                <div class="login-benefit-icon">${icon("package", 24)}</div>
                 <span>Move Goods</span>
               </div>
               <div class="login-benefit-item">
-                <div class="login-benefit-icon">⚒</div>
+                <div class="login-benefit-icon">${icon("construction", 24)}</div>
                 <span>Create Opportunities</span>
               </div>
             </div>
@@ -64,7 +65,7 @@ export const AuthView = {
           <div class="login-card-inner">
             <!-- Mobile header logo (shown on small screens only) -->
             <div class="login-mobile-brand">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>
+              ${icon("car-front", 28)}
               <span>Trans<span style="color: #2563eb;">Move</span></span>
             </div>
 
@@ -87,10 +88,7 @@ export const AuthView = {
                 <div class="input-password-wrapper">
                   <input type="password" id="auth-password" class="form-input" placeholder="Enter your password" required autocomplete="current-password" />
                   <button type="button" id="btn-toggle-password" class="btn-password-toggle" title="Show password" aria-label="Toggle password visibility">
-                    <svg id="eye-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                      <circle cx="12" cy="12" r="3"></circle>
-                    </svg>
+                    ${icon("eye", 20)}
                   </button>
                 </div>
               </div>
@@ -119,7 +117,7 @@ export const AuthView = {
         <div class="card" style="padding: 2.25rem;">
           <div style="text-align: center; margin-bottom: 2rem;">
             <div style="display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; border-radius: var(--radius-full); background: var(--primary-light); color: var(--primary); margin-bottom: 1rem;">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>
+              ${icon("car-front", 28)}
             </div>
             <h2 style="font-size: 1.6rem; font-weight: 800; color: var(--text-main);">
               Create your TransMove Account
@@ -163,10 +161,7 @@ export const AuthView = {
               <div class="input-password-wrapper">
                 <input type="password" id="auth-password" class="form-input" placeholder="••••••••" autocomplete="new-password" required minlength="8" />
                 <button type="button" id="btn-toggle-password" class="btn-password-toggle" title="Show password" aria-label="Toggle password visibility">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-                    <circle cx="12" cy="12" r="3"></circle>
-                  </svg>
+                  ${icon("eye", 20)}
                 </button>
               </div>
             </div>
@@ -190,7 +185,7 @@ export const AuthView = {
         <div class="login-left-panel">
           <div class="login-left-brand">
             <div class="login-brand-logo">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>
+              ${icon("car-front", 32)}
               <span>Trans<span style="color: #60a5fa;">Move</span></span>
             </div>
             <div class="login-brand-tagline">People. Goods. Opportunities.</div>
@@ -240,7 +235,7 @@ export const AuthView = {
         <div class="login-left-panel">
           <div class="login-left-brand">
             <div class="login-brand-logo">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>
+              ${icon("car-front", 32)}
               <span>Trans<span style="color: #60a5fa;">Move</span></span>
             </div>
             <div class="login-brand-tagline">People. Goods. Opportunities.</div>
@@ -295,7 +290,7 @@ export const AuthView = {
         <div class="login-left-panel">
           <div class="login-left-brand">
             <div class="login-brand-logo">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>
+              ${icon("car-front", 32)}
               <span>Trans<span style="color: #60a5fa;">Move</span></span>
             </div>
             <div class="login-brand-tagline">People. Goods. Opportunities.</div>
@@ -337,6 +332,8 @@ export const AuthView = {
         const isPassword = passwordInput.getAttribute("type") === "password";
         passwordInput.setAttribute("type", isPassword ? "text" : "password");
         toggleBtn.setAttribute("title", isPassword ? "Hide password" : "Show password");
+        toggleBtn.setAttribute("aria-label", isPassword ? "Hide password" : "Show password");
+        toggleBtn.innerHTML = icon(isPassword ? "eye-off" : "eye", 20);
       });
     }
 
@@ -458,7 +455,7 @@ export const AuthView = {
       try {
         await AuthService.verifyEmail(userId, secret);
         if (statusText) {
-          statusText.innerHTML = `<span style="color: #059669; font-weight: 700;">✅ Email successfully verified!</span><br><br>Your TransMove account email is now confirmed.`;
+        statusText.innerHTML = `<span class="icon-label" style="color: #059669; font-weight: 700;">${icon("circle-check", 18)}<span>Email successfully verified!</span></span><br><br>Your TransMove account email is now confirmed.`;
         }
         if (actionArea) actionArea.style.display = "block";
       } catch (err) {
