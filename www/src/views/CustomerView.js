@@ -17,6 +17,7 @@ import { ReceiptService } from "../services/receipts.js";
 import { SocialService } from "../services/social.js";
 import { SmartPopup } from "../components/SmartPopup.js";
 import { AdvertisingService } from "../services/advertising.js";
+import { MachineryService } from "../services/machinery.js";
 import { icon } from "../components/Icon.js";
 import { resolveAvatarUrl } from "../utils/avatar.js";
 import { getFilePreviewUrl } from "../config/appwrite.js";
@@ -159,6 +160,7 @@ export const CustomerView = {
 
         <!-- TAB 0: OVERVIEW & LIVE STATUS DASHBOARD -->
         <div id="tab-content-overview" class="${this.activeTab === "overview" ? "" : "hidden"}" style="${this.activeTab === "overview" ? "" : "display:none;"}">
+          <div id="promoted-machinery-banner-container"></div>
           <section class="passenger-overview-card" aria-labelledby="passenger-welcome-title">
             <div class="passenger-welcome-row">
               <div>
@@ -989,7 +991,72 @@ export const CustomerView = {
       await this.loadOverviewData();
     }
 
+    await this.loadPromotedMachineryBanner();
     await this.startJourneySync();
+  },
+
+  async loadPromotedMachineryBanner() {
+    const container = document.getElementById("promoted-machinery-banner-container");
+    if (!container) return;
+
+    try {
+      const sponsoredList = await MachineryService.getActiveSponsoredAd();
+      if (!Array.isArray(sponsoredList) || sponsoredList.length === 0) {
+        container.innerHTML = "";
+        return;
+      }
+
+      const item = sponsoredList[0];
+      const photoUrl = Array.isArray(item.photos) && item.photos.length > 0
+        ? (item.photos[0].file_url || item.photos[0].url || item.photos[0])
+        : "/assets/images/logo.png";
+
+      container.innerHTML = `
+        <div class="sponsored-machinery-bar card" id="sponsored-machinery-card-${escapeHtml(item.id)}" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(59, 130, 246, 0.08) 100%); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 12px; padding: 0.85rem 1.15rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.85rem; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.1);">
+          <div style="display: flex; align-items: center; gap: 0.85rem; flex: 1; min-width: 260px;">
+            <div style="width: 52px; height: 52px; border-radius: 8px; overflow: hidden; background: #0f172a; flex-shrink: 0; display: flex; align-items: center; justify-content: center;">
+              <img src="${escapeHtml(photoUrl)}" alt="${escapeHtml(item.name)}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.src='/assets/images/logo.png'; this.style.objectFit='contain';" />
+            </div>
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.2rem;">
+                <span class="badge" style="background: #10b981; color: #fff; font-weight: 800; font-size: 0.65rem; letter-spacing: 0.5px; padding: 0.15rem 0.45rem; border-radius: 3px;">SPONSORED MACHINERY</span>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(item.category)}</span>
+              </div>
+              <div style="font-weight: 800; font-size: 1rem; color: var(--text-main); line-height: 1.2;">
+                ${escapeHtml(item.name)} <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 400;">(${escapeHtml(item.brand)} ${escapeHtml(item.model)})</span>
+              </div>
+              <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.15rem;">
+                Available in <strong>${escapeHtml(item.location || item.province || "Zimbabwe")}</strong> • <strong style="color: #10b981;">From $${Number(item.base_hire_rate).toFixed(2)}/${item.rate_period === "per_hour" ? "hr" : "day"}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <a href="#machinery" class="btn btn-outline btn-sm" style="font-size: 0.8rem; padding: 0.35rem 0.75rem; font-weight: 600;">View</a>
+            <a href="#machinery?hire=${escapeHtml(item.id)}" class="btn btn-primary btn-sm" style="font-size: 0.8rem; padding: 0.35rem 0.85rem; font-weight: 700;">Hire</a>
+            <button type="button" class="btn btn-outline btn-sm btn-dismiss-promoted-ad" data-ad-id="${escapeHtml(item.advertisement_id)}" data-card-id="sponsored-machinery-card-${escapeHtml(item.id)}" style="font-size: 0.8rem; padding: 0.35rem 0.55rem; color: var(--text-muted);" title="Dismiss this ad">Dismiss</button>
+          </div>
+        </div>
+      `;
+
+      container.querySelector(".btn-dismiss-promoted-ad")?.addEventListener("click", async (e) => {
+        const adId = e.currentTarget.getAttribute("data-ad-id");
+        const cardId = e.currentTarget.getAttribute("data-card-id");
+        const card = document.getElementById(cardId);
+        if (card) {
+          card.style.transition = "opacity 0.3s ease, transform 0.3s ease";
+          card.style.opacity = "0";
+          card.style.transform = "translateY(-10px)";
+          setTimeout(() => card.remove(), 300);
+        }
+        if (adId) {
+          await MachineryService.dismissSponsoredAd(adId).catch(() => {});
+        }
+      });
+    } catch (err) {
+      console.warn("Could not load promoted machinery banner:", err);
+      container.innerHTML = "";
+    }
   },
 
   switchTab(tab) {
@@ -1008,6 +1075,7 @@ export const CustomerView = {
 
     if (tab === "overview") {
       this.loadOverviewData();
+      this.loadPromotedMachineryBanner();
     } else if (tab === "new-request") {
       setTimeout(() => {
         this.initMap();

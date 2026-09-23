@@ -6,6 +6,7 @@ import { AdminService } from "../services/admin.js";
 import { AuthService } from "../services/auth.js";
 import { DisputeService } from "../services/disputes.js";
 import { PaymentService } from "../services/payments.js";
+import { ReportService } from "../services/reports.js";
 import { Modal } from "../components/Modal.js";
 import { renderEmptyState } from "../components/EmptyState.js";
 import { icon } from "../components/Icon.js";
@@ -238,8 +239,38 @@ export const AdminView = {
           </div>
         </div>
 
-        <!-- TAB 4: FINANCIALS (ECOCASH PAYMENT QUEUE) -->
+        <!-- TAB 4: FINANCIALS (ECOCASH PAYMENT QUEUE & PDF REPORTS) -->
         <div id="adm-tab-financials" style="display: none;">
+          <!-- Financial Statements & PDF Reports Card -->
+          <div class="card" style="margin-bottom: 1.5rem; background: var(--bg-surface); border: 1px solid var(--border-light); padding: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
+              <div>
+                <h4 style="margin: 0; font-size: 1.1rem; font-weight: 800; color: var(--text-main); display: flex; align-items: center; gap: 0.5rem;">
+                  ${icon("file-text", 20)} <span>Export Financial &amp; Balance PDF Reports</span>
+                </h4>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.82rem; color: var(--text-muted);">
+                  Download official server-aggregated financial statements and account balance summaries for platform auditing.
+                </p>
+              </div>
+              <span class="badge badge-info">PDF Statements</span>
+            </div>
+
+            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+              <button type="button" class="btn btn-outline btn-sm btn-export-admin-pdf" data-period="weekly" data-type="transactions" style="font-weight: 700;">
+                ${icon("download", 16)} <span>Weekly Transactions (PDF)</span>
+              </button>
+              <button type="button" class="btn btn-outline btn-sm btn-export-admin-pdf" data-period="monthly" data-type="transactions" style="font-weight: 700;">
+                ${icon("download", 16)} <span>Monthly Transactions (PDF)</span>
+              </button>
+              <button type="button" class="btn btn-outline btn-sm btn-export-admin-pdf" data-period="weekly" data-type="balances" style="font-weight: 700;">
+                ${icon("download", 16)} <span>Weekly Balances (PDF)</span>
+              </button>
+              <button type="button" class="btn btn-outline btn-sm btn-export-admin-pdf" data-period="monthly" data-type="balances" style="font-weight: 700;">
+                ${icon("download", 16)} <span>Monthly Balances (PDF)</span>
+              </button>
+            </div>
+          </div>
+
           <div class="card">
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
               <div>
@@ -481,6 +512,26 @@ export const AdminView = {
     // Payment queue controls
     document.getElementById("btn-refresh-payments")?.addEventListener("click", () => this.loadTransactions());
     document.getElementById("admin-payments-filter")?.addEventListener("change", () => this.loadTransactions());
+
+    // PDF report exports
+    document.querySelectorAll(".btn-export-admin-pdf").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        const target = e.currentTarget;
+        const period = target.dataset.period;
+        const reportType = target.dataset.type;
+        const origHtml = target.innerHTML;
+        target.disabled = true;
+        target.textContent = "Generating PDF...";
+        try {
+          await ReportService.exportAdminPdf({ period, report_type: reportType });
+        } catch (err) {
+          alert("PDF Generation Failed: " + err.message);
+        } finally {
+          target.disabled = false;
+          target.innerHTML = origHtml;
+        }
+      });
+    });
 
     // Subscription plan management controls
     document.getElementById("btn-admin-add-plan")?.addEventListener("click", () => this.openAddPlanModal());

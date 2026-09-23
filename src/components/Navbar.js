@@ -17,14 +17,14 @@ export function renderNavbar(currentProfile, currentRoute) {
   return `
     <nav class="navbar">
       <div class="navbar-inner">
-        <a href="#home" id="brand-logo-stealth" class="brand-logo" title="TransMove Marketplace">
-          ${icon("car-front", 28)}
-          Trans<span>Move</span>
+        <a href="#home" id="brand-logo-stealth" class="brand-logo" title="TransMove Marketplace" style="display: inline-flex; align-items: center; gap: 0.6rem; text-decoration: none;">
+          <img src="/assets/images/logo.png" alt="TransMove Logo" style="height: 32px; width: 32px; object-fit: contain; border-radius: 6px;" />
+          <span>Trans<span style="color: #10b981;">Move</span></span>
         </a>
 
         <div class="nav-links">
           <a href="#home" class="nav-link ${currentRoute === "home" ? "active" : ""}">Marketplace</a>
-          <a href="#equipment" class="nav-link ${currentRoute === "equipment" ? "active" : ""}">Machinery &amp; Freight</a>
+          <a href="#machinery" class="nav-link ${(currentRoute === "machinery" || currentRoute === "equipment") ? "active" : ""}">Machinery</a>
           <a href="#business" class="nav-link ${currentRoute === "business" ? "active" : ""}">Business</a>
           <a href="#subscriptions" class="nav-link ${currentRoute === "subscriptions" ? "active" : ""}">Plans</a>
           <a href="#advertise" class="nav-link ${currentRoute === "advertise" ? "active" : ""}">Advertise</a>

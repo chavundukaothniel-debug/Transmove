@@ -7,6 +7,7 @@ const navIcon = (name) => icon({
   profile: "user-round",
   earnings: "circle-dollar-sign",
   explore: "compass",
+  machinery: "tractor",
   card: "credit-card",
   more: "menu"
 }[name] || "house", 22);
@@ -24,25 +25,25 @@ export function renderMobileNav(currentProfile, currentRoute) {
 
   const items = passenger ? [
     { href: "#customer", label: "Home", icon: "home" },
-    { href: "#customer?tab=quotes", label: "Requests", icon: "request" },
+    { href: "#machinery", label: "Machinery", icon: "machinery" },
     { href: "#customer?tab=bookings", label: "Trips", icon: "trips" },
     { href: "#messages", label: "Messages", icon: "message" },
     { action: "more", label: "More", icon: "more" }
   ] : role === "driver" ? [
     { href: "#driver", label: "Home", icon: "home" },
-    { href: "#driver?tab=available", label: "Requests", icon: "request" },
+    { href: "#machinery", label: "Machinery", icon: "machinery" },
     { href: "#driver?tab=offers", label: "Jobs", icon: "trips" },
     { href: "#messages", label: "Messages", icon: "message" },
     { action: "more", label: "More", icon: "more" }
   ] : currentProfile ? [
     { href: `#${currentRoute || "home"}`, label: "Home", icon: "home" },
-    { href: "#equipment", label: "Explore", icon: "explore" },
+    { href: "#machinery", label: "Machinery", icon: "machinery" },
     { href: "#messages", label: "Messages", icon: "message" },
     { href: "#subscriptions", label: "Plans", icon: "card" },
     { action: "more", label: "More", icon: "more" }
   ] : [
     { href: "#home", label: "Home", icon: "home" },
-    { href: "#equipment", label: "Explore", icon: "explore" },
+    { href: "#machinery", label: "Machinery", icon: "machinery" },
     { href: "#subscriptions", label: "Plans", icon: "card" },
     { href: "#support", label: "Help", icon: "message" },
     { href: "#login", label: "Sign in", icon: "profile" }

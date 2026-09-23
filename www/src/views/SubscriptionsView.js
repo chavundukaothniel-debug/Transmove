@@ -1,6 +1,6 @@
 // ==============================================================================
 // TRANSMOVE SUBSCRIPTIONS & MANUAL ECOCASH PAYMENT VIEW
-// Multi-tier subscription plans (Flex Pass, Professional, Pro 90, Pro Annual)
+// Multi-tier subscription plans (Driver Pass & Heavy Machinery Equipment)
 // Manual EcoCash payment submission with admin verification.
 // Three Consistent Tabs: Plans & Pricing, Make Payment, Payment History & Status.
 // Passengers are 100% FREE & strictly excluded from subscriptions.
@@ -9,12 +9,34 @@ import { SubscriptionService } from "../services/subscriptions.js";
 import { PaymentService } from "../services/payments.js";
 import { AuthService } from "../services/auth.js";
 import { ReceiptService } from "../services/receipts.js";
+import { ReportService } from "../services/reports.js";
 import { Modal } from "../components/Modal.js";
 import { icon } from "../components/Icon.js";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 }[c]));
+
+const VERIFIED_ECOCASH_DESTINATIONS = [
+  {
+    id: "20000000-0000-4000-8000-000000000001",
+    $id: "20000000-0000-4000-8000-000000000001",
+    account_name: "Chavunduka Othniel Nyasha",
+    account_number: "+263787692127",
+    type: "ecocash_personal",
+    currency: "USD",
+    is_active: true
+  },
+  {
+    id: "20000000-0000-4000-8000-000000000002",
+    $id: "20000000-0000-4000-8000-000000000002",
+    account_name: "Simba Ernest Musasu",
+    account_number: "+263786447601",
+    type: "ecocash_personal",
+    currency: "USD",
+    is_active: true
+  }
+];
 
 export const SubscriptionsView = {
   currentProfile: null,
@@ -23,7 +45,9 @@ export const SubscriptionsView = {
   subStatus: null,
   paymentHistory: [],
   activeTab: "plans", // 'plans' | 'payment' | 'history'
+  planFilter: "all", // 'all' | 'driver' | 'machinery'
   selectedPlanId: null,
+  selectedDestinationId: null,
   refreshTimer: null,
   refreshInFlight: false,
   submissionInFlight: false,
@@ -64,19 +88,31 @@ export const SubscriptionsView = {
 
     try {
       const [plans, destinations, subStatus, paymentHistory] = await Promise.all([
-        SubscriptionService.getPlans(),
-        SubscriptionService.getPaymentDestinations(),
+        SubscriptionService.getPlans().catch(() => []),
+        SubscriptionService.getPaymentDestinations().catch(() => []),
         this.currentProfile ? SubscriptionService.getSubscriptionStatus().catch(() => null) : null,
         this.currentProfile ? SubscriptionService.getPaymentHistory().catch(() => []) : []
       ]);
 
-      this.plans = plans;
-      this.destinations = destinations;
+      this.plans = Array.isArray(plans) && plans.length > 0 ? plans : [];
+      this.destinations = Array.isArray(destinations) && destinations.length > 0 ? destinations : VERIFIED_ECOCASH_DESTINATIONS;
       this.subStatus = subStatus;
       this.paymentHistory = paymentHistory;
-      if (!this.selectedPlanId && plans.length > 0) {
-        const defaultPlan = plans.find((p) => p.recommended || p.slug === "professional") || plans[0];
+
+      if (this.currentProfile?.role === "machinery_owner") {
+        this.planFilter = "machinery";
+      }
+
+      if (!this.selectedPlanId && this.plans.length > 0) {
+        const preferred = this.currentProfile?.role === "machinery_owner"
+          ? this.plans.find((p) => p.target_role === "machinery_owner" || p.slug?.includes("machinery"))
+          : this.plans.find((p) => p.recommended || p.slug === "professional");
+        const defaultPlan = preferred || this.plans[0];
         this.selectedPlanId = defaultPlan.$id || defaultPlan.id;
+      }
+
+      if (!this.selectedDestinationId && this.destinations.length > 0) {
+        this.selectedDestinationId = this.destinations[0].$id || this.destinations[0].id;
       }
 
       this.renderFullView(container);
@@ -95,20 +131,28 @@ export const SubscriptionsView = {
     const isSubscribed = Boolean(this.subStatus?.active);
     const planName = this.subStatus?.plan || "No Active Plan";
     const expiresAt = this.subStatus?.expires_at ? new Date(this.subStatus.expires_at).toLocaleDateString("en-GB", { dateStyle: "medium" }) : null;
+    const isMachineryOwner = this.currentProfile?.role === "machinery_owner";
     const freeJobsUsed = this.subStatus?.free_jobs_used ?? 0;
     const freeJobsRemaining = this.subStatus?.free_jobs_remaining ?? 5;
+
+    const visiblePlans = this.plans.filter((p) => {
+      const isMach = p.target_role === "machinery_owner" || p.slug?.includes("machinery");
+      if (this.planFilter === "machinery") return isMach;
+      if (this.planFilter === "driver") return !isMach;
+      return true;
+    });
 
     container.innerHTML = `
       <!-- Header -->
       <div style="text-align: center; margin-bottom: 2rem;">
         <span class="badge badge-info" style="margin-bottom: 0.5rem; font-size: 0.8rem; padding: 0.35rem 0.75rem;">
-          PROVIDER SUBSCRIPTION TIERS
+          ${isMachineryOwner ? "MACHINERY OPERATOR SUBSCRIPTIONS" : "PROVIDER SUBSCRIPTION TIERS"}
         </span>
         <h1 style="font-size: 2.2rem; font-weight: 900; letter-spacing: -0.03em; margin: 0.2rem 0; color: var(--text-main);">
           Plans &amp; EcoCash Payments
         </h1>
         <p style="color: var(--text-muted); font-size: 1rem; max-width: 660px; margin: 0.5rem auto 0 auto;">
-          Choose a flexible pass or full monthly access. Pay securely via EcoCash and submit your confirmation reference for admin verification.
+          Choose a flexible pass or full commercial access. Pay securely via EcoCash and submit your confirmation reference for admin verification.
         </p>
       </div>
 
@@ -121,21 +165,23 @@ export const SubscriptionsView = {
               ${escapeHtml(planName)}
             </div>
             <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
-              ${isSubscribed ? `Active until ${expiresAt}` : "First 5 awarded jobs are free! Subscribe once you exhaust your free quota."}
+              ${isSubscribed ? `Active until ${expiresAt}` : (isMachineryOwner ? "Subscribe to list heavy machinery and receive equipment rental bookings across Zimbabwe." : "First 5 completed jobs are free! Subscribe once you exhaust your free quota.")}
             </div>
           </div>
 
           <div style="display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
-            <!-- Free Jobs Counter -->
-            <div style="text-align: right;">
-              <div style="font-size: 0.75rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">Free Jobs Quota</div>
-              <div style="font-size: 1.1rem; font-weight: 800; color: ${freeJobsRemaining > 0 ? "var(--primary)" : "var(--text-danger)"};">
-                ${freeJobsUsed} / 5 used · ${freeJobsRemaining} free left
+            ${!isMachineryOwner ? `
+              <!-- Free Jobs Counter -->
+              <div style="text-align: right;">
+                <div style="font-size: 0.75rem; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">Free Jobs Quota</div>
+                <div style="font-size: 1.1rem; font-weight: 800; color: ${freeJobsRemaining > 0 ? "var(--primary)" : "var(--text-danger)"};">
+                  ${freeJobsUsed} / 5 used · ${freeJobsRemaining} free left
+                </div>
               </div>
-            </div>
+            ` : ""}
 
-            <span class="badge ${isSubscribed ? "badge-success" : freeJobsRemaining > 0 ? "badge-info" : "badge-warning"}" style="font-size: 0.85rem; padding: 0.45rem 0.9rem;">
-              ${isSubscribed ? "ACTIVE SUBSCRIBER" : freeJobsRemaining > 0 ? "FREE TRIAL ACTIVE" : "SUBSCRIPTION REQUIRED"}
+            <span class="badge ${isSubscribed ? "badge-success" : (freeJobsRemaining > 0 && !isMachineryOwner) ? "badge-info" : "badge-warning"}" style="font-size: 0.85rem; padding: 0.45rem 0.9rem;">
+              ${isSubscribed ? "ACTIVE SUBSCRIBER" : (freeJobsRemaining > 0 && !isMachineryOwner) ? "FREE TRIAL ACTIVE" : "SUBSCRIPTION REQUIRED"}
             </span>
           </div>
         </div>
@@ -156,9 +202,22 @@ export const SubscriptionsView = {
 
       <!-- TAB 1: PLANS & PRICING -->
       <div id="sub-tab-panel-plans" style="display: ${this.activeTab === "plans" ? "block" : "none"};">
-        <!-- Pricing Plans Grid (4 Plans) -->
+        <!-- Category Filter Pills -->
+        <div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+          <button type="button" class="btn btn-sm plan-filter-btn ${this.planFilter === "all" ? "btn-primary" : "btn-outline"}" data-plan-filter="all">
+            All Subscription Plans
+          </button>
+          <button type="button" class="btn btn-sm plan-filter-btn ${this.planFilter === "driver" ? "btn-primary" : "btn-outline"}" data-plan-filter="driver">
+            ${icon("car-front", 14)}<span>Driver &amp; Logistics Plans</span>
+          </button>
+          <button type="button" class="btn btn-sm plan-filter-btn ${this.planFilter === "machinery" ? "btn-primary" : "btn-outline"}" data-plan-filter="machinery">
+            ${icon("tractor", 14)}<span>Heavy Machinery &amp; Equipment</span>
+          </button>
+        </div>
+
+        <!-- Pricing Plans Grid -->
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 2.5rem;">
-          ${this.plans.map((plan) => this.renderPlanCard(plan)).join("")}
+          ${visiblePlans.map((plan) => this.renderPlanCard(plan)).join("")}
         </div>
 
         <!-- EcoCash Destination Channels Banner -->
@@ -178,7 +237,7 @@ export const SubscriptionsView = {
               <div style="background: var(--bg-subtle, #f8fafc); border: 1px solid var(--border-light); border-radius: var(--radius-md, 8px); padding: 1rem 1.25rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
                   <span style="font-weight: 800; font-size: 0.95rem; color: var(--text-main);">${escapeHtml(dest.account_name)}</span>
-                  <span class="badge badge-success" style="font-size: 0.7rem;">Active</span>
+                  <span class="badge badge-success" style="font-size: 0.7rem;">Verified Account</span>
                 </div>
                 <div style="font-family: monospace; font-size: 1.1rem; font-weight: 900; color: var(--primary); letter-spacing: 0.05em;">
                   ${escapeHtml(dest.account_number)}
@@ -202,12 +261,17 @@ export const SubscriptionsView = {
       <!-- TAB 3: PAYMENT HISTORY -->
       <div id="sub-tab-panel-history" style="display: ${this.activeTab === "history" ? "block" : "none"};">
         <div class="card">
-          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">
             <div>
               <h3 class="card-title icon-label" style="margin: 0;">${icon("credit-card", 20)}<span>EcoCash Payment History &amp; Vouchers</span></h3>
               <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">All manual EcoCash submissions &amp; approval statuses</div>
             </div>
-            <span class="badge badge-neutral">Admin Verified</span>
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <button type="button" id="btn-download-user-statement" class="btn btn-outline btn-sm" style="font-weight: 700;">
+                ${icon("file-text", 16)}<span>Download Statement (PDF)</span>
+              </button>
+              <span class="badge badge-neutral">Admin Verified</span>
+            </div>
           </div>
 
           <div id="sub-history-list">
@@ -332,6 +396,8 @@ export const SubscriptionsView = {
     const planPrice = selectedPlan ? selectedPlan.price : 15;
     const planDuration = selectedPlan ? selectedPlan.duration_days : 30;
 
+    const selectedDestId = this.selectedDestinationId || this.destinations[0]?.$id || this.destinations[0]?.id;
+
     return `
       <div style="text-align: center; margin-bottom: 1.5rem;">
         <div class="feature-icon" style="margin-bottom: 0.35rem;">${icon("smartphone", 32)}</div>
@@ -364,18 +430,22 @@ export const SubscriptionsView = {
             2. Select TransMove EcoCash Account:
           </label>
           <div id="payment-destinations-container" style="display: flex; flex-direction: column; gap: 0.6rem;">
-            ${this.destinations.map((dest, idx) => `
-              <label class="dest-radio-label" style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border: ${idx === 0 ? "2px solid var(--primary)" : "1px solid var(--border-light)"}; border-radius: 8px; cursor: pointer; background: var(--bg-surface); transition: border-color 0.15s ease;">
-                <div style="display: flex; align-items: center; gap: 0.75rem;">
-                  <input type="radio" name="ecocash_destination" value="${dest.$id || dest.id}" ${idx === 0 ? "checked" : ""} />
-                  <div>
-                    <div style="font-weight: 700; font-size: 0.9rem; color: var(--text-main);">${escapeHtml(dest.account_name)}</div>
-                    <div style="font-size: 0.8rem; color: var(--text-muted);">EcoCash Number: <strong style="color: var(--primary);">${escapeHtml(dest.account_number)}</strong></div>
+            ${this.destinations.map((dest) => {
+              const currentId = dest.$id || dest.id;
+              const isChecked = currentId === selectedDestId;
+              return `
+                <label class="dest-radio-label" style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1rem; border: ${isChecked ? "2px solid var(--primary)" : "1px solid var(--border-light)"}; border-radius: 8px; cursor: pointer; background: var(--bg-surface); transition: border-color 0.15s ease;">
+                  <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <input type="radio" name="ecocash_destination" value="${currentId}" ${isChecked ? "checked" : ""} />
+                    <div>
+                      <div style="font-weight: 700; font-size: 0.9rem; color: var(--text-main);">${escapeHtml(dest.account_name)}</div>
+                      <div style="font-size: 0.8rem; color: var(--text-muted);">EcoCash Number: <strong style="color: var(--primary);">${escapeHtml(dest.account_number)}</strong></div>
+                    </div>
                   </div>
-                </div>
-                <span class="badge badge-neutral" style="font-size: 0.7rem;">Verified Account</span>
-              </label>
-            `).join("")}
+                  <span class="badge badge-neutral" style="font-size: 0.7rem;">Verified Account</span>
+                </label>
+              `;
+            }).join("")}
           </div>
         </div>
 
@@ -441,7 +511,15 @@ export const SubscriptionsView = {
       });
     });
 
-    // Select plan button -> Switch to payment tab or open modal
+    // Plan category filter buttons
+    container.querySelectorAll(".plan-filter-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        this.planFilter = btn.dataset.planFilter;
+        this.renderFullView(container);
+      });
+    });
+
+    // Select plan button -> Switch to payment tab
     container.querySelectorAll(".btn-select-plan").forEach((btn) => {
       btn.addEventListener("click", () => {
         const planId = btn.dataset.planId;
@@ -466,6 +544,23 @@ export const SubscriptionsView = {
         if (payment) ReceiptService.printPaymentReceipt(payment);
       });
     });
+
+    // User statement download button
+    const downloadStatementBtn = container.querySelector("#btn-download-user-statement");
+    if (downloadStatementBtn) {
+      downloadStatementBtn.addEventListener("click", async () => {
+        try {
+          downloadStatementBtn.disabled = true;
+          downloadStatementBtn.textContent = "Generating Statement...";
+          await ReportService.exportUserHistoryPdf();
+        } catch (err) {
+          Modal.alert("Statement Export Failed", err.message || "Failed to generate statement.");
+        } finally {
+          downloadStatementBtn.disabled = false;
+          downloadStatementBtn.innerHTML = `${icon("file-text", 16)}<span>Download Statement (PDF)</span>`;
+        }
+      });
+    }
 
     this.bindPaymentForm(container);
   },
@@ -509,7 +604,10 @@ export const SubscriptionsView = {
         });
         label.style.border = "2px solid var(--primary)";
         const radio = label.querySelector("input[type='radio']");
-        if (radio) radio.checked = true;
+        if (radio) {
+          radio.checked = true;
+          this.selectedDestinationId = radio.value;
+        }
       });
     });
 
@@ -543,7 +641,9 @@ export const SubscriptionsView = {
 
       const selectedPlan = this.plans.find((p) => (p.$id || p.id) === (planSelect?.value || this.selectedPlanId)) || this.plans[0];
       const selectedDestRadio = form.querySelector("input[name='ecocash_destination']:checked");
-      const destinationId = selectedDestRadio ? selectedDestRadio.value : (this.destinations[0]?.$id || this.destinations[0]?.id);
+      const destinationId = selectedDestRadio ? selectedDestRadio.value : (this.selectedDestinationId || this.destinations[0]?.$id || this.destinations[0]?.id);
+      const chosenDestination = this.destinations.find((d) => (d.$id || d.id) === destinationId);
+
       const senderName = document.getElementById("eco-sender-name")?.value?.trim() || "";
       const senderPhone = document.getElementById("eco-sender-phone")?.value?.trim() || "";
       const transactionRef = document.getElementById("eco-transaction-ref")?.value?.trim()?.toUpperCase() || "";
@@ -612,10 +712,22 @@ export const SubscriptionsView = {
         });
 
         Modal.open(
-          "Payment proof submitted",
-          `<div style="padding: 0.5rem 0; color: var(--text-main); line-height: 1.5;">
-            <p><strong>Thank you!</strong> Your EcoCash payment has been submitted successfully.</p>
-            <p style="color: var(--text-muted); font-size: 0.9rem;">Your payment is currently <strong>awaiting admin review</strong>. You will receive access as soon as an administrator confirms the transaction.</p>
+          "Payment Proof Submitted",
+          `<div style="padding: 0.5rem 0; color: var(--text-main); line-height: 1.6;">
+            <div style="font-size: 1.15rem; font-weight: 800; color: var(--primary); margin-bottom: 0.75rem;">
+              Payment proof submitted successfully. Your payment is awaiting admin review.
+            </div>
+            <p style="color: var(--text-main); font-size: 0.95rem; margin-bottom: 0.75rem;">
+              Thank you! Your EcoCash payment proof of <strong>$${Number(selectedPlan.price).toFixed(2)} USD</strong> for <strong>${escapeHtml(selectedPlan.name)}</strong> has been received by our operations desk.
+            </p>
+            <div style="background: var(--bg-subtle, #f8fafc); border: 1px solid var(--border-light); border-radius: 8px; padding: 0.85rem; margin-bottom: 0.85rem; font-size: 0.85rem;">
+              <div style="font-weight: 700; color: var(--text-main);">Selected Destination Account:</div>
+              <div style="font-size: 0.95rem; color: var(--primary); font-weight: 800; margin-top: 0.2rem;">${escapeHtml(chosenDestination?.account_name || "TransMove Official")} (${escapeHtml(chosenDestination?.account_number || "")})</div>
+              <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">EcoCash Reference: <code>${escapeHtml(transactionRef)}</code></div>
+            </div>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0;">
+              Your subscription access will activate immediately once verified and approved by a TransMove administrator. You can monitor the approval status in the <em>Payment History &amp; Status</em> tab.
+            </p>
           </div>`
         );
 

@@ -26,11 +26,11 @@ export const AuthView = {
         <!-- LEFT PANEL: Dark Navy Branded Promotional Panel -->
         <div class="login-left-panel">
           <div class="login-left-brand">
-            <div class="login-brand-logo">
-              ${icon("car-front", 32)}
-              <span>Trans<span style="color: #60a5fa;">Move</span></span>
+            <div class="login-brand-logo" style="display: flex; align-items: center; gap: 0.75rem;">
+              <img src="/assets/images/logo.png" alt="TransMove Logo" style="height: 48px; width: 48px; object-fit: contain; border-radius: 10px;" />
+              <span style="font-size: 1.8rem; font-weight: 900;">Trans<span style="color: #34d399;">Move</span></span>
             </div>
-            <div class="login-brand-tagline">People. Goods. Opportunities.</div>
+            <div class="login-brand-tagline">PEOPLE · GOODS · OPPORTUNITIES</div>
           </div>
 
           <div class="login-left-content">
@@ -64,9 +64,9 @@ export const AuthView = {
         <div class="login-right-panel">
           <div class="login-card-inner">
             <!-- Mobile header logo (shown on small screens only) -->
-            <div class="login-mobile-brand">
-              ${icon("car-front", 28)}
-              <span>Trans<span style="color: #2563eb;">Move</span></span>
+            <div class="login-mobile-brand" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-bottom: 1.5rem;">
+              <img src="/assets/images/logo.png" alt="TransMove Logo" style="height: 40px; width: 40px; object-fit: contain; border-radius: 8px;" />
+              <span style="font-size: 1.5rem; font-weight: 900;">Trans<span style="color: #10b981;">Move</span></span>
             </div>
 
             <div class="login-header-group">
@@ -184,11 +184,11 @@ export const AuthView = {
       <div class="login-split-container">
         <div class="login-left-panel">
           <div class="login-left-brand">
-            <div class="login-brand-logo">
-              ${icon("car-front", 32)}
-              <span>Trans<span style="color: #60a5fa;">Move</span></span>
+            <div class="login-brand-logo" style="display: flex; align-items: center; gap: 0.75rem;">
+              <img src="/assets/images/logo.png" alt="TransMove Logo" style="height: 48px; width: 48px; object-fit: contain; border-radius: 10px;" />
+              <span style="font-size: 1.8rem; font-weight: 900;">Trans<span style="color: #34d399;">Move</span></span>
             </div>
-            <div class="login-brand-tagline">People. Goods. Opportunities.</div>
+            <div class="login-brand-tagline">PEOPLE · GOODS · OPPORTUNITIES</div>
           </div>
           <div class="login-left-content">
             <h1 class="login-left-heading">Account Recovery</h1>
@@ -234,11 +234,11 @@ export const AuthView = {
       <div class="login-split-container">
         <div class="login-left-panel">
           <div class="login-left-brand">
-            <div class="login-brand-logo">
-              ${icon("car-front", 32)}
-              <span>Trans<span style="color: #60a5fa;">Move</span></span>
+            <div class="login-brand-logo" style="display: flex; align-items: center; gap: 0.75rem;">
+              <img src="/assets/images/logo.png" alt="TransMove Logo" style="height: 48px; width: 48px; object-fit: contain; border-radius: 10px;" />
+              <span style="font-size: 1.8rem; font-weight: 900;">Trans<span style="color: #34d399;">Move</span></span>
             </div>
-            <div class="login-brand-tagline">People. Goods. Opportunities.</div>
+            <div class="login-brand-tagline">PEOPLE · GOODS · OPPORTUNITIES</div>
           </div>
           <div class="login-left-content">
             <h1 class="login-left-heading">Set New Password</h1>
@@ -289,11 +289,11 @@ export const AuthView = {
       <div class="login-split-container">
         <div class="login-left-panel">
           <div class="login-left-brand">
-            <div class="login-brand-logo">
-              ${icon("car-front", 32)}
-              <span>Trans<span style="color: #60a5fa;">Move</span></span>
+            <div class="login-brand-logo" style="display: flex; align-items: center; gap: 0.75rem;">
+              <img src="/assets/images/logo.png" alt="TransMove Logo" style="height: 48px; width: 48px; object-fit: contain; border-radius: 10px;" />
+              <span style="font-size: 1.8rem; font-weight: 900;">Trans<span style="color: #34d399;">Move</span></span>
             </div>
-            <div class="login-brand-tagline">People. Goods. Opportunities.</div>
+            <div class="login-brand-tagline">PEOPLE · GOODS · OPPORTUNITIES</div>
           </div>
           <div class="login-left-content">
             <h1 class="login-left-heading">Email Verification</h1>

@@ -22,6 +22,7 @@ import { MachineryHirerView } from "../../src/views/MachineryHirerView.js";
 import { OwnerView } from "../../src/views/OwnerView.js";
 import { AdminView } from "../../src/views/AdminView.js";
 import { EquipmentView } from "../../src/views/EquipmentView.js";
+import { MachineryMarketplaceView } from "../../src/views/MachineryMarketplaceView.js";
 import { SubscriptionsView } from "../../src/views/SubscriptionsView.js";
 import { MessagesView } from "../../src/views/MessagesView.js";
 import { ProfileView } from "../../src/views/ProfileView.js";
@@ -608,6 +609,10 @@ class App {
       case "admin":
         viewHtml = await AdminView.render();
         activeViewModule = AdminView;
+        break;
+      case "machinery":
+        viewHtml = await MachineryMarketplaceView.render();
+        activeViewModule = MachineryMarketplaceView;
         break;
       case "equipment":
         viewHtml = await EquipmentView.render();

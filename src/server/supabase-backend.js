@@ -51,31 +51,22 @@ const positiveNumber = (value) => {
 // Initial seed data for payment destinations & subscription plans
 export const DEFAULT_PAYMENT_DESTINATIONS = [
   {
-    id: "dest_ecocash_merchant_01",
+    id: "20000000-0000-4000-8000-000000000001",
     provider: "ecocash",
-    account_name: "TransMove Logistics PVT LTD (Merchant)",
-    account_number: "*151*2*2*123456#",
-    instructions: "Dial *151*2*2*123456*AMOUNT# -> Enter PIN -> Save SMS reference code & upload screenshot.",
+    account_name: "Chavunduka Othniel Nyasha",
+    account_number: "+263787692127",
+    instructions: "Dial *151# -> Send Money to +263787692127 (Chavunduka Othniel Nyasha) -> Enter exact plan amount -> Keep confirmation SMS reference & upload proof.",
     active: true,
     display_order: 1
   },
   {
-    id: "dest_ecocash_biller_02",
+    id: "20000000-0000-4000-8000-000000000002",
     provider: "ecocash",
-    account_name: "TransMove Operations (Biller Code 78901)",
-    account_number: "78901",
-    instructions: "Dial *151*2*1# -> Enter Biller Code 78901 -> Enter Account (Your Phone) -> Enter Amount.",
+    account_name: "Simba Ernest Musasu",
+    account_number: "+263786447601",
+    instructions: "Dial *151# -> Send Money to +263786447601 (Simba Ernest Musasu) -> Enter exact plan amount -> Keep confirmation SMS reference & upload proof.",
     active: true,
     display_order: 2
-  },
-  {
-    id: "dest_innbucks_03",
-    provider: "innbucks",
-    account_name: "TransMove Collections",
-    account_number: "+263771234567",
-    instructions: "Send to InnBucks agent/app to +263771234567. Include your TransMove registered phone as reference.",
-    active: true,
-    display_order: 3
   }
 ];
 
@@ -131,6 +122,32 @@ export const DEFAULT_SUBSCRIPTION_PLANS = [
     recommended: false,
     display_order: 4,
     features: ["Full bidding for 365 days (save $40)", "Gold Verified Provider badge", "Dedicated support line"]
+  },
+  {
+    id: "30000000-0000-4000-8000-000000000001",
+    name: "Machinery Operator Pass",
+    slug: "machinery-standard",
+    description: "30 days machinery rental listings, availability manager, and direct leads",
+    price: 25.0,
+    currency: "USD",
+    duration_days: 30,
+    active: true,
+    recommended: true,
+    display_order: 10,
+    features: ["List up to 3 machines", "Equipment photo & spec uploads", "Live availability schedule", "Direct customer rental leads", "Verified Machinery Badge"]
+  },
+  {
+    id: "30000000-0000-4000-8000-000000000002",
+    name: "Machinery Fleet Pro",
+    slug: "machinery-fleet",
+    description: "Quarterly heavy machinery fleet pass with top marketplace ranking",
+    price: 60.0,
+    currency: "USD",
+    duration_days: 90,
+    active: true,
+    recommended: false,
+    display_order: 11,
+    features: ["Unlimited machinery listings", "Top machinery search placement", "Direct booking phone & chat", "Priority equipment dispute assistance", "Gold Verified Machinery Badge"]
   }
 ];
 
@@ -161,7 +178,11 @@ class SupabaseBackendEngine {
       payments: [],
       advertising_campaigns: [],
       activity_logs: [],
-      saved_addresses: []
+      saved_addresses: [],
+      machinery: [],
+      machinery_hires: [],
+      machinery_advertisements: [],
+      machinery_ad_dismissals: []
     };
     this._init();
   }
@@ -199,6 +220,10 @@ class SupabaseBackendEngine {
         this.db = { ...this.db, ...parsed };
       }
     } catch (_) {}
+    if (!this.db.machinery) this.db.machinery = [];
+    if (!this.db.machinery_hires) this.db.machinery_hires = [];
+    if (!this.db.machinery_advertisements) this.db.machinery_advertisements = [];
+    if (!this.db.machinery_ad_dismissals) this.db.machinery_ad_dismissals = [];
   }
 
   _persistLocalDb() {
@@ -589,7 +614,9 @@ class SupabaseBackendEngine {
       "list_payment_destinations",
       "list_subscription_plans",
       "get_driver_reviews",
-      "get_public_provider_profile"
+      "get_public_provider_profile",
+      "list_machinery_marketplace",
+      "get_machinery_details"
     ];
 
     let verifiedUser = null;
@@ -3418,6 +3445,209 @@ class SupabaseBackendEngine {
       return { payments: list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) };
     }
 
+    if (action === "admin_get_financial_report") {
+      await requireAdmin();
+      const period = String(data.period || "weekly").toLowerCase();
+      const reportType = String(data.report_type || "transactions").toLowerCase();
+
+      const now = new Date();
+      let startDate = new Date();
+      if (period === "weekly") {
+        startDate.setDate(now.getDate() - 7);
+      } else if (period === "monthly") {
+        startDate.setDate(now.getDate() - 30);
+      } else {
+        startDate = new Date(0);
+      }
+
+      let payments = [];
+      if (this.isLive && this.supabaseAdmin) {
+        const { data: livePayments, error } = await this.supabaseAdmin
+          .from("payments")
+          .select("*, user:profiles!user_id(id, full_name, email, phone), destination:payment_destinations(*), subscription:subscriptions(*, plan_details:subscription_plans(*))")
+          .gte("created_at", startDate.toISOString())
+          .lte("created_at", now.toISOString())
+          .order("created_at", { ascending: false });
+        if (!error && livePayments) {
+          payments = livePayments.map((p) => ({
+            id: p.id,
+            reference: p.reference || p.provider_reference || p.id,
+            transaction_reference: p.provider_reference || p.reference || "",
+            payment_type: p.payment_type || "subscription",
+            amount: Number(p.amount || 0),
+            currency: p.currency || "USD",
+            status: p.status || "pending_review",
+            sender_name: p.sender_name || p.user?.full_name || "Anonymous",
+            sender_phone: p.sender_phone || p.user?.phone || "",
+            recipient_name: p.destination?.account_name || "Chavunduka Othniel Nyasha",
+            recipient_number: p.destination?.account_number || "+263787692127",
+            plan_name: p.subscription?.plan_details?.name || p.subscription?.plan || "Subscription",
+            created_at: p.created_at
+          }));
+        }
+      }
+      if (!payments.length) {
+        payments = (this.db.payments || [])
+          .filter((p) => new Date(p.created_at) >= startDate && new Date(p.created_at) <= now)
+          .map((p) => {
+            const dest = this.db.payment_destinations.find((d) => d.id === (p.destination_account_id || p.payment_destination_id));
+            const sub = this.db.subscriptions.find((s) => s.id === p.subscription_id);
+            const plan = this.db.subscription_plans.find((pl) => pl.id === (p.plan_id || sub?.plan_id));
+            return {
+              id: p.id,
+              reference: p.reference || p.transaction_reference || p.id,
+              transaction_reference: p.transaction_reference || p.provider_reference || p.reference || "",
+              payment_type: p.payment_type || "subscription",
+              amount: Number(p.amount || 0),
+              currency: p.currency || "USD",
+              status: p.status || "pending_review",
+              sender_name: p.sender_name || "Anonymous",
+              sender_phone: p.sender_phone || "",
+              recipient_name: dest?.account_name || p.recipient_name || "Chavunduka Othniel Nyasha",
+              recipient_number: dest?.account_number || p.recipient_number || "+263787692127",
+              plan_name: plan?.name || sub?.plan || "Subscription",
+              created_at: p.created_at
+            };
+          });
+      }
+
+      let totalTransactions = payments.length;
+      let approvedCount = 0;
+      let pendingCount = 0;
+      let rejectedCount = 0;
+      let totalRevenue = 0;
+      let pendingVolume = 0;
+      let rejectedVolume = 0;
+      let subscriptionsTotal = 0;
+      let bookingsTotal = 0;
+      const categoryCounts = {};
+
+      for (const p of payments) {
+        const amt = Number(p.amount) || 0;
+        const type = p.payment_type || "subscription";
+        categoryCounts[type] = (categoryCounts[type] || 0) + 1;
+
+        if (p.status === "approved" || p.status === "paid") {
+          approvedCount++;
+          totalRevenue += amt;
+          if (type === "subscription") subscriptionsTotal += amt;
+          else if (type === "booking") bookingsTotal += amt;
+        } else if (p.status === "rejected") {
+          rejectedCount++;
+          rejectedVolume += amt;
+        } else {
+          pendingCount++;
+          pendingVolume += amt;
+        }
+      }
+
+      const report = {
+        period,
+        report_type: reportType,
+        date_from: startDate.toISOString(),
+        date_to: now.toISOString(),
+        generated_at: now.toISOString(),
+        total_transactions: totalTransactions,
+        approved_count: approvedCount,
+        pending_count: pendingCount,
+        rejected_count: rejectedCount,
+        total_revenue: totalRevenue,
+        pending_volume: pendingVolume,
+        rejected_volume: rejectedVolume,
+        subscriptions_total: subscriptionsTotal,
+        bookings_total: bookingsTotal,
+        running_balance: totalRevenue,
+        category_counts: categoryCounts
+      };
+
+      return {
+        report,
+        report_type: reportType,
+        period,
+        transactions: payments
+      };
+    }
+
+    if (action === "get_user_account_statement") {
+      if (!userId) throw new Error("Unauthorized: Authentication token is missing.");
+
+      let list = [];
+      let profile = null;
+      if (this.isLive && this.supabaseAdmin) {
+        const [profRes, payRes] = await Promise.all([
+          this.supabaseAdmin.from("profiles").select("id, full_name, email, phone").eq("id", userId).maybeSingle(),
+          this.supabaseAdmin.from("payments").select("*, destination:payment_destinations(*), subscription:subscriptions(*, plan_details:subscription_plans(*))").eq("user_id", userId).order("created_at", { ascending: false })
+        ]);
+        profile = profRes.data || null;
+        if (!payRes.error && payRes.data) {
+          list = payRes.data.map((p) => ({
+            id: p.id,
+            user_id: p.user_id,
+            reference: p.reference || p.provider_reference || p.id,
+            transaction_reference: p.provider_reference || p.reference || "",
+            payment_type: p.payment_type || "subscription",
+            amount: Number(p.amount || 0),
+            currency: p.currency || "USD",
+            status: p.status || "pending_review",
+            recipient_name: p.destination?.account_name || "TransMove EcoCash",
+            recipient_number: p.destination?.account_number || "",
+            plan_name: p.subscription?.plan_details?.name || p.subscription?.plan || "Subscription",
+            created_at: p.created_at
+          }));
+        }
+      }
+      if (!list.length) {
+        profile = this.db.profiles.find((p) => p.id === userId || p.user_id === userId);
+        list = (this.db.payments || [])
+          .filter((p) => p.user_id === userId)
+          .map((p) => {
+            const dest = this.db.payment_destinations.find((d) => d.id === (p.destination_account_id || p.payment_destination_id));
+            const sub = this.db.subscriptions.find((s) => s.id === p.subscription_id);
+            const plan = this.db.subscription_plans.find((pl) => pl.id === (p.plan_id || sub?.plan_id));
+            return {
+              id: p.id,
+              user_id: p.user_id,
+              reference: p.reference || p.transaction_reference || p.id,
+              transaction_reference: p.transaction_reference || p.provider_reference || p.reference || "",
+              payment_type: p.payment_type || "subscription",
+              amount: Number(p.amount || 0),
+              currency: p.currency || "USD",
+              status: p.status || "pending_review",
+              recipient_name: dest?.account_name || p.recipient_name || "TransMove EcoCash",
+              recipient_number: dest?.account_number || p.recipient_number || "",
+              plan_name: plan?.name || sub?.plan || "Subscription",
+              created_at: p.created_at
+            };
+          });
+      }
+
+      let totalPaid = 0;
+      let pendingCount = 0;
+      let approvedCount = 0;
+      for (const item of list) {
+        if (item.status === "approved" || item.status === "paid") {
+          totalPaid += Number(item.amount || 0);
+          approvedCount++;
+        } else if (item.status === "pending_review") {
+          pendingCount++;
+        }
+      }
+
+      return {
+        user_id: userId,
+        user_name: profile?.full_name || verifiedUser?.user_metadata?.full_name || "TransMove User",
+        user_email: profile?.email || verifiedUser?.email || "",
+        statement: list,
+        summary: {
+          total_transactions: list.length,
+          total_paid: totalPaid,
+          pending_count: pendingCount,
+          approved_count: approvedCount,
+          active_subscriptions: list.filter((i) => i.payment_type === "subscription" && (i.status === "approved" || i.status === "paid")).length
+        }
+      };
+    }
+
     if (action === "admin_get_payment_proof_preview" || action === "admin_create_payment_proof_token") {
       await requireAdmin();
       let fileId = data.file_id;
@@ -3926,6 +4156,672 @@ class SupabaseBackendEngine {
         drive_file_id: upload.id,
         folder: DRIVE_FOLDERS.BACKUPS,
         size: upload.size
+      };
+    }
+
+    // =========================================================================
+    // 12. MACHINERY MARKETPLACE & HIRING & SPONSORED ADVERTISING
+    // =========================================================================
+
+    // Auto-expire any advertisements past end_at
+    if (this.db.machinery_advertisements) {
+      const nowIso = new Date().toISOString();
+      this.db.machinery_advertisements.forEach((ad) => {
+        if (ad.status === "active" && ad.end_at && ad.end_at <= nowIso) {
+          ad.status = "expired";
+          ad.updated_at = nowIso;
+        }
+      });
+    }
+
+    if (action === "list_machinery_marketplace") {
+      const nowIso = new Date().toISOString();
+      let listings = [...(this.db.machinery || [])];
+
+      // Also sync from Supabase if live
+      if (this.isLive && this.supabaseAdmin) {
+        try {
+          const { data: supaMach, error } = await this.supabaseAdmin
+            .from("machinery")
+            .select("*")
+            .eq("status", "active");
+          if (!error && Array.isArray(supaMach) && supaMach.length > 0) {
+            supaMach.forEach((sm) => {
+              const idx = listings.findIndex((l) => l.id === sm.id);
+              if (idx >= 0) listings[idx] = { ...listings[idx], ...sm };
+              else listings.push(sm);
+            });
+          }
+        } catch (_) {}
+      }
+
+      // Filter by active status
+      listings = listings.filter((m) => m.status === "active" || !m.status);
+
+      // Search & Filters
+      const q = (data.query || data.search || "").toLowerCase().trim();
+      if (q) {
+        listings = listings.filter((m) =>
+          (m.name && m.name.toLowerCase().includes(q)) ||
+          (m.brand && m.brand.toLowerCase().includes(q)) ||
+          (m.model && m.model.toLowerCase().includes(q)) ||
+          (m.category && m.category.toLowerCase().includes(q)) ||
+          (m.location && m.location.toLowerCase().includes(q)) ||
+          (m.province && m.province.toLowerCase().includes(q)) ||
+          (m.description && m.description.toLowerCase().includes(q))
+        );
+      }
+
+      if (data.category && data.category !== "all") {
+        const cat = data.category.toLowerCase().trim();
+        listings = listings.filter((m) => m.category && m.category.toLowerCase().trim() === cat);
+      }
+
+      if (data.brand) {
+        const b = data.brand.toLowerCase().trim();
+        listings = listings.filter((m) => m.brand && m.brand.toLowerCase().trim() === b);
+      }
+
+      if (data.model) {
+        const mdl = data.model.toLowerCase().trim();
+        listings = listings.filter((m) => m.model && m.model.toLowerCase().trim() === mdl);
+      }
+
+      if (data.location || data.province) {
+        const loc = (data.location || data.province).toLowerCase().trim();
+        listings = listings.filter((m) =>
+          (m.location && m.location.toLowerCase().includes(loc)) ||
+          (m.province && m.province.toLowerCase().includes(loc))
+        );
+      }
+
+      if (data.available_only) {
+        listings = listings.filter((m) => m.availability_status === "available");
+      }
+
+      if (data.operator_available !== undefined && data.operator_available !== null && data.operator_available !== "") {
+        const opReq = String(data.operator_available) === "true";
+        listings = listings.filter((m) => Boolean(m.operator_available) === opReq);
+      }
+
+      if (data.min_price) {
+        const minP = Number(data.min_price);
+        if (Number.isFinite(minP)) {
+          listings = listings.filter((m) => Number(m.base_hire_rate) >= minP);
+        }
+      }
+
+      if (data.max_price) {
+        const maxP = Number(data.max_price);
+        if (Number.isFinite(maxP)) {
+          listings = listings.filter((m) => Number(m.base_hire_rate) <= maxP);
+        }
+      }
+
+      // Check active advertisements
+      const activeAds = (this.db.machinery_advertisements || []).filter(
+        (ad) => ad.status === "active" && (!ad.end_at || ad.end_at > nowIso)
+      );
+      const activeAdMap = new Map();
+      activeAds.forEach((ad) => {
+        activeAdMap.set(ad.machinery_id, ad);
+      });
+
+      // Hydrate owners & sponsored flag
+      let enrichedListings = listings.map((m) => {
+        const ad = activeAdMap.get(m.id);
+        const isSponsored = Boolean(ad);
+        const ownerProf = (this.db.profiles || []).find((p) => p.id === m.owner_id || p.user_id === m.owner_id);
+        const ownerVerified = ownerProf ? ownerProf.verification_status === "verified" : false;
+
+        return {
+          ...m,
+          is_sponsored: isSponsored,
+          advertisement_id: ad ? ad.id : null,
+          owner: ownerProf ? {
+            id: ownerProf.id,
+            full_name: ownerProf.full_name || "Machinery Owner",
+            phone: ownerProf.phone || "",
+            verification_status: ownerProf.verification_status || "pending"
+          } : {
+            id: m.owner_id,
+            full_name: "Machinery Owner",
+            phone: "",
+            verification_status: "pending"
+          },
+          owner_verified: ownerVerified || m.verification_status === "verified"
+        };
+      });
+
+      if (data.verified_only) {
+        enrichedListings = enrichedListings.filter((m) => m.owner_verified);
+      }
+
+      if (data.sponsored_only) {
+        enrichedListings = enrichedListings.filter((m) => m.is_sponsored);
+      }
+
+      // SORT ORDER (Strict business requirement):
+      // 1. Active sponsored machinery
+      // 2. Non-sponsored available machinery
+      // 3. Unavailable / other machinery
+      enrichedListings.sort((a, b) => {
+        if (a.is_sponsored && !b.is_sponsored) return -1;
+        if (!a.is_sponsored && b.is_sponsored) return 1;
+
+        const aAvail = a.availability_status === "available" ? 1 : 0;
+        const bAvail = b.availability_status === "available" ? 1 : 0;
+        if (aAvail !== bAvail) return bAvail - aAvail;
+
+        return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+      });
+
+      return {
+        machinery: enrichedListings,
+        total: enrichedListings.length
+      };
+    }
+
+    if (action === "get_machinery_details") {
+      const machineryId = data.machinery_id || data.id;
+      if (!machineryId) throw new Error("Machinery ID is required.");
+      let m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
+      if (!m && this.isLive && this.supabaseAdmin && isUuid(machineryId)) {
+        try {
+          const { data: supaM } = await this.supabaseAdmin.from("machinery").select("*").eq("id", machineryId).maybeSingle();
+          if (supaM) m = supaM;
+        } catch (_) {}
+      }
+      if (!m) throw new Error("Machinery listing not found.");
+
+      const nowIso = new Date().toISOString();
+      const activeAd = (this.db.machinery_advertisements || []).find(
+        (ad) => ad.machinery_id === m.id && ad.status === "active" && (!ad.end_at || ad.end_at > nowIso)
+      );
+
+      const ownerProf = (this.db.profiles || []).find((p) => p.id === m.owner_id || p.user_id === m.owner_id);
+      return {
+        ...m,
+        is_sponsored: Boolean(activeAd),
+        advertisement_id: activeAd ? activeAd.id : null,
+        owner: ownerProf ? {
+          id: ownerProf.id,
+          full_name: ownerProf.full_name || "Machinery Owner",
+          phone: ownerProf.phone || "",
+          verification_status: ownerProf.verification_status || "pending"
+        } : {
+          id: m.owner_id,
+          full_name: "Machinery Owner",
+          phone: "",
+          verification_status: "pending"
+        },
+        owner_verified: ownerProf ? ownerProf.verification_status === "verified" : m.verification_status === "verified"
+      };
+    }
+
+    if (action === "create_machinery_listing") {
+      const callerProf = await getCallerProfile();
+      if (callerProf && callerProf.role !== "machinery_owner" && callerProf.role !== "admin") {
+        throw new Error("Forbidden: Only machinery owners can list machinery.");
+      }
+
+      if (!data.name || !data.category || !data.brand || !data.model || !data.location) {
+        throw new Error("Missing required machinery fields: name, category, brand, model, and location are required.");
+      }
+
+      const baseRate = positiveNumber(data.base_hire_rate);
+      if (!baseRate) {
+        throw new Error("Base hire rate must be a valid positive amount.");
+      }
+
+      const operatorAvailable = Boolean(data.operator_available);
+      let operatorInclusiveRate = null;
+      let operatorRate = 0;
+
+      if (operatorAvailable) {
+        operatorInclusiveRate = positiveNumber(data.operator_inclusive_rate);
+        if (!operatorInclusiveRate || operatorInclusiveRate <= baseRate) {
+          throw new Error("Operator-inclusive rate must be greater than machinery-only base rate.");
+        }
+        operatorRate = Number(data.operator_rate) || Number((operatorInclusiveRate - baseRate).toFixed(2));
+      }
+
+      const id = data.id || `mach_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const now = new Date().toISOString();
+
+      const newMachinery = {
+        id,
+        owner_id: userId,
+        name: String(data.name).trim(),
+        category: String(data.category).trim(),
+        brand: String(data.brand).trim(),
+        model: String(data.model).trim(),
+        year: data.year ? Number(data.year) : null,
+        condition: data.condition || "good",
+        description: data.description || "",
+        location: String(data.location).trim(),
+        province: data.province || "Harare",
+        operating_hours: Number(data.operating_hours || 0),
+        fuel_type: data.fuel_type || "diesel",
+        power: data.power || "",
+        capacity: data.capacity || "",
+        status: data.status || "active",
+        verification_status: "pending",
+        availability_status: data.availability_status || "available",
+        base_hire_rate: baseRate,
+        rate_period: data.rate_period || "per_day",
+        operator_available: operatorAvailable,
+        operator_rate: operatorRate,
+        operator_inclusive_rate: operatorInclusiveRate,
+        minimum_hire_period: Number(data.minimum_hire_period || 1),
+        transport_available: Boolean(data.transport_available),
+        photos: Array.isArray(data.photos) ? data.photos : [],
+        created_at: now,
+        updated_at: now
+      };
+
+      if (this.isLive && this.supabaseAdmin && isUuid(id) && isUuid(userId)) {
+        try {
+          const { error: insErr } = await this.supabaseAdmin.from("machinery").insert(newMachinery);
+          if (insErr) console.warn("[machinery] Supabase insert warning:", insErr.message);
+        } catch (_) {}
+      }
+
+      if (!this.db.machinery) this.db.machinery = [];
+      this.db.machinery.push(newMachinery);
+      this._persistLocalDb();
+
+      await logActivity("machinery_created", `Created machinery listing: ${newMachinery.name}`, `Category: ${newMachinery.category}`, newMachinery.id);
+      return newMachinery;
+    }
+
+    if (action === "update_machinery_listing") {
+      const machineryId = data.machinery_id || data.id;
+      if (!machineryId) throw new Error("Machinery ID is required.");
+      let m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
+      if (!m) throw new Error("Machinery listing not found.");
+
+      const callerProf = await getCallerProfile();
+      if (m.owner_id !== userId && callerProf?.role !== "admin") {
+        throw new Error("Forbidden: You cannot modify another owner's machinery listing.");
+      }
+
+      let baseRate = m.base_hire_rate;
+      if (data.base_hire_rate !== undefined) {
+        const parsedBase = positiveNumber(data.base_hire_rate);
+        if (!parsedBase) throw new Error("Base hire rate must be a valid positive amount.");
+        baseRate = parsedBase;
+      }
+
+      let operatorAvailable = data.operator_available !== undefined ? Boolean(data.operator_available) : m.operator_available;
+      let operatorInclusiveRate = m.operator_inclusive_rate;
+      let operatorRate = m.operator_rate;
+
+      if (operatorAvailable) {
+        if (data.operator_inclusive_rate !== undefined) {
+          const parsedInc = positiveNumber(data.operator_inclusive_rate);
+          if (!parsedInc || parsedInc <= baseRate) {
+            throw new Error("Operator-inclusive rate must be greater than machinery-only base rate.");
+          }
+          operatorInclusiveRate = parsedInc;
+          operatorRate = Number((operatorInclusiveRate - baseRate).toFixed(2));
+        } else if (!operatorInclusiveRate || operatorInclusiveRate <= baseRate) {
+          throw new Error("Operator-inclusive rate must be greater than machinery-only base rate.");
+        }
+      }
+
+      const updated = {
+        ...m,
+        ...data,
+        id: m.id,
+        owner_id: m.owner_id,
+        base_hire_rate: baseRate,
+        operator_available: operatorAvailable,
+        operator_inclusive_rate: operatorAvailable ? operatorInclusiveRate : null,
+        operator_rate: operatorAvailable ? operatorRate : 0,
+        updated_at: new Date().toISOString()
+      };
+
+      const idx = this.db.machinery.findIndex((entry) => entry.id === m.id);
+      if (idx >= 0) this.db.machinery[idx] = updated;
+
+      if (this.isLive && this.supabaseAdmin && isUuid(m.id)) {
+        try {
+          await this.supabaseAdmin.from("machinery").update(updated).eq("id", m.id);
+        } catch (_) {}
+      }
+
+      this._persistLocalDb();
+      return updated;
+    }
+
+    if (action === "submit_machinery_hire_request") {
+      const machineryId = data.machinery_id || data.id;
+      if (!machineryId) throw new Error("Machinery ID is required.");
+      const m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
+      if (!m || m.status !== "active") throw new Error("Machinery listing not found or not active.");
+
+      const withOperator = Boolean(data.with_operator);
+      let rateApplied = m.base_hire_rate;
+
+      if (withOperator) {
+        if (!m.operator_available) {
+          throw new Error("Operator option is not available for this machinery.");
+        }
+        if (!m.operator_inclusive_rate || m.operator_inclusive_rate <= m.base_hire_rate) {
+          throw new Error("Operator-inclusive rate must be greater than machinery-only base rate.");
+        }
+        rateApplied = m.operator_inclusive_rate;
+      }
+
+      const durationUnits = Math.max(1, Number(data.duration_units || data.duration_days || 1));
+      const calculatedTotal = Number((rateApplied * durationUnits).toFixed(2));
+
+      const callerProf = await getCallerProfile();
+      const hireId = `hire_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const now = new Date().toISOString();
+
+      const hireRequest = {
+        id: hireId,
+        machinery_id: m.id,
+        machinery_name: m.name,
+        renter_id: userId,
+        renter_name: callerProf?.full_name || "Hirer",
+        renter_phone: callerProf?.phone || data.contact_phone || "",
+        owner_id: m.owner_id,
+        with_operator: withOperator,
+        rate_applied: rateApplied,
+        rate_period: m.rate_period || "per_day",
+        duration_units: durationUnits,
+        start_date: data.start_date || now,
+        end_date: data.end_date || new Date(Date.now() + durationUnits * 86400000).toISOString(),
+        calculated_total: calculatedTotal,
+        job_location: data.job_location || m.location,
+        notes: data.notes || "",
+        contact_name: data.contact_name || callerProf?.full_name || "Hirer",
+        contact_phone: data.contact_phone || callerProf?.phone || "",
+        status: "pending",
+        decline_reason: null,
+        created_at: now,
+        updated_at: now
+      };
+
+      if (!this.db.machinery_hires) this.db.machinery_hires = [];
+      this.db.machinery_hires.push(hireRequest);
+
+      if (this.isLive && this.supabaseAdmin && isUuid(hireId) && isUuid(m.id)) {
+        try {
+          await this.supabaseAdmin.from("machinery_hires").insert(hireRequest);
+        } catch (_) {}
+      }
+
+      // Notify machinery owner
+      if (!this.db.notifications) this.db.notifications = [];
+      this.db.notifications.push({
+        id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        user_id: m.owner_id,
+        type: "machinery_hire_request",
+        title: "New Machinery Hire Request",
+        message: `${hireRequest.contact_name} requested ${m.name} (${withOperator ? "With Operator" : "Machinery Only"}) for $${calculatedTotal.toFixed(2)}.`,
+        related_id: hireRequest.id,
+        read: false,
+        created_at: now
+      });
+
+      // Track active ad conversion if applicable
+      const activeAd = (this.db.machinery_advertisements || []).find(
+        (ad) => ad.machinery_id === m.id && ad.status === "active"
+      );
+      if (activeAd) {
+        activeAd.hire_requests_generated = (activeAd.hire_requests_generated || 0) + 1;
+      }
+
+      this._persistLocalDb();
+      await logActivity("machinery_hire_requested", `Hire request for ${m.name}`, `Hirer: ${hireRequest.contact_name}, Total: $${calculatedTotal}`, hireRequest.id);
+      return hireRequest;
+    }
+
+    if (action === "list_owner_machinery_hires") {
+      const hires = (this.db.machinery_hires || []).filter((h) => h.owner_id === userId);
+      return { hires: hires.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) };
+    }
+
+    if (action === "list_renter_machinery_hires") {
+      const hires = (this.db.machinery_hires || []).filter((h) => h.renter_id === userId);
+      return { hires: hires.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) };
+    }
+
+    if (action === "update_machinery_hire_status") {
+      const hireId = data.hire_id || data.id;
+      if (!hireId) throw new Error("Hire ID is required.");
+      const hire = (this.db.machinery_hires || []).find((h) => h.id === hireId);
+      if (!hire) throw new Error("Hire request not found.");
+
+      const newStatus = data.status;
+      if (!["accepted", "declined", "cancelled", "active", "completed"].includes(newStatus)) {
+        throw new Error(`Invalid hire status: '${newStatus}'`);
+      }
+
+      const callerProf = await getCallerProfile();
+      const isAdmin = callerProf?.role === "admin";
+      const isOwner = hire.owner_id === userId;
+      const isRenter = hire.renter_id === userId;
+
+      if (newStatus === "accepted" || newStatus === "declined") {
+        if (!isOwner && !isAdmin) {
+          throw new Error("Forbidden: Only the machinery owner can accept or decline this hire request.");
+        }
+      } else if (newStatus === "cancelled") {
+        if (!isRenter && !isOwner && !isAdmin) {
+          throw new Error("Forbidden: You cannot cancel this hire request.");
+        }
+      }
+
+      const now = new Date().toISOString();
+      hire.status = newStatus;
+      hire.updated_at = now;
+      if (newStatus === "declined") {
+        hire.decline_reason = data.decline_reason || data.reason || "Declined by owner";
+      }
+
+      // Notify renter of status change
+      if (!this.db.notifications) this.db.notifications = [];
+      let notifType = `machinery_hire_${newStatus}`;
+      let notifTitle = "Machinery Hire Update";
+      let notifMsg = `Your hire request for ${hire.machinery_name || "machinery"} is now ${newStatus}.`;
+
+      if (newStatus === "accepted") {
+        notifTitle = "Machinery Hire Accepted!";
+        notifMsg = `Your hire request for ${hire.machinery_name || "machinery"} was accepted by the owner.`;
+      } else if (newStatus === "declined") {
+        notifTitle = "Machinery Hire Declined";
+        notifMsg = `Your hire request for ${hire.machinery_name || "machinery"} was declined: ${hire.decline_reason}`;
+      }
+
+      this.db.notifications.push({
+        id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        user_id: hire.renter_id,
+        type: notifType,
+        title: notifTitle,
+        message: notifMsg,
+        related_id: hire.id,
+        read: false,
+        created_at: now
+      });
+
+      this._persistLocalDb();
+      return hire;
+    }
+
+    if (action === "promote_machinery_listing") {
+      const machineryId = data.machinery_id || data.id;
+      if (!machineryId) throw new Error("Machinery ID is required.");
+      const m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
+      if (!m) throw new Error("Machinery listing not found.");
+
+      const callerProf = await getCallerProfile();
+      const isAdmin = callerProf?.role === "admin";
+      if (m.owner_id !== userId && !isAdmin) {
+        throw new Error("Forbidden: You can only advertise your own machinery listings.");
+      }
+
+      // Check subscription entitlement
+      // Plan 'machinery-fleet' includes advertising / sponsored placement
+      const now = new Date();
+      const activeSubs = (this.db.subscriptions || []).filter(
+        (s) => s.user_id === userId && s.status === "active" && new Date(s.expires_at) > now
+      );
+      const hasFleetPlan = activeSubs.some(
+        (s) => s.plan_slug === "machinery-fleet" || (s.plan && (s.plan.slug === "machinery-fleet" || s.plan.name?.includes("Fleet")))
+      );
+
+      // If user lacks fleet subscription and is not bypass / admin
+      if (!isAdmin && !hasFleetPlan && !data.bypass_subscription) {
+        throw new Error("Advertising is not included in your current plan. Please upgrade to Machinery Fleet Pro.");
+      }
+
+      const durationDays = Number(data.duration_days || 30);
+      const nowIso = now.toISOString();
+      const endIso = new Date(Date.now() + durationDays * 86400000).toISOString();
+
+      if (!this.db.machinery_advertisements) this.db.machinery_advertisements = [];
+      let ad = this.db.machinery_advertisements.find((a) => a.machinery_id === m.id);
+
+      if (ad) {
+        ad.status = "active";
+        ad.start_at = nowIso;
+        ad.end_at = endIso;
+        ad.updated_at = nowIso;
+      } else {
+        ad = {
+          id: `mach_ad_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          machinery_id: m.id,
+          owner_id: userId,
+          status: "active",
+          start_at: nowIso,
+          end_at: endIso,
+          impressions: 0,
+          clicks: 0,
+          hire_requests_generated: 0,
+          created_at: nowIso,
+          updated_at: nowIso
+        };
+        this.db.machinery_advertisements.push(ad);
+      }
+
+      this._persistLocalDb();
+      await logActivity("machinery_promoted", `Promoted machinery: ${m.name}`, `Duration: ${durationDays} days`, ad.id);
+      return { success: true, advertisement: ad };
+    }
+
+    if (action === "stop_machinery_promotion") {
+      const machineryId = data.machinery_id || data.id;
+      const adId = data.advertisement_id;
+      let ad = (this.db.machinery_advertisements || []).find(
+        (a) => (machineryId && a.machinery_id === machineryId) || (adId && a.id === adId)
+      );
+      if (!ad) throw new Error("Active advertisement not found.");
+
+      const callerProf = await getCallerProfile();
+      if (ad.owner_id !== userId && callerProf?.role !== "admin") {
+        throw new Error("Forbidden: You cannot modify another owner's advertisement.");
+      }
+
+      ad.status = "paused";
+      ad.updated_at = new Date().toISOString();
+      this._persistLocalDb();
+      return { success: true, advertisement: ad };
+    }
+
+    if (action === "get_active_sponsored_machinery") {
+      const nowIso = new Date().toISOString();
+      // Get all active, unexpired advertisements
+      const activeAds = (this.db.machinery_advertisements || []).filter(
+        (ad) => ad.status === "active" && (!ad.end_at || ad.end_at > nowIso)
+      );
+
+      // Check dismissals for this user
+      const dismissedAdIds = new Set(
+        (this.db.machinery_ad_dismissals || [])
+          .filter((d) => d.user_id === userId)
+          .map((d) => d.advertisement_id)
+      );
+
+      const eligibleAds = activeAds.filter((ad) => !dismissedAdIds.has(ad.id));
+      const sponsoredMachinery = [];
+
+      for (const ad of eligibleAds) {
+        const m = (this.db.machinery || []).find((entry) => entry.id === ad.machinery_id);
+        if (m && (m.status === "active" || !m.status)) {
+          ad.impressions = (ad.impressions || 0) + 1;
+          sponsoredMachinery.push({
+            ...m,
+            is_sponsored: true,
+            advertisement_id: ad.id,
+            owner_verified: m.verification_status === "verified"
+          });
+        }
+      }
+
+      this._persistLocalDb();
+      return {
+        sponsored_machinery: sponsoredMachinery,
+        active_count: sponsoredMachinery.length
+      };
+    }
+
+    if (action === "dismiss_sponsored_machinery_ad") {
+      const adId = data.advertisement_id;
+      if (!adId) throw new Error("Advertisement ID is required.");
+
+      if (!this.db.machinery_ad_dismissals) this.db.machinery_ad_dismissals = [];
+      const exists = this.db.machinery_ad_dismissals.find(
+        (d) => d.user_id === userId && d.advertisement_id === adId
+      );
+
+      if (!exists) {
+        this.db.machinery_ad_dismissals.push({
+          id: `dism_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          user_id: userId,
+          advertisement_id: adId,
+          created_at: new Date().toISOString()
+        });
+        this._persistLocalDb();
+      }
+
+      return { success: true, dismissed: true };
+    }
+
+    if (action === "upload_machinery_photo") {
+      const { file_base64, original_filename, mime_type } = data;
+      if (!file_base64) throw new Error("File content is required.");
+
+      const buffer = Buffer.from(file_base64.replace(/^data:[^;]+;base64,/, ""), "base64");
+      const filename = original_filename || `machinery_${Date.now()}.jpg`;
+      const mime = mime_type || "image/jpeg";
+
+      let driveFileId = `drive_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      let fileUrl = "";
+
+      try {
+        const upload = await googleDriveStorage.uploadFile({
+          buffer,
+          originalFilename: filename,
+          mimeType: mime,
+          folderPath: DRIVE_FOLDERS.VEHICLES || "TransMove/Machinery"
+        });
+        driveFileId = upload.id;
+        fileUrl = `/api/files/preview/${upload.id}`;
+      } catch (err) {
+        console.warn("[machinery] Drive upload fallback:", err.message);
+        fileUrl = `data:${mime};base64,${buffer.toString("base64")}`;
+      }
+
+      return {
+        id: driveFileId,
+        drive_file_id: driveFileId,
+        file_url: fileUrl,
+        filename
       };
     }
 

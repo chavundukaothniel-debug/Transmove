@@ -32,6 +32,7 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
     customer: [
       { route: "customer", label: "Dashboard", icon: "layout-dashboard" },
       { route: "customer?tab=search", label: "Find Transport", icon: "search" },
+      { route: "machinery", label: "Machinery", icon: "tractor" },
       { route: "customer?tab=bookings", label: "My Bookings", icon: "calendar-days" },
       { route: "customer?tab=favourites", label: "Favourites", icon: "heart" },
       { route: "messages", label: "Messages", icon: "message-circle" },
@@ -42,6 +43,7 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
     driver: [
       { route: "driver", label: "Dashboard", icon: "layout-dashboard" },
       { route: "driver?tab=available", label: "Available Jobs", icon: "radio-tower" },
+      { route: "machinery", label: "Machinery", icon: "tractor" },
       { route: "driver?tab=offers", label: "My Jobs", icon: "briefcase-business" },
       { route: "messages", label: "Messages", icon: "message-circle" },
       { route: "driver?tab=vehicles", label: "Vehicles", icon: "car-front" },
@@ -88,6 +90,7 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
     ],
     machinery_owner: [
       { route: "machinery_owner", label: "Dashboard", icon: "layout-dashboard" },
+      { route: "machinery", label: "Marketplace", icon: "search" },
       { route: "machinery_owner?tab=machinery", label: "My Machinery", icon: "tractor" },
       { route: "machinery_owner?tab=add", label: "Add Machinery", icon: "circle-plus" },
       { route: "machinery_owner?tab=requests", label: "Rental Requests", icon: "clipboard-list" },
@@ -161,9 +164,9 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
     <aside class="app-sidebar ${activeRole === "customer" ? "app-sidebar--passenger" : ""} ${isCollapsed ? "collapsed" : ""}" id="app-sidebar">
       <div class="sidebar-header" style="flex-direction: column; align-items: flex-start; justify-content: center; height: auto; padding: 1.25rem 1.25rem 1rem 1.25rem;">
         <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-          <a href="#home" class="sidebar-brand" title="TransMove Platform" style="display: flex; align-items: center; gap: 0.6rem; font-size: 1.35rem; font-weight: 900; color: #ffffff; text-decoration: none;">
-            <span style="color: #EF3340; display: inline-flex;">${icon("car-front", 32)}</span>
-            <span class="brand-text" style="letter-spacing: -0.02em;">Trans<span style="color: #EF3340;">Move</span></span>
+          <a href="#home" class="sidebar-brand" title="TransMove Platform" style="display: flex; align-items: center; gap: 0.65rem; font-size: 1.35rem; font-weight: 900; color: #ffffff; text-decoration: none;">
+            <img src="/assets/images/logo.png" alt="TransMove Logo" style="height: 36px; width: 36px; object-fit: contain; border-radius: 8px; flex-shrink: 0;" />
+            <span class="brand-text" style="letter-spacing: -0.02em;">Trans<span style="color: #10b981;">Move</span></span>
           </a>
 
           <button type="button" id="btn-toggle-sidebar" class="btn-sidebar-toggle" title="Collapse or expand sidebar" aria-label="${isCollapsed ? "Expand" : "Collapse"} sidebar">
