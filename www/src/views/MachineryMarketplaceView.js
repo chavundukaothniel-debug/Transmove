@@ -18,6 +18,16 @@ const escapeHtml = (value) => {
     .replace(/'/g, "&#39;");
 };
 
+const NEUTRAL_MACHINERY_PLACEHOLDER = "data:image/svg+xml;utf8," + encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="240" viewBox="0 0 400 240" fill="none">
+  <rect width="400" height="240" fill="#0f172a"/>
+  <path d="M120 180H280M140 180L160 140H240L260 180M170 140V100H230V140M230 110H300L330 160H310" stroke="#10b981" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="160" cy="180" r="14" fill="#1e293b" stroke="#10b981" stroke-width="4"/>
+  <circle cx="240" cy="180" r="14" fill="#1e293b" stroke="#10b981" stroke-width="4"/>
+  <text x="200" y="218" text-anchor="middle" fill="#94a3b8" font-family="sans-serif" font-size="12" font-weight="700">HEAVY MACHINERY</text>
+</svg>
+`);
+
 export const MachineryMarketplaceView = {
   listings: [],
   filters: {
@@ -36,6 +46,10 @@ export const MachineryMarketplaceView = {
   selectedMachineForHire: null,
 
   async render() {
+    this.currentProfile = await AuthService.getCurrentProfile();
+    const activeRole = this.currentProfile?.activeRole || (this.currentProfile ? await AuthService.getActiveRole(this.currentProfile) : "guest");
+    const isOwnerOrAdmin = activeRole === "machinery_owner" || this.currentProfile?.role === "admin";
+
     return `
       <div class="machinery-marketplace-container container" style="padding-top: 1.5rem; padding-bottom: 4rem;">
         
@@ -51,11 +65,13 @@ export const MachineryMarketplaceView = {
                 Verified excavators, bulldozers, tippers, tractors, and cranes available across Zimbabwe for hire and outright sale. Hire with or without certified operators.
               </p>
             </div>
-            <div>
-              <a href="#machinery_owner" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 800; box-shadow: 0 4px 14px rgba(16,185,129,0.3);">
-                ${icon("circle-plus", 18)} <span>List Machinery</span>
-              </a>
-            </div>
+            ${isOwnerOrAdmin ? `
+              <div>
+                <a href="#machinery_owner" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 800; box-shadow: 0 4px 14px rgba(16,185,129,0.3);">
+                  ${icon("circle-plus", 18)} <span>List Machinery</span>
+                </a>
+              </div>
+            ` : ""}
           </div>
         </div>
 
@@ -275,6 +291,7 @@ export const MachineryMarketplaceView = {
       }
 
       if (this.listings.length === 0) {
+        const isOwnerOrAdmin = this.currentProfile?.activeRole === "machinery_owner" || this.currentProfile?.role === "machinery_owner" || this.currentProfile?.role === "admin";
         grid.innerHTML = `
           <div class="card" style="grid-column: 1 / -1; padding: 3rem; text-align: center;">
             <div style="font-size: 3rem; margin-bottom: 0.5rem;">🚜</div>
@@ -282,7 +299,7 @@ export const MachineryMarketplaceView = {
             <p style="color: var(--text-muted); max-width: 480px; margin: 0 auto 1.5rem auto;">
               No machinery matching your filter criteria is currently listed. Try adjusting your search or category.
             </p>
-            <a href="#machinery_owner" class="btn btn-primary" style="font-weight: 700;">+ List Heavy Machinery</a>
+            ${isOwnerOrAdmin ? `<a href="#machinery_owner" class="btn btn-primary" style="font-weight: 700;">+ List Heavy Machinery</a>` : ""}
           </div>
         `;
         return;
@@ -303,7 +320,7 @@ export const MachineryMarketplaceView = {
   renderMachineryCard(item) {
     const isSponsored = Boolean(item.is_sponsored);
     const hasOperator = Boolean(item.operator_available);
-    const photoUrl = item.primary_photo?.file_url || (Array.isArray(item.photos) && item.photos.length > 0 ? (item.photos[0].file_url || item.photos[0]) : "/assets/images/logo.png");
+    const photoUrl = item.primary_photo?.file_url || (Array.isArray(item.photos) && item.photos.length > 0 ? (item.photos[0].file_url || item.photos[0]) : NEUTRAL_MACHINERY_PLACEHOLDER);
 
     const listingType = item.listing_type || "hire"; // 'hire' | 'sale' | 'both'
     const isHire = listingType === "hire" || listingType === "both";
@@ -337,7 +354,7 @@ export const MachineryMarketplaceView = {
 
         <!-- MAIN PHOTO -->
         <div style="width: 100%; height: 185px; background: #0f172a; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center;">
-          <img src="${escapeHtml(photoUrl)}" alt="${escapeHtml(item.name)}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.src='/assets/images/logo.png'; this.style.objectFit='contain';" />
+          <img src="${escapeHtml(photoUrl)}" alt="${escapeHtml(item.name)}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.src='${NEUTRAL_MACHINERY_PLACEHOLDER}'; this.style.objectFit='contain';" />
           <span class="badge" style="position: absolute; bottom: 0.5rem; right: 0.5rem; background: rgba(0,0,0,0.7); color: #fff; font-size: 0.7rem; font-weight: 700;">
             ${listingType === "both" ? "FOR HIRE & SALE" : (listingType === "sale" ? "FOR SALE" : "FOR HIRE")}
           </span>

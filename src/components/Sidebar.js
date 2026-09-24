@@ -10,22 +10,9 @@ import { resolveAvatarUrl, avatarInitials } from "../utils/avatar.js";
 const sidebarIcon = (name, size = 21) => icon(name, size);
 
 export function renderSidebar(currentProfile, currentRoute, isCollapsed = false) {
-  // Determine active viewing role from currentRoute
-  const routeToRoleMap = {
-    customer: "customer",
-    passenger: "customer",
-    driver: "driver",
-    cargo_owner: "cargo_owner",
-    logistics: "logistics_provider",
-    vehicle_owner: "vehicle_owner",
-    machinery_owner: "machinery_owner",
-    machinery_hirer: "machinery_hirer",
-    business: "business",
-    advertise: "advertiser",
-    admin: "admin"
-  };
-
-  const activeRole = routeToRoleMap[currentRoute] || currentProfile?.role || "guest";
+  // Determine active viewing role strictly from activeRole
+  const rawRole = currentProfile?.activeRole || currentProfile?.role || "guest";
+  const activeRole = rawRole === "passenger" ? "customer" : rawRole;
   
   // Define role navigation mappings aligned strictly with TransMove exact spec
   const roleNavItems = {
@@ -95,7 +82,9 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
       { route: "machinery_owner?tab=add", label: "Add Machinery", icon: "circle-plus" },
       { route: "machinery_owner?tab=requests", label: "Rental Requests", icon: "clipboard-list" },
       { route: "machinery_owner?tab=rentals", label: "Active Rentals", icon: "cog" },
+      { route: "machinery_owner?tab=enquiries", label: "Sale Enquiries", icon: "message-circle" },
       { route: "machinery_owner?tab=earnings", label: "Earnings", icon: "wallet-cards" },
+      { route: "subscriptions", label: "Plans", icon: "credit-card" },
       { route: "support", label: "Support", icon: "headphones" },
       { route: "profile", label: "Settings", icon: "settings" }
     ],
@@ -147,7 +136,7 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
 
   const guestNavItems = [
     { route: "home", label: "Marketplace", icon: "globe-2" },
-    { route: "equipment", label: "Machinery & Freight", icon: "tractor" },
+    { route: "machinery", label: "Machinery Marketplace", icon: "tractor" },
     { route: "business", label: "Business", icon: "building-2" },
     { route: "subscriptions", label: "Pricing & Plans", icon: "credit-card" },
     { route: "advertise", label: "Advertise", icon: "megaphone" },

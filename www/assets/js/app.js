@@ -381,36 +381,64 @@ class App {
 
     // Strict role authorization verification for logged-in users
     if (this.currentProfile) {
-      const userRoles = this.currentProfile.approvedRoles || [AuthService.getPrimaryRole(this.currentProfile)];
-      const roleRouteMap = {
-        customer: "passenger",
-        driver: "driver",
-        cargo_owner: "cargo_owner",
-        logistics: "logistics_provider",
-        vehicle_owner: "vehicle_owner",
-        machinery_owner: "machinery_owner",
-        machinery_hirer: "machinery_hirer",
-        owner: "owner",
-        business: "business_admin",
-        advertise: "advertiser",
-        admin: "admin"
-      };
+      const activeRole = this.currentProfile.activeRole || (await AuthService.getActiveRole(this.currentProfile));
+      this.currentProfile.activeRole = activeRole;
+      const isAdmin = this.currentProfile.role === "admin";
 
-      const isDashboardRoute = Object.keys(roleRouteMap).includes(route);
-      if (isDashboardRoute && route !== "admin") {
-        const requiredRole = roleRouteMap[route];
-        const hasAccess = userRoles.includes(requiredRole) || userRoles.includes("admin") || route === "machinery_owner";
-        if (!hasAccess) {
-          alert(`Access Restricted: Your account does not have an active approved ${requiredRole.replace('_', ' ').toUpperCase()} role.`);
-          const primaryRole = AuthService.getPrimaryRole(this.currentProfile);
-          AuthService.setActiveRole(this.currentProfile, primaryRole);
-          const targetHash = `#${this.getDefaultRoleRoute()}`;
+      // PART 4: Protect #machinery_owner
+      // Route #machinery_owner must require: active role === machinery_owner or admin
+      if (route === "machinery_owner") {
+        if (activeRole !== "machinery_owner" && !isAdmin) {
+          alert("Machinery management is available to Machinery Owner accounts.");
+          const targetHash = "#machinery";
           if (window.location.hash !== targetHash) {
             window.location.hash = targetHash;
           } else {
+            this.currentRoute = "machinery";
             await this.render();
           }
           return;
+        }
+      }
+
+      // Check other dashboard routes: ACTIVE ROLE controls dashboard access
+      const roleRouteMap = {
+        customer: ["passenger", "customer"],
+        driver: ["driver"],
+        cargo_owner: ["cargo_owner"],
+        logistics: ["logistics_provider", "logistics"],
+        vehicle_owner: ["vehicle_owner"],
+        machinery_owner: ["machinery_owner"],
+        machinery_hirer: ["machinery_hirer"],
+        owner: ["owner"],
+        business: ["business_admin", "business"],
+        advertise: ["advertiser"],
+        admin: ["admin"]
+      };
+
+      const isDashboardRoute = Object.keys(roleRouteMap).includes(route);
+      if (isDashboardRoute && route !== "admin" && route !== "machinery_owner") {
+        const allowedRoles = roleRouteMap[route] || [];
+        const hasAccess = allowedRoles.includes(activeRole) || isAdmin;
+        if (!hasAccess) {
+          const approvedRoles = this.currentProfile.approvedRoles || [AuthService.getPrimaryRole(this.currentProfile)];
+          const hasApproved = allowedRoles.some((r) => approvedRoles.includes(r));
+          if (hasApproved) {
+            // User has this approved role, activate it
+            const switchRole = allowedRoles.find((r) => approvedRoles.includes(r));
+            AuthService.setActiveRole(this.currentProfile, switchRole);
+            this.currentProfile.activeRole = switchRole;
+          } else {
+            const requiredRoleName = route.replace(/_/g, " ").toUpperCase();
+            alert(`Access Restricted: Your account does not have an active approved ${requiredRoleName} role.`);
+            const targetHash = `#${this.getDefaultRoleRoute()}`;
+            if (window.location.hash !== targetHash) {
+              window.location.hash = targetHash;
+            } else {
+              await this.render();
+            }
+            return;
+          }
         }
       }
     }

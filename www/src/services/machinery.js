@@ -8,21 +8,32 @@ import { getTrustedApiEndpoint } from "../config/appwrite.js";
 import { getAuthJwt } from "../config/supabase.js";
 
 export const MACHINERY_CATEGORIES = [
-  "Excavators",
-  "Bulldozers",
-  "TLB / Backhoe Loaders",
-  "Graders",
-  "Loaders",
-  "Dump Trucks",
-  "Cranes",
-  "Forklifts",
-  "Tractors",
-  "Combine Harvesters",
-  "Drilling Equipment",
-  "Compressors",
-  "Generators",
-  "Mining Equipment",
-  "Other"
+  "Excavator",
+  "Backhoe Loader / TLB",
+  "Bulldozer",
+  "Motor Grader",
+  "Wheel Loader",
+  "Skid Steer Loader",
+  "Crane",
+  "Forklift",
+  "Telehandler",
+  "Compactor / Roller",
+  "Dump Truck / Articulated Dumper",
+  "Tractor",
+  "Combine Harvester",
+  "Planter",
+  "Harvester",
+  "Drilling Rig",
+  "Mining Loader",
+  "Crusher",
+  "Screening Plant",
+  "Concrete Mixer",
+  "Concrete Pump",
+  "Air Compressor",
+  "Generator",
+  "Water Bowser",
+  "Earthmoving Equipment",
+  "Other Machinery"
 ];
 
 async function trustedCall(action, data = {}) {

@@ -19,7 +19,7 @@ const activeRoute = (href, currentRoute, currentHash) => {
 };
 
 export function renderMobileNav(currentProfile, currentRoute) {
-  const role = currentProfile?.role || "guest";
+  const role = currentProfile?.activeRole || currentProfile?.role || "guest";
   const currentHash = (window.location.hash || "#home").replace(/^#/, "");
   const passenger = ["customer", "passenger"].includes(role);
 
@@ -34,6 +34,12 @@ export function renderMobileNav(currentProfile, currentRoute) {
     { href: "#machinery", label: "Machinery", icon: "machinery" },
     { href: "#driver?tab=offers", label: "Jobs", icon: "trips" },
     { href: "#messages", label: "Messages", icon: "message" },
+    { action: "more", label: "More", icon: "more" }
+  ] : role === "machinery_owner" ? [
+    { href: "#machinery_owner", label: "Dashboard", icon: "home" },
+    { href: "#machinery", label: "Marketplace", icon: "machinery" },
+    { href: "#machinery_owner?tab=add", label: "Add", icon: "request" },
+    { href: "#machinery_owner?tab=requests", label: "Requests", icon: "trips" },
     { action: "more", label: "More", icon: "more" }
   ] : currentProfile ? [
     { href: `#${currentRoute || "home"}`, label: "Home", icon: "home" },

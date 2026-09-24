@@ -114,12 +114,14 @@ export const headerIcon = (name, size = 22) => {
 
 export function renderHeader(currentProfile, currentRoute) {
   const isAuth = Boolean(currentProfile);
-  const isPassengerDashboard = ["customer", "passenger"].includes(currentProfile?.role) || currentRoute === "customer";
+  const activeRole = currentProfile?.activeRole || currentProfile?.role || "guest";
+  const isPassengerDashboard = ["customer", "passenger"].includes(activeRole) || currentRoute === "customer";
   const passengerTab = new URLSearchParams((window.location.hash.split("?")[1] || "")).get("tab");
   const currentTheme = ThemeService.getCurrentTheme();
 
   const routeTitles = {
     home: "Marketplace",
+    machinery: "Machinery Marketplace",
     equipment: "Machinery & Equipment Marketplace",
     business: "Business & Enterprise Logistics",
     subscriptions: "Subscription Plans",
@@ -166,11 +168,11 @@ export function renderHeader(currentProfile, currentRoute) {
 
   const avatarPhotoUrl = resolveAvatarUrl(currentProfile);
   const initial = escapeHtml(avatarInitials(currentProfile?.full_name || "User"));
-  const roleLabel = ROLE_LABELS[currentProfile?.role]
-    || (currentProfile?.role ? escapeHtml(currentProfile.role.replace(/_/g, " ").replace(/\b[a-z]/g, (c) => c.toUpperCase())) : "Passenger");
+  const roleLabel = ROLE_LABELS[activeRole]
+    || (activeRole ? escapeHtml(activeRole.replace(/_/g, " ").replace(/\b[a-z]/g, (c) => c.toUpperCase())) : "Passenger");
   const notificationTarget = isPassengerDashboard
     ? "#customer?tab=notifications"
-    : (currentProfile ? (NOTIFICATION_TARGETS[currentProfile.role] || "#home") : "#login");
+    : (currentProfile ? (NOTIFICATION_TARGETS[activeRole] || "#home") : "#login");
 
   return `
     <header class="app-header ${isPassengerDashboard ? "app-header--passenger" : ""}" style="height: 60px; background: var(--bg-surface); border-bottom: 1px solid var(--border-light); display: flex; align-items: center; justify-content: space-between; padding: 0 1.5rem; position: sticky; top: 0; z-index: 40; transition: background 0.15s ease, border-color 0.15s ease;">

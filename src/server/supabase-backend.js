@@ -4616,6 +4616,9 @@ class SupabaseBackendEngine {
       }
 
       const callerProf = await getCallerProfile();
+      if (callerProf && callerProf.role !== "machinery_owner" && callerProf.role !== "admin") {
+        throw new Error("Forbidden: Only machinery owners can modify machinery listings.");
+      }
       if (m.owner_id !== userId && callerProf?.role !== "admin") {
         throw new Error("Forbidden: You cannot modify another owner's machinery listing.");
       }
@@ -4718,6 +4721,9 @@ class SupabaseBackendEngine {
       if (!m) throw new Error("Machinery listing not found.");
 
       const callerProf = await getCallerProfile();
+      if (callerProf && callerProf.role !== "machinery_owner" && callerProf.role !== "admin") {
+        throw new Error("Forbidden: Only machinery owners can delete machinery listings.");
+      }
       if (m.owner_id !== userId && callerProf?.role !== "admin") {
         throw new Error("Forbidden: You cannot delete another owner's machinery listing.");
       }
@@ -5026,6 +5032,9 @@ class SupabaseBackendEngine {
 
       const callerProf = await getCallerProfile();
       const isAdmin = callerProf?.role === "admin";
+      if (callerProf && callerProf.role !== "machinery_owner" && !isAdmin) {
+        throw new Error("Forbidden: Only machinery owners can advertise machinery listings.");
+      }
       if (m.owner_id !== userId && !isAdmin) {
         throw new Error("Forbidden: You can only advertise your own machinery listings.");
       }
@@ -5307,6 +5316,10 @@ class SupabaseBackendEngine {
     }
 
     if (action === "upload_machinery_photo") {
+      const callerProf = await getCallerProfile();
+      if (callerProf && callerProf.role !== "machinery_owner" && callerProf.role !== "admin") {
+        throw new Error("Forbidden: Only machinery owners can upload machinery photos.");
+      }
       const { file_base64, original_filename, mime_type } = data;
       if (!file_base64) throw new Error("File content is required.");
 
@@ -5340,6 +5353,10 @@ class SupabaseBackendEngine {
     }
 
     if (action === "upload_machinery_document") {
+      const callerProf = await getCallerProfile();
+      if (callerProf && callerProf.role !== "machinery_owner" && callerProf.role !== "admin") {
+        throw new Error("Forbidden: Only machinery owners can upload machinery documents.");
+      }
       const { file_base64, original_filename, mime_type, document_type, machinery_id } = data;
       if (!file_base64) throw new Error("Document content is required.");
 
