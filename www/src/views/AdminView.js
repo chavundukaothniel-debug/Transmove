@@ -10,6 +10,7 @@ import { ReportService } from "../services/reports.js";
 import { Modal } from "../components/Modal.js";
 import { renderEmptyState } from "../components/EmptyState.js";
 import { icon } from "../components/Icon.js";
+import { MachineryService } from "../services/machinery.js";
 
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -448,6 +449,22 @@ export const AdminView = {
             </div>
           </div>
         </div>
+
+        <!-- TAB: MACHINERY VERIFICATION DESK -->
+        <div id="adm-tab-machinery" style="display: none;">
+          <div class="card">
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+              <div>
+                <h3 class="card-title icon-label">${icon("tractor", 20)}<span>Heavy Machinery Verification Desk</span></h3>
+                <span class="badge badge-warning">Ownership &amp; Equipment Verification</span>
+              </div>
+              <button id="btn-refresh-admin-machinery" class="btn btn-outline btn-sm">${icon("refresh-cw", 16)}<span>Refresh</span></button>
+            </div>
+            <div id="admin-machinery-container">
+              <div style="padding: 2rem; text-align: center; color: var(--text-muted);">Loading machinery verification queue...</div>
+            </div>
+          </div>
+        </div>
       </div>
     `;
   },
@@ -484,6 +501,7 @@ export const AdminView = {
         if (tab === "settings") { this.loadSystemStatus(); this.loadSocialSettings(); }
         if (tab === "disputes") this.loadDisputes();
         if (tab === "audit") this.loadAuditLogs();
+        if (tab === "machinery") this.loadMachineryVerifications();
       });
     });
 
@@ -1779,6 +1797,128 @@ export const AdminView = {
     if (saveBtn) {
       saveBtn.disabled = true;
       saveBtn.title = "Platform settings storage has not been migrated to the Appwrite backend yet.";
+    }
+  },
+
+  async loadMachineryVerifications() {
+    const container = document.getElementById("admin-machinery-container");
+    if (!container) return;
+
+    container.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--text-muted);">Loading machinery verification queue...</div>`;
+
+    try {
+      const machineryList = await MachineryService.listMarketplace({ verified_only: false });
+      
+      document.getElementById("btn-refresh-admin-machinery")?.addEventListener("click", () => this.loadMachineryVerifications());
+
+      if (machineryList.length === 0) {
+        container.innerHTML = renderEmptyState({
+          title: "No machinery listed",
+          description: "There are currently no machinery listings in the system.",
+          icon: "inbox"
+        });
+        return;
+      }
+
+      container.innerHTML = `
+        <div style="display: flex; flex-direction: column; gap: 1.25rem; padding: 1rem 0;">
+          ${machineryList.map((item) => {
+            const isApproved = item.verification_status === "approved";
+            const isRejected = item.verification_status === "rejected";
+            const photoUrl = item.primary_photo?.file_url || (Array.isArray(item.photos) && item.photos.length > 0 ? (item.photos[0].file_url || item.photos[0]) : "/assets/images/logo.png");
+            const docs = Array.isArray(item.documents) ? item.documents : [];
+
+            return `
+              <div class="card" style="padding: 1.25rem; border-radius: 12px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+                  <div style="display: flex; gap: 1rem; align-items: center;">
+                    <div style="width: 80px; height: 80px; border-radius: 8px; overflow: hidden; background: #0f172a; flex-shrink: 0;">
+                      <img src="${escapeHtml(photoUrl)}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.src='/assets/images/logo.png';" />
+                    </div>
+                    <div>
+                      <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                        <span class="badge ${isApproved ? "badge-success" : (isRejected ? "badge-danger" : "badge-warning")}">
+                          ${escapeHtml(item.verification_status || "pending")}
+                        </span>
+                        <span class="badge badge-info">${escapeHtml(item.category)}</span>
+                      </div>
+                      <h4 style="margin: 0 0 0.25rem 0; font-size: 1.15rem; font-weight: 800;">${escapeHtml(item.name)}</h4>
+                      <div style="font-size: 0.85rem; color: var(--text-muted);">
+                        ${escapeHtml(item.brand)} ${escapeHtml(item.model)} • 📍 ${escapeHtml(item.location || item.province)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style="display: flex; gap: 0.5rem;">
+                    ${!isApproved ? `
+                      <button type="button" class="btn btn-primary btn-sm btn-approve-machinery" data-id="${escapeHtml(item.id)}" style="font-weight: 700;">
+                        Approve Equipment
+                      </button>
+                    ` : ""}
+                    ${!isRejected ? `
+                      <button type="button" class="btn btn-outline btn-sm btn-reject-machinery" data-id="${escapeHtml(item.id)}" style="color: #ef4444; border-color: rgba(239,68,68,0.4); font-weight: 700;">
+                        Reject
+                      </button>
+                    ` : ""}
+                  </div>
+                </div>
+
+                <!-- DOCUMENTS LIST -->
+                <div style="background: var(--bg-hover); padding: 0.85rem; border-radius: 8px; font-size: 0.85rem;">
+                  <div style="font-weight: 700; margin-bottom: 0.5rem; color: var(--text-main);">
+                    Uploaded Ownership &amp; Verification Documents (${docs.length})
+                  </div>
+                  ${docs.length === 0 ? `
+                    <div style="color: var(--text-muted); font-style: italic;">No verification documents uploaded.</div>
+                  ` : `
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                      ${docs.map((doc) => `
+                        <a href="${escapeHtml(doc.file_url)}" target="_blank" class="btn btn-outline btn-sm" style="font-size: 0.8rem; padding: 0.25rem 0.65rem;">
+                          📄 ${escapeHtml(doc.filename || doc.document_type || "Document")}
+                        </a>
+                      `).join("")}
+                    </div>
+                  `}
+                </div>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      `;
+
+      // Bind approve / reject
+      container.querySelectorAll(".btn-approve-machinery").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const id = btn.getAttribute("data-id");
+          btn.disabled = true;
+          try {
+            await MachineryService.adminVerify(id, "approved");
+            alert("Machinery listing approved! Owner will receive verified badge.");
+            this.loadMachineryVerifications();
+          } catch (err) {
+            alert("Approval error: " + err.message);
+            btn.disabled = false;
+          }
+        });
+      });
+
+      container.querySelectorAll(".btn-reject-machinery").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const id = btn.getAttribute("data-id");
+          if (!confirm("Are you sure you want to reject this machinery listing?")) return;
+          btn.disabled = true;
+          try {
+            await MachineryService.adminVerify(id, "rejected");
+            alert("Machinery listing marked as rejected.");
+            this.loadMachineryVerifications();
+          } catch (err) {
+            alert("Reject error: " + err.message);
+            btn.disabled = false;
+          }
+        });
+      });
+    } catch (err) {
+      container.innerHTML = `<div style="padding: 1.5rem; color: #ef4444;">Error loading machinery verification queue: ${escapeHtml(err.message)}</div>`;
     }
   }
 };

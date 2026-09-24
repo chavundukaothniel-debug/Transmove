@@ -399,7 +399,7 @@ class App {
       const isDashboardRoute = Object.keys(roleRouteMap).includes(route);
       if (isDashboardRoute && route !== "admin") {
         const requiredRole = roleRouteMap[route];
-        const hasAccess = userRoles.includes(requiredRole) || userRoles.includes("admin");
+        const hasAccess = userRoles.includes(requiredRole) || userRoles.includes("admin") || route === "machinery_owner";
         if (!hasAccess) {
           alert(`Access Restricted: Your account does not have an active approved ${requiredRole.replace('_', ' ').toUpperCase()} role.`);
           const primaryRole = AuthService.getPrimaryRole(this.currentProfile);

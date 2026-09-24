@@ -130,6 +130,61 @@ export const MachineryService = {
   },
 
   /**
+   * Resume paused machinery advertising campaign.
+   */
+  async resumePromotion(machineryId) {
+    return await trustedCall("resume_machinery_promotion", { machinery_id: machineryId });
+  },
+
+  /**
+   * Submit sale or custom machinery enquiry.
+   */
+  async submitEnquiry(payload) {
+    return await trustedCall("submit_machinery_enquiry", payload);
+  },
+
+  /**
+   * Get enquiries received by current machinery owner.
+   */
+  async getOwnerEnquiries() {
+    const res = await trustedCall("list_owner_machinery_enquiries", {});
+    return res.enquiries || [];
+  },
+
+  /**
+   * Upload machinery ownership / verification document to Google Drive storage.
+   */
+  async uploadDocument(file, documentType = "ownership_proof", machineryId = null) {
+    if (!file) throw new Error("No document selected.");
+    if (file.size > 20 * 1024 * 1024) throw new Error("Document exceeds 20MB limit.");
+
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    return await trustedCall("upload_machinery_document", {
+      file_base64: base64,
+      original_filename: file.name,
+      mime_type: file.type || "application/pdf",
+      document_type: documentType,
+      machinery_id: machineryId
+    });
+  },
+
+  /**
+   * Admin verify machinery listing and documents.
+   */
+  async adminVerify(machineryId, status = "approved") {
+    return await trustedCall("admin_verify_machinery", {
+      machinery_id: machineryId,
+      status
+    });
+  },
+
+  /**
    * Stop/pause active machinery advertising campaign.
    */
   async stopPromotion(machineryId) {
@@ -173,5 +228,14 @@ export const MachineryService = {
     });
 
     return res;
+  },
+
+  /**
+   * Deactivate/archive machinery listing.
+   */
+  async deactivateListing(machineryId) {
+    return await trustedCall("deactivate_machinery_listing", { machinery_id: machineryId });
   }
 };
+
+

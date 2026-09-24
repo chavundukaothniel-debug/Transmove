@@ -616,7 +616,8 @@ class SupabaseBackendEngine {
       "get_driver_reviews",
       "get_public_provider_profile",
       "list_machinery_marketplace",
-      "get_machinery_details"
+      "get_machinery_details",
+      "get_active_sponsored_machinery"
     ];
 
     let verifiedUser = null;
@@ -4176,27 +4177,45 @@ class SupabaseBackendEngine {
 
     if (action === "list_machinery_marketplace") {
       const nowIso = new Date().toISOString();
-      let listings = [...(this.db.machinery || [])];
+      let listings = [];
 
-      // Also sync from Supabase if live
-      if (this.isLive && this.supabaseAdmin) {
-        try {
-          const { data: supaMach, error } = await this.supabaseAdmin
-            .from("machinery")
-            .select("*")
-            .eq("status", "active");
-          if (!error && Array.isArray(supaMach) && supaMach.length > 0) {
-            supaMach.forEach((sm) => {
-              const idx = listings.findIndex((l) => l.id === sm.id);
-              if (idx >= 0) listings[idx] = { ...listings[idx], ...sm };
-              else listings.push(sm);
-            });
-          }
-        } catch (_) {}
+      // Query Supabase directly if available
+      if (this.supabaseAdmin) {
+        const { data: supaMach, error: fetchErr } = await this.supabaseAdmin
+          .from("machinery")
+          .select("*")
+          .in("status", ["active", "available"]);
+        if (fetchErr) {
+          console.error("[machinery] Supabase marketplace fetch error:", fetchErr);
+          throw new Error(`Database error querying machinery: ${fetchErr.message}`);
+        }
+        listings = supaMach || [];
+      } else {
+        listings = [...(this.db.machinery || [])].filter((m) => m.status === "active" || !m.status);
       }
 
+      // Check active advertisements
+      let activeAds = [];
+      if (this.supabaseAdmin) {
+        const { data: supaAds, error: adsErr } = await this.supabaseAdmin
+          .from("machinery_advertisements")
+          .select("*")
+          .eq("status", "active")
+          .gt("end_at", nowIso);
+        if (!adsErr && supaAds) activeAds = supaAds;
+      } else {
+        activeAds = (this.db.machinery_advertisements || []).filter(
+          (ad) => ad.status === "active" && (!ad.end_at || ad.end_at > nowIso)
+        );
+      }
+
+      const activeAdMap = new Map();
+      activeAds.forEach((ad) => {
+        activeAdMap.set(ad.machinery_id, ad);
+      });
+
       // Filter by active status
-      listings = listings.filter((m) => m.status === "active" || !m.status);
+      listings = listings.filter((m) => m.status === "active" || m.status === "available" || !m.status);
 
       // Search & Filters
       const q = (data.query || data.search || "").toLowerCase().trim();
@@ -4206,6 +4225,7 @@ class SupabaseBackendEngine {
           (m.brand && m.brand.toLowerCase().includes(q)) ||
           (m.model && m.model.toLowerCase().includes(q)) ||
           (m.category && m.category.toLowerCase().includes(q)) ||
+          (m.machine_category && m.machine_category.toLowerCase().includes(q)) ||
           (m.location && m.location.toLowerCase().includes(q)) ||
           (m.province && m.province.toLowerCase().includes(q)) ||
           (m.description && m.description.toLowerCase().includes(q))
@@ -4214,7 +4234,10 @@ class SupabaseBackendEngine {
 
       if (data.category && data.category !== "all") {
         const cat = data.category.toLowerCase().trim();
-        listings = listings.filter((m) => m.category && m.category.toLowerCase().trim() === cat);
+        listings = listings.filter((m) =>
+          (m.category && m.category.toLowerCase().trim() === cat) ||
+          (m.machine_category && m.machine_category.toLowerCase().trim() === cat)
+        );
       }
 
       if (data.brand) {
@@ -4225,6 +4248,11 @@ class SupabaseBackendEngine {
       if (data.model) {
         const mdl = data.model.toLowerCase().trim();
         listings = listings.filter((m) => m.model && m.model.toLowerCase().trim() === mdl);
+      }
+
+      if (data.listing_type && data.listing_type !== "all") {
+        const lt = data.listing_type.toLowerCase().trim();
+        listings = listings.filter((m) => m.listing_type === lt || m.listing_type === "both");
       }
 
       if (data.location || data.province) {
@@ -4247,35 +4275,51 @@ class SupabaseBackendEngine {
       if (data.min_price) {
         const minP = Number(data.min_price);
         if (Number.isFinite(minP)) {
-          listings = listings.filter((m) => Number(m.base_hire_rate) >= minP);
+          listings = listings.filter((m) => {
+            const rate = Number(m.daily_rate || m.base_hire_rate || m.hourly_rate || m.sale_price || 0);
+            return rate >= minP;
+          });
         }
       }
 
       if (data.max_price) {
         const maxP = Number(data.max_price);
         if (Number.isFinite(maxP)) {
-          listings = listings.filter((m) => Number(m.base_hire_rate) <= maxP);
+          listings = listings.filter((m) => {
+            const rate = Number(m.daily_rate || m.base_hire_rate || m.hourly_rate || m.sale_price || 0);
+            return rate <= maxP;
+          });
         }
       }
 
-      // Check active advertisements
-      const activeAds = (this.db.machinery_advertisements || []).filter(
-        (ad) => ad.status === "active" && (!ad.end_at || ad.end_at > nowIso)
-      );
-      const activeAdMap = new Map();
-      activeAds.forEach((ad) => {
-        activeAdMap.set(ad.machinery_id, ad);
-      });
+      // Fetch owner profiles for verification badge
+      const ownerIds = [...new Set(listings.map((m) => m.owner_id))].filter(Boolean);
+      let ownerProfiles = [];
+      if (this.supabaseAdmin && ownerIds.length > 0) {
+        try {
+          const { data: supaProfs } = await this.supabaseAdmin
+            .from("profiles")
+            .select("id, user_id, full_name, phone, role, verification_status")
+            .in("id", ownerIds);
+          if (supaProfs) ownerProfiles = supaProfs;
+        } catch (_) {}
+      }
 
-      // Hydrate owners & sponsored flag
+      // Hydrate owners & authoritative verification & sponsored status
       let enrichedListings = listings.map((m) => {
         const ad = activeAdMap.get(m.id);
         const isSponsored = Boolean(ad);
-        const ownerProf = (this.db.profiles || []).find((p) => p.id === m.owner_id || p.user_id === m.owner_id);
-        const ownerVerified = ownerProf ? ownerProf.verification_status === "verified" : false;
+        const ownerProf = ownerProfiles.find((p) => p.id === m.owner_id || p.user_id === m.owner_id) ||
+          (this.db.profiles || []).find((p) => p.id === m.owner_id || p.user_id === m.owner_id);
+
+        // Server-side authoritative verification: derived from owner's approved verification or admin approval
+        const isOwnerVerified = ownerProf?.verification_status === "verified" || m.verification_status === "approved";
+
+        // Strip private documents from public marketplace list
+        const { documents, ...safeListing } = m;
 
         return {
-          ...m,
+          ...safeListing,
           is_sponsored: isSponsored,
           advertisement_id: ad ? ad.id : null,
           owner: ownerProf ? {
@@ -4289,7 +4333,7 @@ class SupabaseBackendEngine {
             phone: "",
             verification_status: "pending"
           },
-          owner_verified: ownerVerified || m.verification_status === "verified"
+          owner_verified: isOwnerVerified
         };
       });
 
@@ -4304,7 +4348,7 @@ class SupabaseBackendEngine {
       // SORT ORDER (Strict business requirement):
       // 1. Active sponsored machinery
       // 2. Non-sponsored available machinery
-      // 3. Unavailable / other machinery
+      // 3. Unavailable / booked / sold machinery
       enrichedListings.sort((a, b) => {
         if (a.is_sponsored && !b.is_sponsored) return -1;
         if (!a.is_sponsored && b.is_sponsored) return 1;
@@ -4325,23 +4369,64 @@ class SupabaseBackendEngine {
     if (action === "get_machinery_details") {
       const machineryId = data.machinery_id || data.id;
       if (!machineryId) throw new Error("Machinery ID is required.");
-      let m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
-      if (!m && this.isLive && this.supabaseAdmin && isUuid(machineryId)) {
-        try {
-          const { data: supaM } = await this.supabaseAdmin.from("machinery").select("*").eq("id", machineryId).maybeSingle();
-          if (supaM) m = supaM;
-        } catch (_) {}
+      let m = null;
+
+      if (this.supabaseAdmin) {
+        const { data: supaM, error: fetchErr } = await this.supabaseAdmin
+          .from("machinery")
+          .select("*")
+          .eq("id", machineryId)
+          .single();
+        if (fetchErr || !supaM) {
+          throw new Error("Machinery listing not found.");
+        }
+        m = supaM;
+      } else {
+        m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
+        if (!m) throw new Error("Machinery listing not found.");
       }
-      if (!m) throw new Error("Machinery listing not found.");
 
       const nowIso = new Date().toISOString();
-      const activeAd = (this.db.machinery_advertisements || []).find(
-        (ad) => ad.machinery_id === m.id && ad.status === "active" && (!ad.end_at || ad.end_at > nowIso)
-      );
+      let activeAd = null;
+      if (this.supabaseAdmin) {
+        const { data: supaAd } = await this.supabaseAdmin
+          .from("machinery_advertisements")
+          .select("*")
+          .eq("machinery_id", m.id)
+          .eq("status", "active")
+          .gt("end_at", nowIso)
+          .maybeSingle();
+        activeAd = supaAd || null;
+      } else {
+        activeAd = (this.db.machinery_advertisements || []).find(
+          (ad) => ad.machinery_id === m.id && ad.status === "active" && (!ad.end_at || ad.end_at > nowIso)
+        ) || null;
+      }
 
-      const ownerProf = (this.db.profiles || []).find((p) => p.id === m.owner_id || p.user_id === m.owner_id);
+      let ownerProf = null;
+      if (this.supabaseAdmin) {
+        const { data: op } = await this.supabaseAdmin
+          .from("profiles")
+          .select("id, user_id, full_name, phone, role, verification_status")
+          .eq("id", m.owner_id)
+          .maybeSingle();
+        ownerProf = op || null;
+      } else {
+        ownerProf = (this.db.profiles || []).find((p) => p.id === m.owner_id || p.user_id === m.owner_id);
+      }
+
+      const callerProf = await getCallerProfile();
+      const isOwnerOrAdmin = m.owner_id === userId || callerProf?.role === "admin";
+      const isOwnerVerified = ownerProf?.verification_status === "verified" || m.verification_status === "approved";
+
+      // Do NOT expose private ownership documents to ordinary users (Part 12)
+      const sanitized = { ...m };
+      if (!isOwnerOrAdmin) {
+        delete sanitized.documents;
+      }
+
       return {
-        ...m,
+        ...sanitized,
         is_sponsored: Boolean(activeAd),
         advertisement_id: activeAd ? activeAd.id : null,
         owner: ownerProf ? {
@@ -4355,7 +4440,7 @@ class SupabaseBackendEngine {
           phone: "",
           verification_status: "pending"
         },
-        owner_verified: ownerProf ? ownerProf.verification_status === "verified" : m.verification_status === "verified"
+        owner_verified: isOwnerVerified
       };
     }
 
@@ -4365,66 +4450,143 @@ class SupabaseBackendEngine {
         throw new Error("Forbidden: Only machinery owners can list machinery.");
       }
 
-      if (!data.name || !data.category || !data.brand || !data.model || !data.location) {
-        throw new Error("Missing required machinery fields: name, category, brand, model, and location are required.");
+      const category = String(data.category || data.machine_category || "").trim();
+      const brand = String(data.brand || "").trim();
+      const model = String(data.model || "").trim();
+      const location = String(data.location || "").trim();
+
+      if (!category || !brand || !model || !location) {
+        throw new Error("Missing required machinery fields: category, brand, model, and location are required.");
       }
 
-      const baseRate = positiveNumber(data.base_hire_rate);
-      if (!baseRate) {
-        throw new Error("Base hire rate must be a valid positive amount.");
+      const listingType = data.listing_type || "hire"; // 'hire' | 'sale' | 'both'
+      if (!["hire", "sale", "both"].includes(listingType)) {
+        throw new Error("Invalid listing type. Must be 'hire', 'sale', or 'both'.");
       }
 
+      // Rates
+      let hourlyRate = data.hourly_rate ? positiveNumber(data.hourly_rate) : null;
+      let dailyRate = data.daily_rate ? positiveNumber(data.daily_rate) : null;
+      let weeklyRate = data.weekly_rate ? positiveNumber(data.weekly_rate) : null;
+      let monthlyRate = data.monthly_rate ? positiveNumber(data.monthly_rate) : null;
+      let baseRate = dailyRate || hourlyRate || weeklyRate || monthlyRate;
+
+      if (listingType === "hire" || listingType === "both") {
+        if (!hourlyRate && !dailyRate && !weeklyRate && !monthlyRate && !data.base_hire_rate) {
+          throw new Error("At least one hire rate (hourly, daily, weekly, or monthly) must be provided.");
+        }
+        if (!baseRate && data.base_hire_rate) {
+          baseRate = positiveNumber(data.base_hire_rate);
+          dailyRate = baseRate;
+        }
+      }
+
+      // Sale Price
+      let salePrice = null;
+      if (listingType === "sale" || listingType === "both") {
+        salePrice = positiveNumber(data.sale_price);
+        if (!salePrice) {
+          throw new Error("Sale price must be a valid positive amount for sale listings.");
+        }
+      }
+
+      // Operator Rates
       const operatorAvailable = Boolean(data.operator_available);
+      let opHourly = null;
+      let opDaily = null;
+      let opWeekly = null;
+      let opMonthly = null;
       let operatorInclusiveRate = null;
-      let operatorRate = 0;
 
       if (operatorAvailable) {
-        operatorInclusiveRate = positiveNumber(data.operator_inclusive_rate);
-        if (!operatorInclusiveRate || operatorInclusiveRate <= baseRate) {
-          throw new Error("Operator-inclusive rate must be greater than machinery-only base rate.");
+        opHourly = data.operator_hourly_rate ? positiveNumber(data.operator_hourly_rate) : null;
+        opDaily = data.operator_daily_rate ? positiveNumber(data.operator_daily_rate) : null;
+        opWeekly = data.operator_weekly_rate ? positiveNumber(data.operator_weekly_rate) : null;
+        opMonthly = data.operator_monthly_rate ? positiveNumber(data.operator_monthly_rate) : null;
+
+        // Server rule: Each operator-inclusive rate must be greater than equivalent machinery-only rate when both exist
+        if (hourlyRate && opHourly && opHourly <= hourlyRate) {
+          throw new Error(`Operator hourly rate ($${opHourly}) must be strictly greater than machinery-only hourly rate ($${hourlyRate}).`);
         }
-        operatorRate = Number(data.operator_rate) || Number((operatorInclusiveRate - baseRate).toFixed(2));
+        if (dailyRate && opDaily && opDaily <= dailyRate) {
+          throw new Error(`Operator daily rate ($${opDaily}) must be strictly greater than machinery-only daily rate ($${dailyRate}).`);
+        }
+        if (weeklyRate && opWeekly && opWeekly <= weeklyRate) {
+          throw new Error(`Operator weekly rate ($${opWeekly}) must be strictly greater than machinery-only weekly rate ($${weeklyRate}).`);
+        }
+        if (monthlyRate && opMonthly && opMonthly <= monthlyRate) {
+          throw new Error(`Operator monthly rate ($${opMonthly}) must be strictly greater than machinery-only monthly rate ($${monthlyRate}).`);
+        }
+
+        operatorInclusiveRate = opDaily || opHourly || opWeekly || opMonthly || positiveNumber(data.operator_inclusive_rate) || null;
+
+        if (baseRate && operatorInclusiveRate && operatorInclusiveRate <= baseRate) {
+          throw new Error(`Operator inclusive rate ($${operatorInclusiveRate}) must be strictly greater than base rate ($${baseRate}).`);
+        }
       }
 
-      const id = data.id || `mach_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const id = data.id && isUuid(data.id) ? data.id : undefined;
       const now = new Date().toISOString();
 
-      const newMachinery = {
-        id,
+      let newMachinery = {
+        ...(id ? { id } : {}),
         owner_id: userId,
-        name: String(data.name).trim(),
-        category: String(data.category).trim(),
-        brand: String(data.brand).trim(),
-        model: String(data.model).trim(),
+        name: data.name ? String(data.name).trim() : `${brand} ${model} ${category}`,
+        category,
+        machine_category: category,
+        brand,
+        model,
         year: data.year ? Number(data.year) : null,
         condition: data.condition || "good",
-        description: data.description || "",
-        location: String(data.location).trim(),
-        province: data.province || "Harare",
         operating_hours: Number(data.operating_hours || 0),
         fuel_type: data.fuel_type || "diesel",
         power: data.power || "",
         capacity: data.capacity || "",
-        status: data.status || "active",
-        verification_status: "pending",
-        availability_status: data.availability_status || "available",
+        location,
+        province: data.province || "Harare",
+        listing_type: listingType,
+        hourly_rate: hourlyRate,
+        daily_rate: dailyRate,
+        weekly_rate: weeklyRate,
+        monthly_rate: monthlyRate,
         base_hire_rate: baseRate,
-        rate_period: data.rate_period || "per_day",
+        rate_period: data.rate_period || "daily",
+        sale_price: salePrice,
         operator_available: operatorAvailable,
-        operator_rate: operatorRate,
+        operator_rate: opDaily && dailyRate ? Number((opDaily - dailyRate).toFixed(2)) : 0,
         operator_inclusive_rate: operatorInclusiveRate,
-        minimum_hire_period: Number(data.minimum_hire_period || 1),
+        operator_hourly_rate: opHourly,
+        operator_daily_rate: opDaily,
+        operator_weekly_rate: opWeekly,
+        operator_monthly_rate: opMonthly,
         transport_available: Boolean(data.transport_available),
-        photos: Array.isArray(data.photos) ? data.photos : [],
+        transport_notes: data.transport_notes || "",
+        minimum_hire_period: Number(data.minimum_hire_period || 1),
+        minimum_hire_unit: data.minimum_hire_unit || "days",
+        description: data.description || "",
+        primary_photo: data.primary_photo || {},
+        gallery_photos: Array.isArray(data.gallery_photos) ? data.gallery_photos : [],
+        photos: Array.isArray(data.photos) ? data.photos : (data.primary_photo?.file_url ? [data.primary_photo] : []),
+        documents: Array.isArray(data.documents) ? data.documents : [],
+        status: data.status || "active",
+        verification_status: "pending", // Derived server-side only
+        availability_status: data.availability_status || "available",
         created_at: now,
         updated_at: now
       };
 
-      if (this.isLive && this.supabaseAdmin && isUuid(id) && isUuid(userId)) {
-        try {
-          const { error: insErr } = await this.supabaseAdmin.from("machinery").insert(newMachinery);
-          if (insErr) console.warn("[machinery] Supabase insert warning:", insErr.message);
-        } catch (_) {}
+      // Strict Supabase persistence - DO NOT silently fallback
+      if (this.supabaseAdmin) {
+        const { data: inserted, error: insErr } = await this.supabaseAdmin
+          .from("machinery")
+          .insert(newMachinery)
+          .select()
+          .single();
+        if (insErr) {
+          console.error("[machinery] Supabase insert error:", insErr);
+          throw new Error(`Database error creating machinery: ${insErr.message}`);
+        }
+        newMachinery = inserted || newMachinery;
       }
 
       if (!this.db.machinery) this.db.machinery = [];
@@ -4438,100 +4600,216 @@ class SupabaseBackendEngine {
     if (action === "update_machinery_listing") {
       const machineryId = data.machinery_id || data.id;
       if (!machineryId) throw new Error("Machinery ID is required.");
-      let m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
-      if (!m) throw new Error("Machinery listing not found.");
+
+      let m = null;
+      if (this.supabaseAdmin) {
+        const { data: supaM, error: fErr } = await this.supabaseAdmin
+          .from("machinery")
+          .select("*")
+          .eq("id", machineryId)
+          .single();
+        if (fErr || !supaM) throw new Error("Machinery listing not found.");
+        m = supaM;
+      } else {
+        m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
+        if (!m) throw new Error("Machinery listing not found.");
+      }
 
       const callerProf = await getCallerProfile();
       if (m.owner_id !== userId && callerProf?.role !== "admin") {
         throw new Error("Forbidden: You cannot modify another owner's machinery listing.");
       }
 
-      let baseRate = m.base_hire_rate;
-      if (data.base_hire_rate !== undefined) {
-        const parsedBase = positiveNumber(data.base_hire_rate);
-        if (!parsedBase) throw new Error("Base hire rate must be a valid positive amount.");
-        baseRate = parsedBase;
-      }
-
-      let operatorAvailable = data.operator_available !== undefined ? Boolean(data.operator_available) : m.operator_available;
-      let operatorInclusiveRate = m.operator_inclusive_rate;
-      let operatorRate = m.operator_rate;
-
-      if (operatorAvailable) {
-        if (data.operator_inclusive_rate !== undefined) {
-          const parsedInc = positiveNumber(data.operator_inclusive_rate);
-          if (!parsedInc || parsedInc <= baseRate) {
-            throw new Error("Operator-inclusive rate must be greater than machinery-only base rate.");
-          }
-          operatorInclusiveRate = parsedInc;
-          operatorRate = Number((operatorInclusiveRate - baseRate).toFixed(2));
-        } else if (!operatorInclusiveRate || operatorInclusiveRate <= baseRate) {
-          throw new Error("Operator-inclusive rate must be greater than machinery-only base rate.");
-        }
-      }
-
-      const updated = {
-        ...m,
-        ...data,
-        id: m.id,
-        owner_id: m.owner_id,
-        base_hire_rate: baseRate,
-        operator_available: operatorAvailable,
-        operator_inclusive_rate: operatorAvailable ? operatorInclusiveRate : null,
-        operator_rate: operatorAvailable ? operatorRate : 0,
+      const updateFields = {
         updated_at: new Date().toISOString()
       };
 
-      const idx = this.db.machinery.findIndex((entry) => entry.id === m.id);
-      if (idx >= 0) this.db.machinery[idx] = updated;
+      if (data.name !== undefined) updateFields.name = String(data.name).trim();
+      if (data.category !== undefined) {
+        updateFields.category = String(data.category).trim();
+        updateFields.machine_category = updateFields.category;
+      }
+      if (data.brand !== undefined) updateFields.brand = String(data.brand).trim();
+      if (data.model !== undefined) updateFields.model = String(data.model).trim();
+      if (data.year !== undefined) updateFields.year = data.year ? Number(data.year) : null;
+      if (data.condition !== undefined) updateFields.condition = data.condition;
+      if (data.operating_hours !== undefined) updateFields.operating_hours = Number(data.operating_hours);
+      if (data.fuel_type !== undefined) updateFields.fuel_type = data.fuel_type;
+      if (data.power !== undefined) updateFields.power = data.power;
+      if (data.capacity !== undefined) updateFields.capacity = data.capacity;
+      if (data.location !== undefined) updateFields.location = String(data.location).trim();
+      if (data.province !== undefined) updateFields.province = data.province;
+      if (data.description !== undefined) updateFields.description = data.description;
+      if (data.listing_type !== undefined) updateFields.listing_type = data.listing_type;
 
-      if (this.isLive && this.supabaseAdmin && isUuid(m.id)) {
-        try {
-          await this.supabaseAdmin.from("machinery").update(updated).eq("id", m.id);
-        } catch (_) {}
+      if (data.hourly_rate !== undefined) updateFields.hourly_rate = data.hourly_rate ? positiveNumber(data.hourly_rate) : null;
+      if (data.daily_rate !== undefined) {
+        updateFields.daily_rate = data.daily_rate ? positiveNumber(data.daily_rate) : null;
+        updateFields.base_hire_rate = updateFields.daily_rate;
+      }
+      if (data.weekly_rate !== undefined) updateFields.weekly_rate = data.weekly_rate ? positiveNumber(data.weekly_rate) : null;
+      if (data.monthly_rate !== undefined) updateFields.monthly_rate = data.monthly_rate ? positiveNumber(data.monthly_rate) : null;
+      if (data.sale_price !== undefined) updateFields.sale_price = data.sale_price ? positiveNumber(data.sale_price) : null;
+
+      if (data.operator_available !== undefined) updateFields.operator_available = Boolean(data.operator_available);
+      if (data.operator_hourly_rate !== undefined) updateFields.operator_hourly_rate = data.operator_hourly_rate ? positiveNumber(data.operator_hourly_rate) : null;
+      if (data.operator_daily_rate !== undefined) updateFields.operator_daily_rate = data.operator_daily_rate ? positiveNumber(data.operator_daily_rate) : null;
+      if (data.operator_weekly_rate !== undefined) updateFields.operator_weekly_rate = data.operator_weekly_rate ? positiveNumber(data.operator_weekly_rate) : null;
+      if (data.operator_monthly_rate !== undefined) updateFields.operator_monthly_rate = data.operator_monthly_rate ? positiveNumber(data.operator_monthly_rate) : null;
+
+      if (data.transport_available !== undefined) updateFields.transport_available = Boolean(data.transport_available);
+      if (data.transport_notes !== undefined) updateFields.transport_notes = data.transport_notes;
+      if (data.minimum_hire_period !== undefined) updateFields.minimum_hire_period = Number(data.minimum_hire_period);
+      if (data.minimum_hire_unit !== undefined) updateFields.minimum_hire_unit = data.minimum_hire_unit;
+      if (data.availability_status !== undefined) updateFields.availability_status = data.availability_status;
+      if (data.primary_photo !== undefined) updateFields.primary_photo = data.primary_photo;
+      if (data.gallery_photos !== undefined) updateFields.gallery_photos = data.gallery_photos;
+      if (data.photos !== undefined) updateFields.photos = data.photos;
+      if (data.documents !== undefined) updateFields.documents = data.documents;
+
+      // Rate checks if operator is active
+      const finalHourly = updateFields.hourly_rate !== undefined ? updateFields.hourly_rate : m.hourly_rate;
+      const finalOpHourly = updateFields.operator_hourly_rate !== undefined ? updateFields.operator_hourly_rate : m.operator_hourly_rate;
+      if (finalHourly && finalOpHourly && finalOpHourly <= finalHourly) {
+        throw new Error(`Operator hourly rate ($${finalOpHourly}) must be strictly greater than base rate ($${finalHourly}).`);
       }
 
+      const finalDaily = updateFields.daily_rate !== undefined ? updateFields.daily_rate : m.daily_rate;
+      const finalOpDaily = updateFields.operator_daily_rate !== undefined ? updateFields.operator_daily_rate : m.operator_daily_rate;
+      if (finalDaily && finalOpDaily && finalOpDaily <= finalDaily) {
+        throw new Error(`Operator daily rate ($${finalOpDaily}) must be strictly greater than base rate ($${finalDaily}).`);
+      }
+
+      let updatedListing = { ...m, ...updateFields };
+
+      // Strict Supabase write
+      if (this.supabaseAdmin) {
+        const { data: supaUpd, error: uErr } = await this.supabaseAdmin
+          .from("machinery")
+          .update(updateFields)
+          .eq("id", machineryId)
+          .select()
+          .single();
+        if (uErr) {
+          console.error("[machinery] Supabase update error:", uErr);
+          throw new Error(`Database error updating machinery: ${uErr.message}`);
+        }
+        updatedListing = supaUpd || updatedListing;
+      }
+
+      const idx = (this.db.machinery || []).findIndex((entry) => entry.id === machineryId);
+      if (idx >= 0) this.db.machinery[idx] = updatedListing;
       this._persistLocalDb();
-      return updated;
+
+      return updatedListing;
+    }
+
+    if (action === "delete_machinery_listing" || action === "deactivate_machinery_listing") {
+      const machineryId = data.machinery_id || data.id;
+      if (!machineryId) throw new Error("Machinery ID is required.");
+
+      let m = null;
+      if (this.supabaseAdmin) {
+        const { data: supaM } = await this.supabaseAdmin.from("machinery").select("*").eq("id", machineryId).single();
+        m = supaM;
+      } else {
+        m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
+      }
+      if (!m) throw new Error("Machinery listing not found.");
+
+      const callerProf = await getCallerProfile();
+      if (m.owner_id !== userId && callerProf?.role !== "admin") {
+        throw new Error("Forbidden: You cannot delete another owner's machinery listing.");
+      }
+
+      if (this.supabaseAdmin) {
+        const { error: delErr } = await this.supabaseAdmin
+          .from("machinery")
+          .update({ status: "archived", availability_status: "unavailable", updated_at: new Date().toISOString() })
+          .eq("id", machineryId);
+        if (delErr) throw new Error(`Database error archiving machinery: ${delErr.message}`);
+      }
+
+      const idx = (this.db.machinery || []).findIndex((entry) => entry.id === machineryId);
+      if (idx >= 0) this.db.machinery[idx].status = "archived";
+      this._persistLocalDb();
+
+      return { success: true, message: "Machinery deactivated successfully." };
     }
 
     if (action === "submit_machinery_hire_request") {
       const machineryId = data.machinery_id || data.id;
       if (!machineryId) throw new Error("Machinery ID is required.");
-      const m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
-      if (!m || m.status !== "active") throw new Error("Machinery listing not found or not active.");
+
+      let m = null;
+      if (this.supabaseAdmin) {
+        const { data: supaM, error: fErr } = await this.supabaseAdmin.from("machinery").select("*").eq("id", machineryId).single();
+        if (fErr || !supaM) throw new Error("Machinery listing not found.");
+        m = supaM;
+      } else {
+        m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
+        if (!m) throw new Error("Machinery listing not found.");
+      }
+
+      if (m.status !== "active" && m.status !== "available") {
+        throw new Error("Machinery listing is not currently available for hire.");
+      }
 
       const withOperator = Boolean(data.with_operator);
-      let rateApplied = m.base_hire_rate;
+      const ratePeriod = data.rate_period || "daily"; // 'hourly', 'daily', 'weekly', 'monthly'
 
+      let baseRate = 0;
+      let operatorRate = 0;
+
+      if (ratePeriod === "hourly") {
+        baseRate = Number(m.hourly_rate || 0);
+        operatorRate = Number(m.operator_hourly_rate || (baseRate && m.operator_rate ? baseRate + m.operator_rate : 0));
+      } else if (ratePeriod === "weekly") {
+        baseRate = Number(m.weekly_rate || 0);
+        operatorRate = Number(m.operator_weekly_rate || (baseRate && m.operator_rate ? baseRate + m.operator_rate * 7 : 0));
+      } else if (ratePeriod === "monthly") {
+        baseRate = Number(m.monthly_rate || 0);
+        operatorRate = Number(m.operator_monthly_rate || (baseRate && m.operator_rate ? baseRate + m.operator_rate * 30 : 0));
+      } else {
+        baseRate = Number(m.daily_rate || m.base_hire_rate || 0);
+        operatorRate = Number(m.operator_daily_rate || m.operator_inclusive_rate || 0);
+      }
+
+      if (!baseRate && !operatorRate) {
+        baseRate = Number(m.base_hire_rate || m.daily_rate || m.hourly_rate || 0);
+        operatorRate = Number(m.operator_inclusive_rate || 0);
+      }
+
+      let rateApplied = baseRate;
       if (withOperator) {
         if (!m.operator_available) {
-          throw new Error("Operator option is not available for this machinery.");
+          throw new Error("Certified operator option is not available for this machinery.");
         }
-        if (!m.operator_inclusive_rate || m.operator_inclusive_rate <= m.base_hire_rate) {
+        if (!operatorRate || operatorRate <= baseRate) {
           throw new Error("Operator-inclusive rate must be greater than machinery-only base rate.");
         }
-        rateApplied = m.operator_inclusive_rate;
+        rateApplied = operatorRate;
+      } else {
+        if (!baseRate || baseRate <= 0) {
+          throw new Error(`Machinery-only rate for period '${ratePeriod}' is not defined.`);
+        }
       }
 
       const durationUnits = Math.max(1, Number(data.duration_units || data.duration_days || 1));
       const calculatedTotal = Number((rateApplied * durationUnits).toFixed(2));
 
       const callerProf = await getCallerProfile();
-      const hireId = `hire_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      const hireId = data.id && isUuid(data.id) ? data.id : undefined;
       const now = new Date().toISOString();
 
-      const hireRequest = {
-        id: hireId,
+      let hireRequest = {
+        ...(hireId ? { id: hireId } : {}),
         machinery_id: m.id,
-        machinery_name: m.name,
         renter_id: userId,
-        renter_name: callerProf?.full_name || "Hirer",
-        renter_phone: callerProf?.phone || data.contact_phone || "",
         owner_id: m.owner_id,
         with_operator: withOperator,
+        rate_period: ratePeriod,
         rate_applied: rateApplied,
-        rate_period: m.rate_period || "per_day",
         duration_units: durationUnits,
         start_date: data.start_date || now,
         end_date: data.end_date || new Date(Date.now() + durationUnits * 86400000).toISOString(),
@@ -4546,27 +4824,22 @@ class SupabaseBackendEngine {
         updated_at: now
       };
 
-      if (!this.db.machinery_hires) this.db.machinery_hires = [];
-      this.db.machinery_hires.push(hireRequest);
-
-      if (this.isLive && this.supabaseAdmin && isUuid(hireId) && isUuid(m.id)) {
-        try {
-          await this.supabaseAdmin.from("machinery_hires").insert(hireRequest);
-        } catch (_) {}
+      // Strict Supabase write
+      if (this.supabaseAdmin) {
+        const { data: insHire, error: hireErr } = await this.supabaseAdmin
+          .from("machinery_hires")
+          .insert(hireRequest)
+          .select()
+          .single();
+        if (hireErr) {
+          console.error("[machinery] Supabase hire request insert error:", hireErr);
+          throw new Error(`Database error creating hire request: ${hireErr.message}`);
+        }
+        hireRequest = insHire || hireRequest;
       }
 
-      // Notify machinery owner
-      if (!this.db.notifications) this.db.notifications = [];
-      this.db.notifications.push({
-        id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        user_id: m.owner_id,
-        type: "machinery_hire_request",
-        title: "New Machinery Hire Request",
-        message: `${hireRequest.contact_name} requested ${m.name} (${withOperator ? "With Operator" : "Machinery Only"}) for $${calculatedTotal.toFixed(2)}.`,
-        related_id: hireRequest.id,
-        read: false,
-        created_at: now
-      });
+      if (!this.db.machinery_hires) this.db.machinery_hires = [];
+      this.db.machinery_hires.push(hireRequest);
 
       // Track active ad conversion if applicable
       const activeAd = (this.db.machinery_advertisements || []).find(
@@ -4582,19 +4855,46 @@ class SupabaseBackendEngine {
     }
 
     if (action === "list_owner_machinery_hires") {
-      const hires = (this.db.machinery_hires || []).filter((h) => h.owner_id === userId);
-      return { hires: hires.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) };
+      let hires = [];
+      if (this.supabaseAdmin) {
+        const { data: supaHires, error: hErr } = await this.supabaseAdmin
+          .from("machinery_hires")
+          .select("*, machinery:machinery_id(name, brand, model, primary_photo)")
+          .eq("owner_id", userId)
+          .order("created_at", { ascending: false });
+        if (!hErr && supaHires) hires = supaHires;
+      } else {
+        hires = (this.db.machinery_hires || []).filter((h) => h.owner_id === userId);
+      }
+      return { hires };
     }
 
     if (action === "list_renter_machinery_hires") {
-      const hires = (this.db.machinery_hires || []).filter((h) => h.renter_id === userId);
-      return { hires: hires.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) };
+      let hires = [];
+      if (this.supabaseAdmin) {
+        const { data: supaHires, error: hErr } = await this.supabaseAdmin
+          .from("machinery_hires")
+          .select("*, machinery:machinery_id(name, brand, model, primary_photo)")
+          .eq("renter_id", userId)
+          .order("created_at", { ascending: false });
+        if (!hErr && supaHires) hires = supaHires;
+      } else {
+        hires = (this.db.machinery_hires || []).filter((h) => h.renter_id === userId);
+      }
+      return { hires };
     }
 
     if (action === "update_machinery_hire_status") {
       const hireId = data.hire_id || data.id;
       if (!hireId) throw new Error("Hire ID is required.");
-      const hire = (this.db.machinery_hires || []).find((h) => h.id === hireId);
+
+      let hire = null;
+      if (this.supabaseAdmin) {
+        const { data: supaH } = await this.supabaseAdmin.from("machinery_hires").select("*").eq("id", hireId).single();
+        hire = supaH;
+      } else {
+        hire = (this.db.machinery_hires || []).find((h) => h.id === hireId);
+      }
       if (!hire) throw new Error("Hire request not found.");
 
       const newStatus = data.status;
@@ -4618,45 +4918,110 @@ class SupabaseBackendEngine {
       }
 
       const now = new Date().toISOString();
+      const declineReason = newStatus === "declined" ? (data.decline_reason || data.reason || "Declined by owner") : null;
+
+      if (this.supabaseAdmin) {
+        const { error: updErr } = await this.supabaseAdmin
+          .from("machinery_hires")
+          .update({
+            status: newStatus,
+            decline_reason: declineReason,
+            updated_at: now
+          })
+          .eq("id", hireId);
+        if (updErr) throw new Error(`Database error updating hire status: ${updErr.message}`);
+      }
+
       hire.status = newStatus;
+      hire.decline_reason = declineReason;
       hire.updated_at = now;
-      if (newStatus === "declined") {
-        hire.decline_reason = data.decline_reason || data.reason || "Declined by owner";
-      }
-
-      // Notify renter of status change
-      if (!this.db.notifications) this.db.notifications = [];
-      let notifType = `machinery_hire_${newStatus}`;
-      let notifTitle = "Machinery Hire Update";
-      let notifMsg = `Your hire request for ${hire.machinery_name || "machinery"} is now ${newStatus}.`;
-
-      if (newStatus === "accepted") {
-        notifTitle = "Machinery Hire Accepted!";
-        notifMsg = `Your hire request for ${hire.machinery_name || "machinery"} was accepted by the owner.`;
-      } else if (newStatus === "declined") {
-        notifTitle = "Machinery Hire Declined";
-        notifMsg = `Your hire request for ${hire.machinery_name || "machinery"} was declined: ${hire.decline_reason}`;
-      }
-
-      this.db.notifications.push({
-        id: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        user_id: hire.renter_id,
-        type: notifType,
-        title: notifTitle,
-        message: notifMsg,
-        related_id: hire.id,
-        read: false,
-        created_at: now
-      });
-
       this._persistLocalDb();
+
       return hire;
     }
 
+    // SALE & CUSTOM ENQUIRIES (Part 15)
+    if (action === "submit_machinery_enquiry") {
+      const machineryId = data.machinery_id || data.id;
+      if (!machineryId) throw new Error("Machinery ID is required.");
+      const message = String(data.message || "").trim();
+      if (!message) throw new Error("Enquiry message cannot be empty.");
+
+      let m = null;
+      if (this.supabaseAdmin) {
+        const { data: supaM } = await this.supabaseAdmin.from("machinery").select("*").eq("id", machineryId).single();
+        m = supaM;
+      } else {
+        m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
+      }
+      if (!m) throw new Error("Machinery listing not found.");
+
+      const callerProf = await getCallerProfile();
+      const now = new Date().toISOString();
+      let enquiry = {
+        machinery_id: m.id,
+        user_id: userId,
+        owner_id: m.owner_id,
+        enquiry_type: data.enquiry_type || (m.listing_type === "sale" ? "sale" : "hire_info"),
+        message,
+        contact_name: data.contact_name || callerProf?.full_name || "Prospective Buyer",
+        contact_phone: data.contact_phone || callerProf?.phone || "",
+        contact_email: data.contact_email || callerProf?.email || "",
+        status: "pending",
+        created_at: now,
+        updated_at: now
+      };
+
+      if (this.supabaseAdmin) {
+        const { data: insEnq, error: enqErr } = await this.supabaseAdmin
+          .from("machinery_enquiries")
+          .insert(enquiry)
+          .select()
+          .single();
+        if (enqErr) {
+          console.error("[machinery] Supabase enquiry insert error:", enqErr);
+          throw new Error(`Database error submitting enquiry: ${enqErr.message}`);
+        }
+        enquiry = insEnq || enquiry;
+      } else {
+        enquiry.id = `enq_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+      }
+
+      if (!this.db.machinery_enquiries) this.db.machinery_enquiries = [];
+      this.db.machinery_enquiries.push(enquiry);
+      this._persistLocalDb();
+
+      await logActivity("machinery_enquiry", `Enquiry for ${m.name}`, `From: ${enquiry.contact_name}`, m.id);
+      return { success: true, ...enquiry, enquiry };
+    }
+
+    if (action === "list_owner_machinery_enquiries") {
+      let enquiries = [];
+      if (this.supabaseAdmin) {
+        const { data: supaEnq, error: eErr } = await this.supabaseAdmin
+          .from("machinery_enquiries")
+          .select("*, machinery:machinery_id(name, brand, model, sale_price)")
+          .eq("owner_id", userId)
+          .order("created_at", { ascending: false });
+        if (!eErr && supaEnq) enquiries = supaEnq;
+      } else {
+        enquiries = (this.db.machinery_enquiries || []).filter((e) => e.owner_id === userId);
+      }
+      return { enquiries };
+    }
+
+    // SPONSORED MACHINERY ADVERTISING (Parts 6, 7, 8, 9)
     if (action === "promote_machinery_listing") {
       const machineryId = data.machinery_id || data.id;
       if (!machineryId) throw new Error("Machinery ID is required.");
-      const m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
+
+      let m = null;
+      if (this.supabaseAdmin) {
+        const { data: supaM } = await this.supabaseAdmin.from("machinery").select("*").eq("id", machineryId).single();
+        m = supaM;
+      } else {
+        m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
+      }
       if (!m) throw new Error("Machinery listing not found.");
 
       const callerProf = await getCallerProfile();
@@ -4665,61 +5030,115 @@ class SupabaseBackendEngine {
         throw new Error("Forbidden: You can only advertise your own machinery listings.");
       }
 
-      // Check subscription entitlement
-      // Plan 'machinery-fleet' includes advertising / sponsored placement
+      // Check subscription entitlement:
+      // Machinery Fleet Pro ("machinery-fleet") includes advertising privileges
       const now = new Date();
-      const activeSubs = (this.db.subscriptions || []).filter(
-        (s) => s.user_id === userId && s.status === "active" && new Date(s.expires_at) > now
-      );
+      let activeSubs = [];
+      if (this.supabaseAdmin) {
+        try {
+          const { data: supaSubs } = await this.supabaseAdmin
+            .from("subscriptions")
+            .select("*, plan:plan_id(*)")
+            .eq("user_id", userId)
+            .eq("status", "active")
+            .gt("expires_at", now.toISOString());
+          if (supaSubs) activeSubs = supaSubs;
+        } catch (_) {}
+      }
+
+      if (activeSubs.length === 0) {
+        activeSubs = (this.db.subscriptions || []).filter(
+          (s) => s.user_id === userId && s.status === "active" && new Date(s.expires_at) > now
+        );
+      }
+
       const hasFleetPlan = activeSubs.some(
-        (s) => s.plan_slug === "machinery-fleet" || (s.plan && (s.plan.slug === "machinery-fleet" || s.plan.name?.includes("Fleet")))
+        (s) =>
+          s.plan_slug === "machinery-fleet" ||
+          s.plan_id === "30000000-0000-4000-8000-000000000002" ||
+          (s.plan && (s.plan.slug === "machinery-fleet" || s.plan.name?.includes("Fleet") || String(s.plan).includes("Fleet")))
       );
 
-      // If user lacks fleet subscription and is not bypass / admin
+      // Part 7: If owner's current subscription does not include advertising, throw clear message
       if (!isAdmin && !hasFleetPlan && !data.bypass_subscription) {
-        throw new Error("Advertising is not included in your current plan. Please upgrade to Machinery Fleet Pro.");
+        throw new Error("Sponsored advertising is not included in your current plan. Please upgrade to Machinery Fleet Pro.");
       }
 
       const durationDays = Number(data.duration_days || 30);
       const nowIso = now.toISOString();
       const endIso = new Date(Date.now() + durationDays * 86400000).toISOString();
 
-      if (!this.db.machinery_advertisements) this.db.machinery_advertisements = [];
-      let ad = this.db.machinery_advertisements.find((a) => a.machinery_id === m.id);
+      let adPayload = {
+        machinery_id: m.id,
+        owner_id: userId,
+        status: "active",
+        start_at: nowIso,
+        end_at: endIso,
+        updated_at: nowIso
+      };
 
-      if (ad) {
-        ad.status = "active";
-        ad.start_at = nowIso;
-        ad.end_at = endIso;
-        ad.updated_at = nowIso;
-      } else {
-        ad = {
-          id: `mach_ad_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          machinery_id: m.id,
-          owner_id: userId,
-          status: "active",
-          start_at: nowIso,
-          end_at: endIso,
-          impressions: 0,
-          clicks: 0,
-          hire_requests_generated: 0,
-          created_at: nowIso,
-          updated_at: nowIso
-        };
-        this.db.machinery_advertisements.push(ad);
+      if (this.supabaseAdmin) {
+        // Check existing ad
+        const { data: existingAd } = await this.supabaseAdmin
+          .from("machinery_advertisements")
+          .select("id")
+          .eq("machinery_id", m.id)
+          .maybeSingle();
+
+        if (existingAd) {
+          const { data: updatedAd, error: updErr } = await this.supabaseAdmin
+            .from("machinery_advertisements")
+            .update(adPayload)
+            .eq("id", existingAd.id)
+            .select()
+            .single();
+          if (updErr) throw new Error(`Database error updating advertisement: ${updErr.message}`);
+          adPayload = updatedAd;
+        } else {
+          adPayload.impressions = 0;
+          adPayload.clicks = 0;
+          adPayload.hire_requests_generated = 0;
+          adPayload.created_at = nowIso;
+          const { data: insAd, error: insErr } = await this.supabaseAdmin
+            .from("machinery_advertisements")
+            .insert(adPayload)
+            .select()
+            .single();
+          if (insErr) throw new Error(`Database error creating advertisement: ${insErr.message}`);
+          adPayload = insAd;
+        }
       }
 
+      if (!this.db.machinery_advertisements) this.db.machinery_advertisements = [];
+      const exIdx = this.db.machinery_advertisements.findIndex((a) => a.machinery_id === m.id);
+      if (exIdx >= 0) {
+        this.db.machinery_advertisements[exIdx] = { ...this.db.machinery_advertisements[exIdx], ...adPayload };
+      } else {
+        this.db.machinery_advertisements.push(adPayload);
+      }
       this._persistLocalDb();
-      await logActivity("machinery_promoted", `Promoted machinery: ${m.name}`, `Duration: ${durationDays} days`, ad.id);
-      return { success: true, advertisement: ad };
+
+      await logActivity("machinery_promoted", `Promoted machinery: ${m.name}`, `Duration: ${durationDays} days`, adPayload.id);
+      return { success: true, advertisement: adPayload };
     }
 
-    if (action === "stop_machinery_promotion") {
+    if (action === "stop_machinery_promotion" || action === "pause_machinery_promotion") {
       const machineryId = data.machinery_id || data.id;
       const adId = data.advertisement_id;
-      let ad = (this.db.machinery_advertisements || []).find(
-        (a) => (machineryId && a.machinery_id === machineryId) || (adId && a.id === adId)
-      );
+
+      let ad = null;
+      if (this.supabaseAdmin) {
+        let q = this.supabaseAdmin.from("machinery_advertisements").select("*");
+        if (machineryId) q = q.eq("machinery_id", machineryId);
+        else if (adId) q = q.eq("id", adId);
+        const { data: supaAd } = await q.maybeSingle();
+        ad = supaAd;
+      } else {
+        ad = (this.db.machinery_advertisements || []).find(
+          (a) => (machineryId && a.machinery_id === machineryId) || (adId && a.id === adId)
+        );
+      }
+
       if (!ad) throw new Error("Active advertisement not found.");
 
       const callerProf = await getCallerProfile();
@@ -4727,38 +5146,125 @@ class SupabaseBackendEngine {
         throw new Error("Forbidden: You cannot modify another owner's advertisement.");
       }
 
+      const nowIso = new Date().toISOString();
+      if (this.supabaseAdmin) {
+        const { error: updErr } = await this.supabaseAdmin
+          .from("machinery_advertisements")
+          .update({ status: "paused", updated_at: nowIso })
+          .eq("id", ad.id);
+        if (updErr) throw new Error(`Database error pausing advertisement: ${updErr.message}`);
+      }
+
       ad.status = "paused";
-      ad.updated_at = new Date().toISOString();
+      ad.updated_at = nowIso;
       this._persistLocalDb();
+
+      return { success: true, advertisement: ad };
+    }
+
+    if (action === "resume_machinery_promotion") {
+      const machineryId = data.machinery_id || data.id;
+      const adId = data.advertisement_id;
+
+      let ad = null;
+      if (this.supabaseAdmin) {
+        let q = this.supabaseAdmin.from("machinery_advertisements").select("*");
+        if (machineryId) q = q.eq("machinery_id", machineryId);
+        else if (adId) q = q.eq("id", adId);
+        const { data: supaAd } = await q.maybeSingle();
+        ad = supaAd;
+      } else {
+        ad = (this.db.machinery_advertisements || []).find(
+          (a) => (machineryId && a.machinery_id === machineryId) || (adId && a.id === adId)
+        );
+      }
+
+      if (!ad) throw new Error("Advertisement record not found.");
+
+      const callerProf = await getCallerProfile();
+      if (ad.owner_id !== userId && callerProf?.role !== "admin") {
+        throw new Error("Forbidden: You cannot modify another owner's advertisement.");
+      }
+
+      const nowIso = new Date().toISOString();
+      if (this.supabaseAdmin) {
+        const { error: updErr } = await this.supabaseAdmin
+          .from("machinery_advertisements")
+          .update({ status: "active", updated_at: nowIso })
+          .eq("id", ad.id);
+        if (updErr) throw new Error(`Database error resuming advertisement: ${updErr.message}`);
+      }
+
+      ad.status = "active";
+      ad.updated_at = nowIso;
+      this._persistLocalDb();
+
       return { success: true, advertisement: ad };
     }
 
     if (action === "get_active_sponsored_machinery") {
       const nowIso = new Date().toISOString();
-      // Get all active, unexpired advertisements
-      const activeAds = (this.db.machinery_advertisements || []).filter(
-        (ad) => ad.status === "active" && (!ad.end_at || ad.end_at > nowIso)
-      );
+      let activeAds = [];
 
-      // Check dismissals for this user
-      const dismissedAdIds = new Set(
-        (this.db.machinery_ad_dismissals || [])
-          .filter((d) => d.user_id === userId)
-          .map((d) => d.advertisement_id)
-      );
+      if (this.supabaseAdmin) {
+        const { data: supaAds } = await this.supabaseAdmin
+          .from("machinery_advertisements")
+          .select("*")
+          .eq("status", "active")
+          .gt("end_at", nowIso);
+        if (supaAds) activeAds = supaAds;
+      } else {
+        activeAds = (this.db.machinery_advertisements || []).filter(
+          (ad) => ad.status === "active" && (!ad.end_at || ad.end_at > nowIso)
+        );
+      }
 
-      const eligibleAds = activeAds.filter((ad) => !dismissedAdIds.has(ad.id));
+      // Check dismissals for caller
+      let dismissedSet = new Set();
+      if (userId) {
+        if (this.supabaseAdmin) {
+          const { data: supaDism } = await this.supabaseAdmin
+            .from("machinery_ad_dismissals")
+            .select("advertisement_id")
+            .eq("user_id", userId);
+          if (supaDism) supaDism.forEach((d) => dismissedSet.add(d.advertisement_id));
+        } else {
+          (this.db.machinery_ad_dismissals || [])
+            .filter((d) => d.user_id === userId)
+            .forEach((d) => dismissedSet.add(d.advertisement_id));
+        }
+      }
+
+      const eligibleAds = activeAds.filter((ad) => !dismissedSet.has(ad.id));
       const sponsoredMachinery = [];
 
       for (const ad of eligibleAds) {
-        const m = (this.db.machinery || []).find((entry) => entry.id === ad.machinery_id);
-        if (m && (m.status === "active" || !m.status)) {
+        let m = null;
+        if (this.supabaseAdmin) {
+          const { data: supaM } = await this.supabaseAdmin
+            .from("machinery")
+            .select("*")
+            .eq("id", ad.machinery_id)
+            .single();
+          m = supaM;
+        } else {
+          m = (this.db.machinery || []).find((entry) => entry.id === ad.machinery_id);
+        }
+
+        if (m && (m.status === "active" || m.status === "available" || !m.status)) {
+          // Increment impressions
+          if (this.supabaseAdmin) {
+            try {
+              await this.supabaseAdmin.rpc("increment_ad_impressions", { ad_id: ad.id });
+            } catch (_) {}
+          }
           ad.impressions = (ad.impressions || 0) + 1;
+
           sponsoredMachinery.push({
             ...m,
             is_sponsored: true,
             advertisement_id: ad.id,
-            owner_verified: m.verification_status === "verified"
+            owner_verified: m.verification_status === "approved"
           });
         }
       }
@@ -4774,12 +5280,20 @@ class SupabaseBackendEngine {
       const adId = data.advertisement_id;
       if (!adId) throw new Error("Advertisement ID is required.");
 
+      if (this.supabaseAdmin && userId) {
+        try {
+          await this.supabaseAdmin
+            .from("machinery_ad_dismissals")
+            .insert({ user_id: userId, advertisement_id: adId, created_at: new Date().toISOString() });
+        } catch (_) {}
+      }
+
       if (!this.db.machinery_ad_dismissals) this.db.machinery_ad_dismissals = [];
       const exists = this.db.machinery_ad_dismissals.find(
         (d) => d.user_id === userId && d.advertisement_id === adId
       );
 
-      if (!exists) {
+      if (!exists && userId) {
         this.db.machinery_ad_dismissals.push({
           id: `dism_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
           user_id: userId,
@@ -4823,6 +5337,89 @@ class SupabaseBackendEngine {
         file_url: fileUrl,
         filename
       };
+    }
+
+    if (action === "upload_machinery_document") {
+      const { file_base64, original_filename, mime_type, document_type, machinery_id } = data;
+      if (!file_base64) throw new Error("Document content is required.");
+
+      const buffer = Buffer.from(file_base64.replace(/^data:[^;]+;base64,/, ""), "base64");
+      const filename = original_filename || `doc_${document_type || "machinery"}_${Date.now()}.pdf`;
+      const mime = mime_type || "application/pdf";
+
+      let driveFileId = `drive_doc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      let fileUrl = "";
+
+      try {
+        const upload = await googleDriveStorage.uploadFile({
+          buffer,
+          originalFilename: filename,
+          mimeType: mime,
+          folderPath: "TransMove/Machinery/Documents"
+        });
+        driveFileId = upload.id;
+        fileUrl = `/api/files/preview/${upload.id}`;
+      } catch (err) {
+        console.warn("[machinery] Drive document upload notice:", err.message);
+        fileUrl = `data:${mime};base64,${buffer.toString("base64")}`;
+      }
+
+      const docRecord = {
+        machinery_id: machineryId || null,
+        owner_id: userId,
+        document_type: document_type || "ownership_proof",
+        file_name: filename,
+        drive_file_id: driveFileId,
+        file_url: fileUrl,
+        verification_status: "pending",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      if (machineryId && this.supabaseAdmin) {
+        await this.supabaseAdmin.from("machinery_documents").insert(docRecord).catch(() => {});
+      }
+
+      return {
+        id: driveFileId,
+        drive_file_id: driveFileId,
+        file_url: fileUrl,
+        file_name: filename,
+        filename,
+        document_type: document_type || "ownership_proof"
+      };
+    }
+
+    if (action === "admin_verify_machinery") {
+      const callerProf = await getCallerProfile();
+      if (callerProf?.role !== "admin") {
+        throw new Error("Forbidden: Admin access required to verify machinery.");
+      }
+
+      const machineryId = data.machinery_id || data.id;
+      const status = data.status || data.verification_status; // 'approved' | 'rejected'
+      if (!machineryId) throw new Error("Machinery ID is required.");
+      if (!["approved", "rejected", "pending"].includes(status)) {
+        throw new Error("Invalid verification status. Must be 'approved', 'rejected', or 'pending'.");
+      }
+
+      const nowIso = new Date().toISOString();
+      if (this.supabaseAdmin) {
+        const { error: vErr } = await this.supabaseAdmin
+          .from("machinery")
+          .update({ verification_status: status, updated_at: nowIso })
+          .eq("id", machineryId);
+        if (vErr) throw new Error(`Database error verifying machinery: ${vErr.message}`);
+      }
+
+      const m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
+      if (m) {
+        m.verification_status = status;
+        m.updated_at = nowIso;
+      }
+      this._persistLocalDb();
+
+      return { success: true, machinery_id: machineryId, verification_status: status };
     }
 
     throw new Error(`Unsupported trusted action: '${action}'`);

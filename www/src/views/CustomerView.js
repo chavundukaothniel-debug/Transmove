@@ -1011,6 +1011,11 @@ export const CustomerView = {
         ? (item.photos[0].file_url || item.photos[0].url || item.photos[0])
         : "/assets/images/logo.png";
 
+      const isSaleOnly = item.listing_type === "sale";
+      const priceText = isSaleOnly && item.sale_price
+        ? `<strong style="color: #ec4899;">Sale: $${Number(item.sale_price).toLocaleString()} USD</strong>`
+        : `<strong style="color: #10b981;">From $${Number(item.daily_rate || item.base_hire_rate || item.hourly_rate || 0).toFixed(2)}/${item.hourly_rate ? "hr" : "day"}</strong>`;
+
       container.innerHTML = `
         <div class="sponsored-machinery-bar card" id="sponsored-machinery-card-${escapeHtml(item.id)}" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(59, 130, 246, 0.08) 100%); border: 1px solid rgba(16, 185, 129, 0.35); border-radius: 12px; padding: 0.85rem 1.15rem; margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.85rem; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.1);">
           <div style="display: flex; align-items: center; gap: 0.85rem; flex: 1; min-width: 260px;">
@@ -1026,14 +1031,18 @@ export const CustomerView = {
                 ${escapeHtml(item.name)} <span style="font-size: 0.8rem; color: var(--text-muted); font-weight: 400;">(${escapeHtml(item.brand)} ${escapeHtml(item.model)})</span>
               </div>
               <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.15rem;">
-                Available in <strong>${escapeHtml(item.location || item.province || "Zimbabwe")}</strong> • <strong style="color: #10b981;">From $${Number(item.base_hire_rate).toFixed(2)}/${item.rate_period === "per_hour" ? "hr" : "day"}</strong>
+                Available in <strong>${escapeHtml(item.location || item.province || "Zimbabwe")}</strong> • ${priceText}
               </div>
             </div>
           </div>
 
           <div style="display: flex; align-items: center; gap: 0.5rem;">
             <a href="#machinery" class="btn btn-outline btn-sm" style="font-size: 0.8rem; padding: 0.35rem 0.75rem; font-weight: 600;">View</a>
-            <a href="#machinery?hire=${escapeHtml(item.id)}" class="btn btn-primary btn-sm" style="font-size: 0.8rem; padding: 0.35rem 0.85rem; font-weight: 700;">Hire</a>
+            ${isSaleOnly ? `
+              <a href="#machinery?id=${escapeHtml(item.id)}" class="btn btn-sm" style="font-size: 0.8rem; padding: 0.35rem 0.85rem; font-weight: 700; background: #8b5cf6; color: #fff;">Enquire</a>
+            ` : `
+              <a href="#machinery?hire=${escapeHtml(item.id)}" class="btn btn-primary btn-sm" style="font-size: 0.8rem; padding: 0.35rem 0.85rem; font-weight: 700;">Hire</a>
+            `}
             <button type="button" class="btn btn-outline btn-sm btn-dismiss-promoted-ad" data-ad-id="${escapeHtml(item.advertisement_id)}" data-card-id="sponsored-machinery-card-${escapeHtml(item.id)}" style="font-size: 0.8rem; padding: 0.35rem 0.55rem; color: var(--text-muted);" title="Dismiss this ad">Dismiss</button>
           </div>
         </div>

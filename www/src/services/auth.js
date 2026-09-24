@@ -537,6 +537,9 @@ export const AuthService = {
     const primaryRole = baseRoleMap[user.role] || "passenger";
     const approvedRoles = new Set([primaryRole]);
 
+    if (user.role === "admin" || user.role === "machinery_owner") {
+      approvedRoles.add("machinery_owner");
+    }
     if (user.role === "admin") {
       approvedRoles.add("admin");
     }
