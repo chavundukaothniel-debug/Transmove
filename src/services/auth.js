@@ -19,11 +19,33 @@ export const AuthService = {
     const photoUrl = resolveAvatarUrl(doc);
 
     const uid = doc.user_id || doc.id || doc.$id;
+    const parseRoles = (val) => {
+      if (!val) return [];
+      if (Array.isArray(val)) return val;
+      if (typeof val === "string") {
+        try {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed)) return parsed;
+        } catch (_) {}
+        return val.replace(/[{}"\s]/g, "").split(",").filter(Boolean);
+      }
+      return [];
+    };
+    const approvedRoles = [
+      ...new Set([
+        doc.role || "customer",
+        ...parseRoles(doc.approved_roles),
+        ...parseRoles(doc.approvedRoles)
+      ])
+    ];
+
     return {
       ...doc,
       id: uid,
       $id: uid,
       user_id: uid,
+      approved_roles: approvedRoles,
+      approvedRoles: approvedRoles,
       phone_number: doc.phone || doc.phone_number || "",
       phone: doc.phone || doc.phone_number || "",
       service_area: doc.city || doc.service_area || "",
@@ -167,6 +189,11 @@ export const AuthService = {
     const session = data.session;
     const jwt = session?.access_token || "";
 
+    // Persist JWT for headless environments and tests
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.setItem("transmove_auth_jwt", jwt);
+    }
+
     if (!user || !user.id) {
       throw new Error("Authentication failed: No valid user returned from server.");
     }
@@ -273,6 +300,7 @@ export const AuthService = {
       window.localStorage.removeItem("transmove_active_role");
       window.localStorage.removeItem("transmove_mock_user");
       window.localStorage.removeItem("transmove_mock_jwt");
+      window.localStorage.removeItem("transmove_auth_jwt");
     }
 
     this.notifyAuthStateChange("SIGNED_OUT", null);
@@ -408,6 +436,13 @@ export const AuthService = {
   },
 
   /**
+   * Subscribes to realtime verification state changes for current user.
+   */
+  async subscribeToVerificationState(callback) {
+    return this.subscribeVerificationUpdates(callback);
+  },
+
+  /**
    * Realtime subscription for profile and verification document changes.
    */
   async subscribeVerificationUpdates(callback) {
@@ -518,7 +553,7 @@ export const AuthService = {
       customer: "passenger",
       passenger: "passenger",
       driver: "driver",
-      owner: "vehicle_owner",
+      owner: "machinery_owner",
       cargo_owner: "cargo_owner",
       logistics: "logistics_provider",
       vehicle_owner: "vehicle_owner",
@@ -537,8 +572,27 @@ export const AuthService = {
     const primaryRole = baseRoleMap[user.role] || "passenger";
     const approvedRoles = new Set([primaryRole]);
 
-    if (user.role === "admin" || user.role === "machinery_owner") {
+    const parseRoles = (val) => {
+      if (!val) return [];
+      if (Array.isArray(val)) return val;
+      if (typeof val === "string") {
+        try {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed)) return parsed;
+        } catch (_) {}
+        return val.replace(/[{}"\s]/g, "").split(",").filter(Boolean);
+      }
+      return [];
+    };
+
+    parseRoles(user.approved_roles).forEach((r) => approvedRoles.add(r));
+    parseRoles(user.approvedRoles).forEach((r) => approvedRoles.add(r));
+
+    if (user.role === "admin" || user.role === "machinery_owner" || user.role === "owner") {
       approvedRoles.add("machinery_owner");
+    }
+    if (user.role === "owner") {
+      approvedRoles.add("vehicle_owner");
     }
     if (user.role === "admin") {
       approvedRoles.add("admin");
@@ -553,7 +607,7 @@ export const AuthService = {
       customer: "passenger",
       passenger: "passenger",
       driver: "driver",
-      owner: "vehicle_owner",
+      owner: "machinery_owner",
       cargo_owner: "cargo_owner",
       logistics: "logistics_provider",
       vehicle_owner: "vehicle_owner",

@@ -135,7 +135,7 @@ export const PermissionService = {
     
     // Normalize customer alias
     if (role === "customer") role = "passenger";
-    if (role === "owner") role = "vehicle_owner";
+    if (role === "owner") role = "machinery_owner";
     if (role === "business") role = "business_owner";
     if (role === "logistics") role = "logistics_provider";
 

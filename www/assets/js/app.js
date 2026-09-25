@@ -269,7 +269,7 @@ class App {
       vehicle_owner: "vehicle-owner",
       machinery_owner: "machinery-owner",
       machinery_hirer: "machinery-hirer",
-      owner: "owner",
+      owner: "machinery-owner",
       business: "business",
       business_admin: "business",
       advertiser: "advertise",
@@ -289,7 +289,7 @@ class App {
           if (!latest) return;
           latest.approvedRoles = await AuthService.getApprovedRoles(latest);
           this.currentProfile = latest;
-          if (["profile", "driver", "vehicle_owner", "owner", "logistics"].includes(this.currentRoute)) {
+          if (["profile", "driver", "vehicle_owner", "machinery_owner", "owner", "logistics"].includes(this.currentRoute)) {
             await this.render();
           }
         }, 150);
@@ -304,9 +304,16 @@ class App {
     const rawHash = window.location.hash.slice(1);
     let route = rawHash.split("?")[0];
 
-    // Appwrite is the source of truth. Refresh the profile on navigation so
-    // admin verification changes never depend on stale localStorage state.
-    if (this.currentProfile) {
+    // Refresh or hydrate the profile on navigation so private routes and permissions stay current
+    if (!this.currentProfile) {
+      try {
+        const profile = await AuthService.getCurrentProfile();
+        if (profile) {
+          profile.approvedRoles = await AuthService.getApprovedRoles(profile);
+          this.currentProfile = profile;
+        }
+      } catch (_) {}
+    } else {
       const latestProfile = await AuthService.getCurrentProfile();
       if (latestProfile) {
         latestProfile.approvedRoles = await AuthService.getApprovedRoles(latestProfile);
@@ -320,6 +327,10 @@ class App {
       "cargo-owner": "cargo_owner",
       "vehicle-owner": "vehicle_owner",
       "machinery-owner": "machinery_owner",
+      "machinery/add": "machinery_owner",
+      "machinery_add": "machinery_owner",
+      "machinery-add": "machinery_owner",
+      "machinery_hirer": "machinery_hirer",
       "machinery-hirer": "machinery_hirer",
       advertiser: "advertise",
       "admin-login": "admin_login",
@@ -330,6 +341,11 @@ class App {
       terms: "legal",
       privacy: "legal"
     };
+
+    if (rawHash === "machinery/add" || rawHash === "machinery_add" || rawHash === "machinery-add") {
+      window.location.hash = "#machinery_owner?tab=add";
+      return;
+    }
 
     route = routeAliasMap[route] || route;
 
@@ -421,7 +437,7 @@ class App {
         const allowedRoles = roleRouteMap[route] || [];
         const hasAccess = allowedRoles.includes(activeRole) || isAdmin;
         if (!hasAccess) {
-          const approvedRoles = this.currentProfile.approvedRoles || [AuthService.getPrimaryRole(this.currentProfile)];
+          const approvedRoles = await AuthService.getApprovedRoles(this.currentProfile);
           const hasApproved = allowedRoles.some((r) => approvedRoles.includes(r));
           if (hasApproved) {
             // User has this approved role, activate it

@@ -42,6 +42,15 @@ export const AdvertisingService = {
     return result.packages || [];
   },
 
+  async getActiveAdsByPlacement(placementKey) {
+    try {
+      const result = await trustedCall("list_active_ads_by_placement", { placement: placementKey });
+      return result.ads || [];
+    } catch (_) {
+      return [];
+    }
+  },
+
   async getActivePopupAds() {
     const result = await trustedCall("list_active_popup_ads", {});
     return (result.campaigns || []).map((campaign) => ({

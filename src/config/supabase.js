@@ -97,8 +97,9 @@ export function getSupabase() {
 
   // Browser environment
   if (typeof window !== "undefined") {
-    if (window.supabase && window.supabase.createClient) {
-      supabaseInstance = window.supabase.createClient(url, anonKey, {
+    const sbGlobal = window.supabase || globalThis.supabase;
+    if (sbGlobal && sbGlobal.createClient) {
+      supabaseInstance = sbGlobal.createClient(url, anonKey, {
         auth: {
           persistSession: true,
           autoRefreshToken: true,
@@ -111,9 +112,20 @@ export function getSupabase() {
           }
         }
       });
+
+      // Synchronize access token with localStorage on login, token refresh, and logout
+      try {
+        supabaseInstance.auth.onAuthStateChange((event, session) => {
+          if (session?.access_token) {
+            window.localStorage.setItem("transmove_auth_jwt", session.access_token);
+          } else if (event === "SIGNED_OUT") {
+            window.localStorage.removeItem("transmove_auth_jwt");
+          }
+        });
+      } catch (_) {}
+
       return supabaseInstance;
     }
-    console.warn("Supabase JS SDK not found on window object. CDN script may still be loading.");
     return null;
   }
 
@@ -125,8 +137,20 @@ export async function getAuthJwt() {
   if (supabase) {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (session?.access_token) return session.access_token;
+      if (session?.access_token) {
+        if (typeof window !== "undefined" && window.localStorage) {
+          window.localStorage.setItem("transmove_auth_jwt", session.access_token);
+        }
+        return session.access_token;
+      }
     } catch (_) {}
+  }
+  if (typeof window !== "undefined" && window.__transmove_jwt) {
+    return window.__transmove_jwt;
+  }
+  if (typeof window !== "undefined" && window.localStorage) {
+    const stored = window.localStorage.getItem("transmove_auth_jwt");
+    if (stored) return stored;
   }
   return "";
 }

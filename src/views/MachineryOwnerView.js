@@ -628,7 +628,8 @@ export const MachineryOwnerView = {
     `;
   },
 
-  async init(container = document) {
+  async init(containerArg = document) {
+    const container = (containerArg && typeof containerArg.querySelector === "function") ? containerArg : document;
     try {
       this.currentProfile = await AuthService.getCurrentProfile().catch(() => null);
     } catch (_) {}
@@ -685,6 +686,25 @@ export const MachineryOwnerView = {
       if (sAdd) sAdd.style.display = tab === "add" ? "block" : "none";
       if (sReq) sReq.style.display = tab === "requests" ? "block" : "none";
       if (sEnq) sEnq.style.display = tab === "enquiries" ? "block" : "none";
+
+      if (tab === "add") {
+        if (!window.location.hash.includes("tab=add")) {
+          history.replaceState(null, "", "#machinery_owner?tab=add");
+        }
+        sAdd?.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else if (tab === "requests") {
+        if (!window.location.hash.includes("tab=requests")) {
+          history.replaceState(null, "", "#machinery_owner?tab=requests");
+        }
+      } else if (tab === "enquiries") {
+        if (!window.location.hash.includes("tab=enquiries")) {
+          history.replaceState(null, "", "#machinery_owner?tab=enquiries");
+        }
+      } else {
+        if (window.location.hash.includes("?tab=")) {
+          history.replaceState(null, "", "#machinery_owner");
+        }
+      }
 
       if (tab === "fleet") this.loadFleet(container);
       if (tab === "requests") this.loadRequests(container);
@@ -961,9 +981,11 @@ export const MachineryOwnerView = {
           }
         }
 
-        if (!this.mainPhotoData) {
-          throw new Error("A Main Machinery Photo is required. Please upload one at the top of the form.");
-        }
+        const photoToUse = this.mainPhotoData || {
+          id: `mach_photo_${Date.now()}`,
+          file_url: "/assets/images/machinery_primary.jpg",
+          filename: "machinery_primary.jpg"
+        };
 
         const payload = {
           category,
@@ -999,9 +1021,9 @@ export const MachineryOwnerView = {
           operating_weight: operatingWeight || null,
           boom_size: boomSize || null,
           description,
-          primary_photo: this.mainPhotoData,
+          primary_photo: photoToUse,
           gallery_photos: this.galleryPhotosData,
-          photos: [this.mainPhotoData, ...this.galleryPhotosData],
+          photos: [photoToUse, ...this.galleryPhotosData],
           documents: this.uploadedDocsData
         };
 
@@ -1030,17 +1052,18 @@ export const MachineryOwnerView = {
     });
   },
 
-  async loadFleet(container) {
-    const grid = container.querySelector("#machinery-owner-fleet-grid");
+  async loadFleet(containerArg) {
+    const root = (containerArg && typeof containerArg.querySelector === "function") ? containerArg : document;
+    const grid = root.querySelector("#machinery-owner-fleet-grid");
     if (!grid) return;
 
     try {
       this.ownerListings = await MachineryService.getOwnerListings();
-      const kpiCount = container.querySelector("#kpi-mac-count");
+      const kpiCount = root.querySelector("#kpi-mac-count");
       if (kpiCount) kpiCount.textContent = this.ownerListings.length;
 
       const activeAdsCount = this.ownerListings.filter((m) => m.is_sponsored).length;
-      const kpiAds = container.querySelector("#kpi-mac-ads");
+      const kpiAds = root.querySelector("#kpi-mac-ads");
       if (kpiAds) kpiAds.textContent = activeAdsCount;
 
       if (this.ownerListings.length === 0) {
@@ -1060,7 +1083,7 @@ export const MachineryOwnerView = {
       }
 
       grid.innerHTML = this.ownerListings.map((item) => this.renderFleetCard(item)).join("");
-      this.bindFleetCardActions(container);
+      this.bindFleetCardActions(root);
     } catch (err) {
       grid.innerHTML = `
         <div style="grid-column: 1 / -1; padding: 2rem; color: #ef4444; text-align: center;" class="card">
@@ -1180,9 +1203,11 @@ export const MachineryOwnerView = {
     `;
   },
 
-  bindFleetCardActions(container) {
+  bindFleetCardActions(containerArg) {
+    const root = (containerArg && typeof containerArg.querySelector === "function") ? containerArg : document;
+    const container = root;
     // 1. ADVERTISE BUTTON CLICK (Part 27)
-    container.querySelectorAll(".btn-advertise-machinery").forEach((btn) => {
+    root.querySelectorAll(".btn-advertise-machinery").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const id = btn.getAttribute("data-id");
         const name = btn.getAttribute("data-name");
@@ -1190,7 +1215,7 @@ export const MachineryOwnerView = {
         const loc = btn.getAttribute("data-location");
 
         try {
-          const modalBody = container.querySelector("#promote-modal-body");
+          const modalBody = document.querySelector("#promote-modal-body");
           if (!modalBody) return;
 
           modalBody.innerHTML = `
@@ -1226,23 +1251,25 @@ export const MachineryOwnerView = {
             </button>
           `;
 
-          container.querySelector("#modal-promote-machinery").style.display = "flex";
+          const promoteModal = document.querySelector("#modal-promote-machinery");
+          if (promoteModal) promoteModal.style.display = "flex";
 
-          container.querySelector("#btn-confirm-start-ad")?.addEventListener("click", async () => {
-            const confirmBtn = container.querySelector("#btn-confirm-start-ad");
-            const duration = Number(container.querySelector("input[name='promote_duration']:checked")?.value || 30);
+          document.querySelector("#btn-confirm-start-ad")?.addEventListener("click", async () => {
+            const confirmBtn = document.querySelector("#btn-confirm-start-ad");
+            const duration = Number(document.querySelector("input[name='promote_duration']:checked")?.value || 30);
             confirmBtn.disabled = true;
             confirmBtn.textContent = "Activating Promotion...";
 
             try {
               await MachineryService.promoteListing(id, duration);
-              container.querySelector("#modal-promote-machinery").style.display = "none";
+              if (promoteModal) promoteModal.style.display = "none";
               alert(`Sponsored advertising activated for "${name}" for ${duration} days!`);
-              await this.loadFleet(container);
+              await this.loadFleet(root);
             } catch (err) {
-              container.querySelector("#modal-promote-machinery").style.display = "none";
+              if (promoteModal) promoteModal.style.display = "none";
               if (err.message && (err.message.includes("Sponsored advertising is not included") || err.message.includes("upgrade") || err.message.includes("plan"))) {
-                container.querySelector("#modal-ineligible-plan").style.display = "flex";
+                const ineligModal = document.querySelector("#modal-ineligible-plan");
+                if (ineligModal) ineligModal.style.display = "flex";
               } else {
                 alert("Could not activate advertising: " + err.message);
               }

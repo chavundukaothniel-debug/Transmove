@@ -73,6 +73,14 @@ export const MachineryService = {
   },
 
   /**
+   * List machinery listings owned by current user.
+   */
+  async getOwnerListings() {
+    const res = await trustedCall("list_owner_machinery", {});
+    return res.machinery || [];
+  },
+
+  /**
    * Get single machinery details with owner info.
    */
   async getDetails(machineryId) {

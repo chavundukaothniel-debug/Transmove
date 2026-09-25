@@ -15,6 +15,14 @@ fs.mkdirSync(path.dirname(lucideTarget), { recursive: true });
 fs.copyFileSync(lucideSource, lucideTarget);
 console.log("✓ Bundled Lucide icons locally");
 
+const supabaseSource = path.join(ROOT_DIR, "node_modules", "@supabase", "supabase-js", "dist", "umd", "supabase.js");
+const supabaseTarget = path.join(ROOT_DIR, "assets", "js", "vendor", "supabase.min.js");
+if (fs.existsSync(supabaseSource)) {
+  fs.mkdirSync(path.dirname(supabaseTarget), { recursive: true });
+  fs.copyFileSync(supabaseSource, supabaseTarget);
+  console.log("✓ Bundled Supabase JS SDK locally");
+}
+
 // Ensure clean www directory
 if (fs.existsSync(WWW_DIR)) {
   fs.rmSync(WWW_DIR, { recursive: true, force: true });

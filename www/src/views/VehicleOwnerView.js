@@ -187,9 +187,16 @@ export const VehicleOwnerView = {
     if (!container) return;
 
     try {
-      const vehicles = await VehicleService.getDriverVehicles();
-      document.getElementById("kpi-veh-count").innerText = vehicles ? vehicles.length : 0;
-      document.getElementById("kpi-veh-active").innerText = vehicles ? vehicles.filter(v => v.status === "active").length : 0;
+      const allVehicles = await VehicleService.getDriverVehicles();
+      const machineryKeywords = ["excavator", "bulldozer", "grader", "crane", "tractor", "loader", "tlb", "harvester", "plant", "compactor", "dumper", "roller", "caterpillar", "komatsu", "hitachi", "jcb", "bobcat"];
+      const vehicles = (allVehicles || []).filter((v) => {
+        const text = `${v.make || ""} ${v.model || ""} ${v.vehicle_type || ""}`.toLowerCase();
+        return !machineryKeywords.some((kw) => text.includes(kw));
+      });
+      const kpiCount = document.getElementById("kpi-veh-count");
+      if (kpiCount) kpiCount.innerText = vehicles ? vehicles.length : 0;
+      const kpiActive = document.getElementById("kpi-veh-active");
+      if (kpiActive) kpiActive.innerText = vehicles ? vehicles.filter(v => v.status === "active").length : 0;
 
       if (!vehicles || vehicles.length === 0) {
         container.innerHTML = renderEmptyState({

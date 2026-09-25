@@ -4366,6 +4366,63 @@ class SupabaseBackendEngine {
       };
     }
 
+    if (action === "list_owner_machinery") {
+      if (!userId) {
+        throw new Error("Unauthorized: Authentication token is missing.");
+      }
+      const nowIso = new Date().toISOString();
+      let listings = [];
+      if (this.supabaseAdmin) {
+        const { data: supaMach, error: fetchErr } = await this.supabaseAdmin
+          .from("machinery")
+          .select("*")
+          .eq("owner_id", userId)
+          .neq("status", "archived")
+          .order("created_at", { ascending: false });
+        if (fetchErr) {
+          throw new Error(`Database error querying owner machinery: ${fetchErr.message}`);
+        }
+        listings = supaMach || [];
+      } else {
+        listings = (this.db.machinery || []).filter((m) => m.owner_id === userId && m.status !== "archived");
+      }
+
+      // Check active advertisements for this owner
+      let activeAds = [];
+      if (this.supabaseAdmin) {
+        const { data: supaAds } = await this.supabaseAdmin
+          .from("machinery_advertisements")
+          .select("*")
+          .eq("owner_id", userId)
+          .eq("status", "active")
+          .gt("end_at", nowIso);
+        if (supaAds) activeAds = supaAds;
+      } else {
+        activeAds = (this.db.machinery_advertisements || []).filter(
+          (ad) => ad.owner_id === userId && ad.status === "active" && (!ad.end_at || ad.end_at > nowIso)
+        );
+      }
+
+      const activeAdMap = new Map();
+      activeAds.forEach((ad) => {
+        activeAdMap.set(ad.machinery_id, ad);
+      });
+
+      const enrichedListings = listings.map((m) => {
+        const ad = activeAdMap.get(m.id);
+        return {
+          ...m,
+          is_sponsored: Boolean(ad),
+          advertisement_id: ad ? ad.id : null
+        };
+      });
+
+      return {
+        machinery: enrichedListings,
+        total: enrichedListings.length
+      };
+    }
+
     if (action === "get_machinery_details") {
       const machineryId = data.machinery_id || data.id;
       if (!machineryId) throw new Error("Machinery ID is required.");
