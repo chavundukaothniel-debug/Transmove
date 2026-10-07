@@ -4,7 +4,7 @@
 // payments, and verification documents strictly BYPASSED from cache.
 // ==============================================================================
 
-const CACHE_NAME = "transmove-mobile-v5-machinery";
+const CACHE_NAME = "transmove-mobile-v6-approval";
 const STATIC_ASSETS = [
   "/",
   "/index.html",
@@ -49,6 +49,7 @@ self.addEventListener("fetch", (event) => {
   // Never cache trusted API, Appwrite database/storage calls, messages, payments,
   // verification docs, or auth tokens.
   const isPrivateOrApi =
+    url.pathname.startsWith("/downloads/") ||
     url.pathname.includes("/api/") ||
     url.pathname.includes("/.netlify/") ||
     url.pathname.includes("/functions/") ||

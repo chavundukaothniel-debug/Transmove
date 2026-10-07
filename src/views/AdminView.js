@@ -212,21 +212,6 @@ export const AdminView = {
           </div>
         </div>
 
-        <!-- TAB: MACHINERY VERIFICATION -->
-        <div id="adm-tab-machinery" style="display: none;">
-          <div class="card">
-            <div class="card-header">
-          <h3 class="card-title icon-label">${icon("tractor", 20)}<span>Machinery Verification</span></h3>
-              <span class="badge badge-neutral">Backend Pending</span>
-            </div>
-            ${renderEmptyState({
-              title: "Machinery verification not available yet",
-              description: "The platform backend does not yet include a machinery/equipment collection or a trusted verification action, so there are no machinery listings to review. This desk will activate once machinery data exists.",
-              icon: "tractor"
-            })}
-          </div>
-        </div>
-
         <!-- TAB 3: LIVE TRIP MONITOR -->
         <div id="adm-tab-trips" style="display: none;">
           <div class="card">
@@ -974,8 +959,12 @@ export const AdminView = {
                 </div>
                 ${provider.rejection_reason ? `<div style="padding:0.65rem;background:#fef2f2;color:#991b1b;border-radius:6px;margin-bottom:0.75rem;font-size:0.82rem;">Profile rejection reason: ${escapeHtml(provider.rejection_reason)}</div>` : ""}
                 <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-bottom:1rem;">
-                  <button class="btn btn-danger btn-sm" data-verification-action="reject" data-kind="profile" data-id="${escapeHtml(provider.id)}">Reject Profile</button>
-                  <button class="btn btn-primary btn-sm" data-verification-action="approve" data-kind="profile" data-id="${escapeHtml(provider.id)}">Approve Profile</button>
+                  ${["approved", "verified"].includes(String(provider.verification_status).toLowerCase()) ? `
+                    <span class="badge badge-success" style="font-size:0.85rem;padding:0.4rem 0.8rem;align-self:center;">✓ Profile Approved</span>
+                  ` : `
+                    <button class="btn btn-danger btn-sm" data-verification-action="reject" data-kind="profile" data-id="${escapeHtml(provider.id)}">Reject Profile</button>
+                    <button class="btn btn-primary btn-sm" data-verification-action="approve" data-kind="profile" data-id="${escapeHtml(provider.id)}">Approve Profile</button>
+                  `}
                 </div>
 
                 <div style="font-weight:800;margin-bottom:0.5rem;">Vehicles (${provider.vehicles.length})</div>
@@ -1114,11 +1103,16 @@ export const AdminView = {
                       ${t.transaction_reference ? `<div style="font-size: 0.75rem; color: #0284c7; font-family: monospace; margin-top: 0.15rem;">TxRef: ${escapeHtml(t.transaction_reference)}</div>` : ""}
                     </td>
                     <td style="padding: 0.75rem;">
-                      <span class="badge badge-neutral" style="text-transform: uppercase; font-size: 0.72rem;">${escapeHtml(t.payment_type || "payment")}</span>
+                      ${t.payment_type === "machinery_advertisement" ? `
+                        <span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); font-weight: 800; font-size: 0.72rem;">🚜 MACHINERY AD</span>
+                        ${t.machinery_name ? `<div style="font-weight: 700; color: #10b981; font-size: 0.82rem; margin-top: 0.2rem;">${escapeHtml(t.machinery_name)}</div>` : ""}
+                      ` : `
+                        <span class="badge badge-neutral" style="text-transform: uppercase; font-size: 0.72rem;">${escapeHtml(t.payment_type || "subscription")}</span>
+                      `}
                       <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">
                         ${escapeHtml(t.plan_name || t.related_id || t.subscription_id || t.booking_id || "—")}
                       </div>
-                      ${t.plan_duration_days ? `<div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(t.plan_duration_days)} days</div>` : ""}
+                      ${t.plan_duration_days ? `<div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">${escapeHtml(t.plan_duration_days)} days duration</div>` : ""}
                     </td>
                     <td style="padding: 0.75rem;">
                       <div style="font-weight: 600;">${escapeHtml(t.recipient_name || "EcoCash Admin")}</div>
@@ -1807,12 +1801,35 @@ export const AdminView = {
     container.innerHTML = `<div style="padding: 2rem; text-align: center; color: var(--text-muted);">Loading machinery verification queue...</div>`;
 
     try {
-      const machineryList = await MachineryService.listMarketplace({ verified_only: false });
-      
+      const res = await MachineryService.adminListVerifications();
+      const machineryList = res.machinery || [];
+      const summary = res.summary || {};
+
       document.getElementById("btn-refresh-admin-machinery")?.addEventListener("click", () => this.loadMachineryVerifications());
 
+      const summaryHtml = `
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.75rem; padding: 0.75rem 0 1rem 0; border-bottom: 1px solid var(--border-light); margin-bottom: 1rem;">
+          <div class="card" style="padding: 0.75rem; text-align: center;">
+            <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700;">TOTAL LISTED</div>
+            <div style="font-size: 1.35rem; font-weight: 800;">${summary.total || machineryList.length}</div>
+          </div>
+          <div class="card" style="padding: 0.75rem; text-align: center; border-left: 3px solid #f59e0b;">
+            <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700;">PENDING REVIEW</div>
+            <div style="font-size: 1.35rem; font-weight: 800; color: #f59e0b;">${summary.pending || 0}</div>
+          </div>
+          <div class="card" style="padding: 0.75rem; text-align: center; border-left: 3px solid #10b981;">
+            <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700;">VERIFIED</div>
+            <div style="font-size: 1.35rem; font-weight: 800; color: #10b981;">${summary.approved || 0}</div>
+          </div>
+          <div class="card" style="padding: 0.75rem; text-align: center; border-left: 3px solid #ef4444;">
+            <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700;">REJECTED</div>
+            <div style="font-size: 1.35rem; font-weight: 800; color: #ef4444;">${summary.rejected || 0}</div>
+          </div>
+        </div>
+      `;
+
       if (machineryList.length === 0) {
-        container.innerHTML = renderEmptyState({
+        container.innerHTML = summaryHtml + renderEmptyState({
           title: "No machinery listed",
           description: "There are currently no machinery listings in the system.",
           icon: "inbox"
@@ -1820,80 +1837,160 @@ export const AdminView = {
         return;
       }
 
-      container.innerHTML = `
-        <div style="display: flex; flex-direction: column; gap: 1.25rem; padding: 1rem 0;">
+      container.innerHTML = summaryHtml + `
+        <div style="display: flex; flex-direction: column; gap: 1.25rem;">
           ${machineryList.map((item) => {
-            const isApproved = item.verification_status === "approved";
+            const isApproved = item.verification_status === "approved" || item.verification_status === "verified";
             const isRejected = item.verification_status === "rejected";
             const photoUrl = item.primary_photo?.file_url || (Array.isArray(item.photos) && item.photos.length > 0 ? (item.photos[0].file_url || item.photos[0]) : "/assets/images/logo.png");
             const docs = Array.isArray(item.documents) ? item.documents : [];
+            const owner = item.owner || {};
+            const isOwnerVerified = ["approved", "verified"].includes(String(owner.verification_status || "").toLowerCase());
+
+            const rates = [];
+            if (item.hourly_rate) rates.push(`$${Number(item.hourly_rate).toFixed(2)}/hr`);
+            if (item.daily_rate || item.base_hire_rate) rates.push(`$${Number(item.daily_rate || item.base_hire_rate).toFixed(2)}/day`);
+            if (item.weekly_rate) rates.push(`$${Number(item.weekly_rate).toFixed(2)}/wk`);
+            if (item.monthly_rate) rates.push(`$${Number(item.monthly_rate).toFixed(2)}/mo`);
 
             return `
               <div class="card" style="padding: 1.25rem; border-radius: 12px; border: 1px solid var(--border); display: flex; flex-direction: column; gap: 1rem;">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
-                  <div style="display: flex; gap: 1rem; align-items: center;">
-                    <div style="width: 80px; height: 80px; border-radius: 8px; overflow: hidden; background: #0f172a; flex-shrink: 0;">
-                      <img src="${escapeHtml(photoUrl)}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.src='/assets/images/logo.png';" />
+
+                <!-- HEADER: OWNER INFO & STATUS -->
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 0.75rem; border-bottom: 1px solid var(--border-light); padding-bottom: 0.75rem;">
+                  <div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">OWNER PROFILE</div>
+                    <div style="font-weight: 800; font-size: 1.05rem; color: var(--text-main); margin-top: 0.15rem;">
+                      ${escapeHtml(owner.full_name || "Machinery Owner")}
                     </div>
-                    <div>
-                      <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
-                        <span class="badge ${isApproved ? "badge-success" : (isRejected ? "badge-danger" : "badge-warning")}">
-                          ${escapeHtml(item.verification_status || "pending")}
-                        </span>
-                        <span class="badge badge-info">${escapeHtml(item.category)}</span>
-                      </div>
-                      <h4 style="margin: 0 0 0.25rem 0; font-size: 1.15rem; font-weight: 800;">${escapeHtml(item.name)}</h4>
-                      <div style="font-size: 0.85rem; color: var(--text-muted);">
-                        ${escapeHtml(item.brand)} ${escapeHtml(item.model)} • 📍 ${escapeHtml(item.location || item.province)}
-                      </div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">
+                      ${escapeHtml(owner.email || "")} ${owner.phone ? `• ${escapeHtml(owner.phone)}` : ""}
                     </div>
                   </div>
 
-                  <div style="display: flex; gap: 0.5rem;">
-                    ${!isApproved ? `
-                      <button type="button" class="btn btn-primary btn-sm btn-approve-machinery" data-id="${escapeHtml(item.id)}" style="font-weight: 700;">
-                        Approve Equipment
-                      </button>
-                    ` : ""}
-                    ${!isRejected ? `
-                      <button type="button" class="btn btn-outline btn-sm btn-reject-machinery" data-id="${escapeHtml(item.id)}" style="color: #ef4444; border-color: rgba(239,68,68,0.4); font-weight: 700;">
-                        Reject
-                      </button>
-                    ` : ""}
+                  <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    <!-- Owner Verification State -->
+                    <span class="badge ${isOwnerVerified ? "badge-success" : "badge-warning"}" style="font-size: 0.8rem; font-weight: 700;">
+                      Owner: ${isOwnerVerified ? "VERIFIED" : "PENDING"}
+                    </span>
+                    <!-- Machinery Verification State -->
+                    <span class="badge ${isApproved ? "badge-success" : (isRejected ? "badge-danger" : "badge-warning")}" style="font-size: 0.8rem; font-weight: 700;">
+                      ${isApproved ? "Verified Machinery" : (isRejected ? "Rejected Machinery" : "Pending Machinery Verification")}
+                    </span>
                   </div>
                 </div>
 
-                <!-- DOCUMENTS LIST -->
-                <div style="background: var(--bg-hover); padding: 0.85rem; border-radius: 8px; font-size: 0.85rem;">
-                  <div style="font-weight: 700; margin-bottom: 0.5rem; color: var(--text-main);">
-                    Uploaded Ownership &amp; Verification Documents (${docs.length})
+                <!-- MACHINERY BODY -->
+                <div style="display: flex; gap: 1.25rem; flex-wrap: wrap;">
+                  <!-- PHOTO -->
+                  <div style="width: 140px; height: 110px; border-radius: 8px; overflow: hidden; background: #0f172a; flex-shrink: 0; position: relative;">
+                    <img src="${escapeHtml(photoUrl)}" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.src='/assets/images/logo.png';" />
+                    <button type="button" class="btn btn-sm btn-view-photo-modal" data-photo="${escapeHtml(photoUrl)}" data-name="${escapeHtml(item.name)}" style="position: absolute; bottom: 4px; right: 4px; font-size: 0.65rem; padding: 0.2rem 0.4rem; background: rgba(0,0,0,0.7); color: #fff; border: none; border-radius: 4px;">
+                      🔍 Photo
+                    </button>
+                  </div>
+
+                  <!-- SPECS -->
+                  <div style="flex: 1; min-width: 240px;">
+                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem;">
+                      <span class="badge badge-info" style="font-size: 0.72rem;">${escapeHtml(item.category)}</span>
+                      <span class="badge badge-neutral" style="font-size: 0.72rem; text-transform: uppercase;">${escapeHtml(item.listing_type || "hire")}</span>
+                      <span class="badge ${item.availability_status === "available" ? "badge-success" : "badge-warning"}" style="font-size: 0.72rem; text-transform: capitalize;">
+                        ${escapeHtml(item.availability_status || "available")}
+                      </span>
+                    </div>
+
+                    <h4 style="margin: 0 0 0.25rem 0; font-size: 1.2rem; font-weight: 800; color: var(--text-main);">
+                      ${escapeHtml(item.name)}
+                    </h4>
+
+                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">
+                      ${escapeHtml(item.brand)} ${escapeHtml(item.model)} ${item.year ? `• Year ${escapeHtml(item.year)}` : ""} • 📍 ${escapeHtml(item.location || item.province || "Zimbabwe")}
+                    </div>
+
+                    <div style="font-size: 0.85rem; margin-bottom: 0.25rem;">
+                      ${rates.length > 0 ? `<strong>Hire:</strong> ${rates.join(" • ")}` : ""}
+                      ${item.sale_price ? `<span style="margin-left: 0.5rem; color: #ec4899; font-weight: 700;">Sale: $${Number(item.sale_price).toLocaleString()}</span>` : ""}
+                    </div>
+
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">
+                      Operator: ${item.operator_available ? "Available" : "Not Available"} • Transport: ${item.transport_available ? "Available" : "Not Available"}
+                    </div>
+                  </div>
+                </div>
+
+                <!-- DOCUMENTS SECTION -->
+                <div style="background: var(--bg-hover); padding: 0.85rem; border-radius: 8px; font-size: 0.85rem; border: 1px solid var(--border-light);">
+                  <div style="font-weight: 700; margin-bottom: 0.4rem; color: var(--text-main); display: flex; align-items: center; justify-content: space-between;">
+                    <span>Verification Documents (${docs.length})</span>
+                    <span style="font-size: 0.75rem; color: var(--text-muted);">Proof of Ownership, Registration, Insurance, Inspection</span>
                   </div>
                   ${docs.length === 0 ? `
-                    <div style="color: var(--text-muted); font-style: italic;">No verification documents uploaded.</div>
+                    <div style="color: var(--text-muted); font-style: italic; font-size: 0.8rem;">No documents attached to this equipment.</div>
                   ` : `
                     <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
                       ${docs.map((doc) => `
-                        <a href="${escapeHtml(doc.file_url)}" target="_blank" class="btn btn-outline btn-sm" style="font-size: 0.8rem; padding: 0.25rem 0.65rem;">
-                          📄 ${escapeHtml(doc.filename || doc.document_type || "Document")}
+                        <a href="${escapeHtml(doc.file_url)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="font-size: 0.8rem; padding: 0.3rem 0.65rem; display: inline-flex; align-items: center; gap: 0.35rem;">
+                          📄 ${escapeHtml(doc.filename || doc.file_name || doc.document_type || "Document")}
+                          <span class="badge ${doc.verification_status === "verified" ? "badge-success" : "badge-warning"}" style="font-size: 0.65rem;">
+                            ${escapeHtml(doc.verification_status || "pending")}
+                          </span>
                         </a>
                       `).join("")}
                     </div>
                   `}
                 </div>
+
+                <!-- ACTION BUTTONS (Part 7 & Part 8: Only machinery requires approval, do not re-approve verified owner) -->
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.25rem;">
+                  <div style="display: flex; gap: 0.5rem;">
+                    <a href="#machinery?id=${escapeHtml(item.id)}" target="_blank" class="btn btn-outline btn-sm" style="font-weight: 600;">
+                      View in Marketplace
+                    </a>
+                  </div>
+
+                  <div style="display: flex; gap: 0.5rem;">
+                    ${!isApproved ? `
+                      <button type="button" class="btn btn-primary btn-sm btn-approve-machinery" data-id="${escapeHtml(item.id)}" style="font-weight: 800; min-height: 38px;">
+                        ✓ Approve Machinery
+                      </button>
+                    ` : `
+                      <span class="badge badge-success" style="padding: 0.4rem 0.8rem; font-weight: 700; align-self: center;">
+                        ✓ Machinery Approved
+                      </span>
+                    `}
+                    ${!isRejected ? `
+                      <button type="button" class="btn btn-outline btn-sm btn-reject-machinery" data-id="${escapeHtml(item.id)}" style="color: #ef4444; border-color: rgba(239,68,68,0.4); font-weight: 700; min-height: 38px;">
+                        ✕ Reject Machinery
+                      </button>
+                    ` : ""}
+                  </div>
+                </div>
+
               </div>
             `;
           }).join("")}
         </div>
       `;
 
-      // Bind approve / reject
+      // Photo preview handler
+      container.querySelectorAll(".btn-view-photo-modal").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const photo = btn.getAttribute("data-photo");
+          const name = btn.getAttribute("data-name");
+          window.open(photo, "_blank");
+        });
+      });
+
+      // Bind approve machinery
       container.querySelectorAll(".btn-approve-machinery").forEach((btn) => {
         btn.addEventListener("click", async () => {
           const id = btn.getAttribute("data-id");
+          if (!confirm("Approve this machinery listing? It will receive the Verified badge in the marketplace.")) return;
           btn.disabled = true;
           try {
             await MachineryService.adminVerify(id, "approved");
-            alert("Machinery listing approved! Owner will receive verified badge.");
+            alert("Machinery listing approved successfully!");
             this.loadMachineryVerifications();
           } catch (err) {
             alert("Approval error: " + err.message);
@@ -1902,10 +1999,12 @@ export const AdminView = {
         });
       });
 
+      // Bind reject machinery
       container.querySelectorAll(".btn-reject-machinery").forEach((btn) => {
         btn.addEventListener("click", async () => {
           const id = btn.getAttribute("data-id");
-          if (!confirm("Are you sure you want to reject this machinery listing?")) return;
+          const reason = prompt("Enter rejection reason for this machinery listing:");
+          if (!reason) return;
           btn.disabled = true;
           try {
             await MachineryService.adminVerify(id, "rejected");

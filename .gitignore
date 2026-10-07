@@ -34,6 +34,7 @@ supabase/.temp/
 Thumbs.db
 
 reports/
+site-dist/
 storage/
 .env
 .env.*

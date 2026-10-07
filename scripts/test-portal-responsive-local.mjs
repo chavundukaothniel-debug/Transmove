@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {BrowserRunner} from './browser-runner.js';
+const root=process.cwd();
+const fixture=`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/assets/css/style.css"><script src="/assets/js/vendor/appwrite.js"></script><script src="/assets/js/vendor/supabase.min.js"></script><script src="/assets/js/vendor/lucide.min.js"></script><main id="fixture" style="padding:16px"></main><script type="module">import {renderPortalGuide} from '/src/components/PortalGuide.js';import {MachineryOwnerView} from '/src/views/MachineryOwnerView.js';import {AuthService} from '/src/services/auth.js';AuthService.getCurrentProfile=async()=>({role:'machinery_owner',activeRole:'machinery_owner'});document.getElementById('fixture').innerHTML=renderPortalGuide('machinery_owner')+await MachineryOwnerView.render();window.fixtureReady=true;</script>`;
+const server=http.createServer((req,res)=>{if(req.url==='/'){res.setHeader('Content-Type','text/html');res.end(fixture);return;}const file=path.join(root,req.url.split('?')[0]);if(!file.startsWith(root)||!fs.existsSync(file)){res.writeHead(404);res.end();return;}res.setHeader('Content-Type',file.endsWith('.js')?'application/javascript':file.endsWith('.css')?'text/css':'application/octet-stream');res.end(fs.readFileSync(file));});
+await new Promise(r=>server.listen(8097,'127.0.0.1',r));
+const b=new BrowserRunner({userDataDir:path.join(root,'storage','portal-layout-browser'),port:9337,baseUrl:'http://localhost:8097'});
+try{await b.start();await b.navigate();await b.waitForSelector('.portal-guide');for(const width of [320,375,768,1440]){await b.setViewport(width,900,width<768);await b.wait(150);const result=await b.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,overlap:(()=>{const a=[...document.querySelectorAll('.portal-downloads .btn')].map(x=>x.getBoundingClientRect());return a[0].left<a[1].right&&a[0].right>a[1].left&&a[0].top<a[1].bottom&&a[0].bottom>a[1].top;})()}));assert.ok(result.scroll<=width+1,JSON.stringify(result));assert.equal(result.overlap,false);console.log('PASS layout width '+width);} }finally{await b.close();server.close();}

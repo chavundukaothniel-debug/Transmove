@@ -48,6 +48,14 @@ const positiveNumber = (value) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 };
 
+// Calculate machinery advertising price based on duration in hours.
+// Base rate: $2.00 per 24 hours (i.e., $0.083333 per hour). Final amount rounded to 2 decimals.
+const calculateAdPrice = (hours) => {
+  const hourlyRate = 2 / 24; // $0.083333...
+  const price = hours * hourlyRate;
+  return Number(price.toFixed(2));
+};
+
 // Initial seed data for payment destinations & subscription plans
 export const DEFAULT_PAYMENT_DESTINATIONS = [
   {
@@ -148,6 +156,42 @@ export const DEFAULT_SUBSCRIPTION_PLANS = [
     recommended: false,
     display_order: 11,
     features: ["Unlimited machinery listings", "Top machinery search placement", "Direct booking phone & chat", "Priority equipment dispute assistance", "Gold Verified Machinery Badge"]
+  }
+];
+
+export const DEFAULT_ADVERTISING_PACKAGES = [
+  {
+    id: "ad_pack_7_days",
+    name: "7-Day Machinery Spotlight",
+    placement: "machinery_featured",
+    duration_days: 7,
+    price: 15.0,
+    currency: "USD",
+    active: true,
+    display_order: 1,
+    description: "Featured top placement on Machinery Marketplace and sponsored banner across dashboards for 7 days."
+  },
+  {
+    id: "ad_pack_14_days",
+    name: "14-Day Machinery Showcase",
+    placement: "machinery_featured",
+    duration_days: 14,
+    price: 25.0,
+    currency: "USD",
+    active: true,
+    display_order: 2,
+    description: "Featured top placement on Machinery Marketplace and sponsored banner across dashboards for 14 days."
+  },
+  {
+    id: "ad_pack_30_days",
+    name: "30-Day Machinery Dominance",
+    placement: "machinery_featured",
+    duration_days: 30,
+    price: 45.0,
+    currency: "USD",
+    active: true,
+    display_order: 3,
+    description: "Maximum 30-day exposure: priority marketplace ranking, featured banner on passenger & driver dashboards."
   }
 ];
 
@@ -617,7 +661,10 @@ class SupabaseBackendEngine {
       "get_public_provider_profile",
       "list_machinery_marketplace",
       "get_machinery_details",
-      "get_active_sponsored_machinery"
+      "get_active_sponsored_machinery",
+      "list_active_popup_ads",
+      "list_machinery_ad_packages",
+      "list_ad_packages"
     ];
 
     let verifiedUser = null;
@@ -1322,25 +1369,36 @@ class SupabaseBackendEngine {
           throw new Error(`Failed to record verification document in Supabase: ${insertError.message || insertError.code}`);
         }
 
-        // E. Update public.profiles.verification_status = 'pending'
-        const { error: profUpdateError } = await this.supabaseAdmin
+        // E. Update public.profiles.verification_status = 'pending' ONLY if not already approved/verified
+        let currentProfStatus = "unverified";
+        const { data: pCheck } = await this.supabaseAdmin
           .from("profiles")
-          .update({
-            verification_status: "pending",
-            updated_at: new Date().toISOString()
-          })
-          .eq("id", userId);
+          .select("verification_status")
+          .eq("id", userId)
+          .maybeSingle();
+        if (pCheck) currentProfStatus = pCheck.verification_status;
 
-        if (profUpdateError) {
-          console.error("[supabase-backend] profile status update failed:", profUpdateError);
-          throw new Error(`Verification document saved, but profile status update failed: ${profUpdateError.message || profUpdateError.code}`);
+        const isAlreadyApproved = ["approved", "verified"].includes(String(currentProfStatus).toLowerCase());
+        if (!isAlreadyApproved) {
+          const { error: profUpdateError } = await this.supabaseAdmin
+            .from("profiles")
+            .update({
+              verification_status: "pending",
+              updated_at: new Date().toISOString()
+            })
+            .eq("id", userId);
+
+          if (profUpdateError) {
+            console.error("[supabase-backend] profile status update failed:", profUpdateError);
+            throw new Error(`Verification document saved, but profile status update failed: ${profUpdateError.message || profUpdateError.code}`);
+          }
         }
       }
 
       // Mirror to local relational store
       this.db.verification_documents.push(docRecord);
       const prof = this.db.profiles.find((p) => p.id === userId || p.user_id === userId);
-      if (prof && prof.verification_status !== "approved") {
+      if (prof && !["approved", "verified"].includes(String(prof.verification_status).toLowerCase())) {
         prof.verification_status = "pending";
         prof.updated_at = new Date().toISOString();
       }
@@ -1418,32 +1476,6 @@ class SupabaseBackendEngine {
           throw new Error(`Failed to update verification document in Supabase: ${docUpdateErr.message}`);
         }
 
-        // Update profile in Supabase
-        if (status === "approved") {
-          const { error: profErr } = await this.supabaseAdmin
-            .from("profiles")
-            .update({
-              verification_status: "approved",
-              verification_rejection_reason: null,
-              updated_at: now
-            })
-            .eq("id", targetUserId);
-          if (profErr) {
-            throw new Error(`Failed to update profile verification status in Supabase: ${profErr.message}`);
-          }
-        } else {
-          const { error: profErr } = await this.supabaseAdmin
-            .from("profiles")
-            .update({
-              verification_status: "rejected",
-              verification_rejection_reason: rejectionReason,
-              updated_at: now
-            })
-            .eq("id", targetUserId);
-          if (profErr) {
-            throw new Error(`Failed to update profile verification status in Supabase: ${profErr.message}`);
-          }
-        }
       } else {
         targetDoc = this.db.verification_documents.find((d) => d.id === docId);
         if (!targetDoc) throw new Error("Document not found.");
@@ -1455,12 +1487,6 @@ class SupabaseBackendEngine {
         targetDoc.verification_status = status;
         targetDoc.rejection_reason = rejectionReason;
         targetDoc.updated_at = now;
-      }
-      const localProf = this.db.profiles.find((p) => p.id === targetUserId || p.user_id === targetUserId);
-      if (localProf) {
-        localProf.verification_status = status;
-        if (status === "rejected") localProf.verification_rejection_reason = rejectionReason;
-        localProf.updated_at = now;
       }
       this._persistLocalDb();
 
@@ -2673,7 +2699,8 @@ class SupabaseBackendEngine {
           throw new Error(`Failed to query profiles from Supabase: ${profErr.message}`);
         }
         profiles = (cloudProfiles || []).filter((p) =>
-          ["driver", "owner", "vehicle_owner", "machinery_owner", "logistics", "cargo_owner", "provider"].includes(p.role)
+          ["driver", "owner", "vehicle_owner", "logistics", "cargo_owner", "provider"].includes(p.role) &&
+          p.role !== "machinery_owner"
         );
 
         // Query verification documents
@@ -2687,14 +2714,18 @@ class SupabaseBackendEngine {
         }
         allDocs = cloudDocs || [];
 
-        // Query vehicles
+        // Query vehicles (road transport only - exclude heavy plant)
         const { data: cloudVehicles, error: vehErr } = await this.supabaseAdmin
           .from("vehicles")
           .select("*");
         if (vehErr) {
           throw new Error(`Failed to query vehicles from Supabase: ${vehErr.message}`);
         }
-        allVehicles = cloudVehicles || [];
+        const machineryKeywords = ["excavator", "bulldozer", "grader", "crane", "tractor", "loader", "tlb", "harvester", "plant", "compactor", "dumper", "roller", "caterpillar", "komatsu", "hitachi", "jcb", "bobcat"];
+        allVehicles = (cloudVehicles || []).filter((v) => {
+          const text = `${v.make || ""} ${v.model || ""} ${v.service_category || ""} ${v.vehicle_type || ""}`.toLowerCase();
+          return !machineryKeywords.some((kw) => text.includes(kw));
+        });
 
         // Query vehicle photos
         const { data: cloudPhotos, error: photoErr } = await this.supabaseAdmin
@@ -2706,10 +2737,15 @@ class SupabaseBackendEngine {
         allPhotos = cloudPhotos || [];
       } else {
         profiles = this.db.profiles.filter((p) =>
-          ["driver", "owner", "vehicle_owner", "machinery_owner", "logistics", "cargo_owner", "provider"].includes(p.role)
+          ["driver", "owner", "vehicle_owner", "logistics", "cargo_owner", "provider"].includes(p.role) &&
+          p.role !== "machinery_owner"
         );
         allDocs = this.db.verification_documents || [];
-        allVehicles = this.db.vehicles || [];
+        const machineryKeywords = ["excavator", "bulldozer", "grader", "crane", "tractor", "loader", "tlb", "harvester", "plant", "compactor", "dumper", "roller", "caterpillar", "komatsu", "hitachi", "jcb", "bobcat"];
+        allVehicles = (this.db.vehicles || []).filter((v) => {
+          const text = `${v.make || ""} ${v.model || ""} ${v.service_category || ""} ${v.vehicle_type || ""}`.toLowerCase();
+          return !machineryKeywords.some((kw) => text.includes(kw));
+        });
         allPhotos = this.db.vehicle_photos || [];
       }
 
@@ -3702,7 +3738,80 @@ class SupabaseBackendEngine {
       payment.paid_at = new Date().toISOString();
       payment.updated_at = new Date().toISOString();
 
-      // Find plan details
+      // Case A: Machinery Advertisement Payment
+      if (payment.payment_type === "machinery_advertisement") {
+        let meta = {};
+        try { meta = JSON.parse(payment.admin_notes || "{}"); } catch (_) {}
+        const machineryId = meta.machinery_id || payment.related_id || payment.booking_id;
+        const durationHours = Number(meta.duration_hours || 0);
+        const durationDays = Number(meta.duration_days || payment.plan_duration_days || 14);
+        // Use hours if available for precise scheduling, otherwise fall back to days
+        const durationMs = durationHours > 0 ? durationHours * 3600000 : durationDays * 86400000;
+        const approvalTime = new Date();
+        const endAt = new Date(approvalTime.getTime() + durationMs);
+
+        if (this.isLive && this.supabaseAdmin && isUuid(payment.id)) {
+          await this.supabaseAdmin
+            .from("payments")
+            .update({ status: "approved", paid_at: payment.paid_at, updated_at: payment.updated_at })
+            .eq("id", payment.id);
+        }
+
+        // Activate advertisement authoritative record
+        let adPayload = {
+          machinery_id: machineryId,
+          owner_id: payment.user_id,
+          status: "active",
+          start_at: approvalTime.toISOString(),
+          end_at: endAt.toISOString(),
+          updated_at: approvalTime.toISOString()
+        };
+
+        if (this.supabaseAdmin && machineryId) {
+          const { data: existingAd } = await this.supabaseAdmin
+            .from("machinery_advertisements")
+            .select("id")
+            .eq("machinery_id", machineryId)
+            .maybeSingle();
+
+          if (existingAd) {
+            await this.supabaseAdmin
+              .from("machinery_advertisements")
+              .update(adPayload)
+              .eq("id", existingAd.id);
+          } else {
+            adPayload.id = randomUUID();
+            adPayload.impressions = 0;
+            adPayload.clicks = 0;
+            adPayload.hire_requests_generated = 0;
+            adPayload.created_at = approvalTime.toISOString();
+            const { error: insAdErr } = await this.supabaseAdmin.from("machinery_advertisements").insert(adPayload);
+            if (insAdErr) console.error("[machinery_ad] insert error:", insAdErr);
+          }
+          await this.supabaseAdmin.from("machinery").update({ is_sponsored: true, updated_at: approvalTime.toISOString() }).eq("id", machineryId);
+        }
+
+        const localM = (this.db.machinery || []).find((m) => m.id === machineryId);
+        if (localM) localM.is_sponsored = true;
+
+        if (!this.db.machinery_advertisements) this.db.machinery_advertisements = [];
+        const localAdIdx = this.db.machinery_advertisements.findIndex((a) => a.machinery_id === machineryId);
+        if (localAdIdx >= 0) {
+          this.db.machinery_advertisements[localAdIdx] = { ...this.db.machinery_advertisements[localAdIdx], ...adPayload };
+        } else {
+          this.db.machinery_advertisements.push({ id: randomUUID(), ...adPayload });
+        }
+
+        const localPaymentIndex = this.db.payments.findIndex((entry) => entry.id === payment.id);
+        if (localPaymentIndex >= 0) this.db.payments[localPaymentIndex] = { ...this.db.payments[localPaymentIndex], ...payment };
+        else this.db.payments.push({ ...payment });
+
+        this._persistLocalDb();
+        await logActivity("machinery_ad_approved", `Approved machinery advertisement for ${durationDays} days`, `Machinery: ${machineryId}`, payment.id);
+        return { ...payment, $id: payment.id, payment, advertisement: adPayload };
+      }
+
+      // Case B: Subscription Payment
       let subscription = this.db.subscriptions.find((s) => s.id === payment.subscription_id) || null;
       if (this.isLive && this.supabaseAdmin && isUuid(payment.subscription_id)) {
         const { data: liveSubscription, error } = await this.supabaseAdmin
@@ -3838,6 +3947,21 @@ class SupabaseBackendEngine {
             .eq("id", payment.subscription_id)
             .eq("status", "pending_review");
           if (subscriptionUpdateError) throw new Error(`Failed to close pending subscription: ${subscriptionUpdateError.message}`);
+        }
+        if (payment.payment_type === "machinery_advertisement") {
+          let meta = {};
+          try { meta = JSON.parse(payment.admin_notes || "{}"); } catch (_) {}
+          const machineryId = meta.machinery_id || payment.related_id;
+          if (this.isLive && this.supabaseAdmin && machineryId) {
+            await this.supabaseAdmin
+              .from("machinery_advertisements")
+              .update({ status: "rejected", updated_at: payment.updated_at })
+              .eq("machinery_id", machineryId);
+          }
+          if (this.db.machinery_advertisements && machineryId) {
+            const localAd = this.db.machinery_advertisements.find((a) => a.machinery_id === machineryId);
+            if (localAd) localAd.status = "rejected";
+          }
         }
       }
 
@@ -4099,7 +4223,58 @@ class SupabaseBackendEngine {
     }
 
     if (action === "list_active_popup_ads") {
-      const ads = (this.db.ad_campaigns || []).filter((c) => c.status === "approved" || c.status === "active");
+      const nowIso = new Date().toISOString();
+      let ads = (this.db.ad_campaigns || []).filter((c) => (c.status === "approved" || c.status === "active") && (!c.end_at || c.end_at > nowIso));
+
+      // Query active machinery advertisements
+      let activeMachAds = [];
+      if (this.supabaseAdmin) {
+        try {
+          const { data: sAds } = await this.supabaseAdmin
+            .from("machinery_advertisements")
+            .select("*")
+            .eq("status", "active")
+            .gt("end_at", nowIso);
+          if (sAds) activeMachAds = sAds;
+        } catch (_) {}
+      }
+      if (activeMachAds.length === 0) {
+        activeMachAds = (this.db.machinery_advertisements || []).filter(
+          (a) => a.status === "active" && a.end_at && a.end_at > nowIso
+        );
+      }
+
+      for (const mAd of activeMachAds) {
+        let machine = null;
+        if (this.supabaseAdmin) {
+          try {
+            const { data: sM } = await this.supabaseAdmin
+              .from("machinery")
+              .select("*")
+              .eq("id", mAd.machinery_id)
+              .maybeSingle();
+            if (sM) machine = sM;
+          } catch (_) {}
+        }
+        if (!machine) {
+          machine = (this.db.machinery || []).find((m) => m.id === mAd.machinery_id);
+        }
+
+        if (machine) {
+          const photoUrl = machine.primary_photo?.file_url || (Array.isArray(machine.photos) && machine.photos.length > 0 ? (machine.photos[0].file_url || machine.photos[0]) : "");
+          ads.push({
+            id: `mach_ad_${mAd.id || mAd.machinery_id}`,
+            business_name: "TransMove Heavy Equipment",
+            title: machine.name,
+            description: `Now available in ${machine.location || machine.province || "Zimbabwe"}. Verified heavy plant.`,
+            image_url: photoUrl,
+            destination_url: `#machinery?id=${machine.id}`,
+            status: "active",
+            is_machinery: true
+          });
+        }
+      }
+
       return { campaigns: ads };
     }
 
@@ -4214,8 +4389,8 @@ class SupabaseBackendEngine {
         activeAdMap.set(ad.machinery_id, ad);
       });
 
-      // Filter by active status
-      listings = listings.filter((m) => m.status === "active" || m.status === "available" || !m.status);
+      // Only admin-approved listings are public, including sponsored placements.
+      listings = listings.filter((m) => ["active", "available"].includes(m.status) && ["approved", "verified"].includes(m.verification_status));
 
       // Search & Filters
       const q = (data.query || data.search || "").toLowerCase().trim();
@@ -4441,6 +4616,11 @@ class SupabaseBackendEngine {
       } else {
         m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
         if (!m) throw new Error("Machinery listing not found.");
+      }
+
+      if (!["approved", "verified"].includes(m.verification_status) || !["active", "available"].includes(m.status)) {
+        const viewer = userId ? await getCallerProfile() : null;
+        if (m.owner_id !== userId && viewer?.role !== "admin") throw new Error("Machinery listing is awaiting approval or unavailable.");
       }
 
       const nowIso = new Date().toISOString();
@@ -4721,6 +4901,9 @@ class SupabaseBackendEngine {
       if (data.transport_notes !== undefined) updateFields.transport_notes = data.transport_notes;
       if (data.minimum_hire_period !== undefined) updateFields.minimum_hire_period = Number(data.minimum_hire_period);
       if (data.minimum_hire_unit !== undefined) updateFields.minimum_hire_unit = data.minimum_hire_unit;
+      if (data.serial_number !== undefined) updateFields.serial_number = data.serial_number;
+      if (data.operating_weight !== undefined) updateFields.operating_weight = data.operating_weight;
+      if (data.boom_size !== undefined) updateFields.boom_size = data.boom_size;
       if (data.availability_status !== undefined) updateFields.availability_status = data.availability_status;
       if (data.primary_photo !== undefined) updateFields.primary_photo = data.primary_photo;
       if (data.gallery_photos !== undefined) updateFields.gallery_photos = data.gallery_photos;
@@ -4740,6 +4923,10 @@ class SupabaseBackendEngine {
         throw new Error(`Operator daily rate ($${finalOpDaily}) must be strictly greater than base rate ($${finalDaily}).`);
       }
 
+      // Listing content changes must be reviewed again; availability can change immediately.
+      if (Object.keys(updateFields).some((key) => !["updated_at", "availability_status", "status"].includes(key))) {
+        updateFields.verification_status = "pending";
+      }
       let updatedListing = { ...m, ...updateFields };
 
       // Strict Supabase write
@@ -4817,6 +5004,11 @@ class SupabaseBackendEngine {
       if (m.status !== "active" && m.status !== "available") {
         throw new Error("Machinery listing is not currently available for hire.");
       }
+
+      if (!["approved", "verified"].includes(m.verification_status)) throw new Error("This machinery must be approved by an admin before booking.");
+      if (m.availability_status && m.availability_status !== "available") throw new Error("This machinery is currently unavailable. Please choose another listing.");
+      if (m.owner_id === userId) throw new Error("You cannot book your own machinery.");
+      if (!Number.isFinite(Number(data.duration_units || data.duration_days || 1)) || Number(data.duration_units || data.duration_days || 1) < 1) throw new Error("Enter a valid hire duration.");
 
       const withOperator = Boolean(data.with_operator);
       const ratePeriod = data.rate_period || "daily"; // 'hourly', 'daily', 'weekly', 'monthly'
@@ -5096,40 +5288,7 @@ class SupabaseBackendEngine {
         throw new Error("Forbidden: You can only advertise your own machinery listings.");
       }
 
-      // Check subscription entitlement:
-      // Machinery Fleet Pro ("machinery-fleet") includes advertising privileges
       const now = new Date();
-      let activeSubs = [];
-      if (this.supabaseAdmin) {
-        try {
-          const { data: supaSubs } = await this.supabaseAdmin
-            .from("subscriptions")
-            .select("*, plan:plan_id(*)")
-            .eq("user_id", userId)
-            .eq("status", "active")
-            .gt("expires_at", now.toISOString());
-          if (supaSubs) activeSubs = supaSubs;
-        } catch (_) {}
-      }
-
-      if (activeSubs.length === 0) {
-        activeSubs = (this.db.subscriptions || []).filter(
-          (s) => s.user_id === userId && s.status === "active" && new Date(s.expires_at) > now
-        );
-      }
-
-      const hasFleetPlan = activeSubs.some(
-        (s) =>
-          s.plan_slug === "machinery-fleet" ||
-          s.plan_id === "30000000-0000-4000-8000-000000000002" ||
-          (s.plan && (s.plan.slug === "machinery-fleet" || s.plan.name?.includes("Fleet") || String(s.plan).includes("Fleet")))
-      );
-
-      // Part 7: If owner's current subscription does not include advertising, throw clear message
-      if (!isAdmin && !hasFleetPlan && !data.bypass_subscription) {
-        throw new Error("Sponsored advertising is not included in your current plan. Please upgrade to Machinery Fleet Pro.");
-      }
-
       const durationDays = Number(data.duration_days || 30);
       const nowIso = now.toISOString();
       const endIso = new Date(Date.now() + durationDays * 86400000).toISOString();
@@ -5186,6 +5345,192 @@ class SupabaseBackendEngine {
 
       await logActivity("machinery_promoted", `Promoted machinery: ${m.name}`, `Duration: ${durationDays} days`, adPayload.id);
       return { success: true, advertisement: adPayload };
+    }
+
+    if (action === "list_machinery_ad_packages") {
+      let packages = DEFAULT_ADVERTISING_PACKAGES.filter((p) => p.active);
+      if (this.supabaseAdmin) {
+        try {
+          const { data: sPackages, error } = await this.supabaseAdmin
+            .from("advertising_packages")
+            .select("*")
+            .eq("active", true)
+            .order("display_order", { ascending: true });
+          if (!error && Array.isArray(sPackages) && sPackages.length > 0) {
+            packages = sPackages;
+          }
+        } catch (_) {}
+      }
+      return { packages };
+    }
+
+    if (action === "submit_machinery_ad_payment") {
+      if (!userId) throw new Error("Unauthorized: Authentication token is missing.");
+      const callerProf = await getCallerProfile();
+      const isAdmin = callerProf?.role === "admin";
+      const machineryId = data.machinery_id;
+      if (!machineryId) throw new Error("Machinery ID is required.");
+
+      // Verify machinery ownership
+      let m = null;
+      if (this.supabaseAdmin) {
+        const { data: supaM } = await this.supabaseAdmin
+          .from("machinery")
+          .select("*")
+          .eq("id", machineryId)
+          .maybeSingle();
+        m = supaM;
+      } else {
+        m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
+      }
+      if (!m) throw new Error("Machinery listing not found.");
+      if (m.owner_id !== userId && !isAdmin) {
+        throw new Error("Forbidden: You can only advertise your own machinery listings.");
+      }
+
+      // Validate package
+      // New dynamic pricing: accept duration_hours (or fallback to duration_days for legacy support)
+      const durationHours = Number(data.duration_hours || (data.duration_days ? data.duration_days * 24 : null));
+      if (!durationHours || durationHours <= 0) {
+        throw new Error("Invalid or missing advertising duration (hours). Use duration_hours or duration_days.");
+      }
+      // Compute price server‑side using the base rate
+      const price = calculateAdPrice(durationHours);
+      // Construct a pseudo‑package object for downstream use
+      const pkg = {
+        id: "custom_dynamic",
+        name: `${durationHours} Hour${durationHours !== 1 ? 's' : ''} Promotion`,
+        duration_hours: durationHours,
+        duration_days: Math.ceil(durationHours / 24),
+        price,
+        currency: "USD",
+      };
+
+      // Validate destination (must be verified EcoCash destination)
+      const destinationId = data.payment_destination_id || data.destination_id;
+      if (!destinationId) throw new Error("Payment destination is required.");
+      let dest = null;
+      if (this.supabaseAdmin && isUuid(destinationId)) {
+        const { data: liveDest } = await this.supabaseAdmin
+          .from("payment_destinations")
+          .select("*")
+          .eq("id", destinationId)
+          .eq("active", true)
+          .maybeSingle();
+        dest = liveDest;
+      }
+      if (!dest) {
+        dest = DEFAULT_PAYMENT_DESTINATIONS.find((d) => d.id === destinationId || d.account_number === destinationId || d.active);
+      }
+      if (!dest) throw new Error("Invalid or inactive EcoCash payment destination.");
+
+      const reference = String(data.transaction_reference || data.reference || "").trim();
+      if (!reference) throw new Error("Transaction reference / EcoCash confirmation code is required.");
+
+      let proofFileId = data.proof_file_id || "";
+      let proofFilename = data.proof_filename || "ad_payment_proof.jpg";
+      if (data.proof_base64) {
+        const fileBuffer = Buffer.from(data.proof_base64.replace(/^data:[^;]+;base64,/, ""), "base64");
+        const upload = await googleDriveStorage.uploadFile({
+          buffer: fileBuffer,
+          originalFilename: proofFilename,
+          mimeType: data.proof_mime_type || "image/jpeg",
+          folderPath: DRIVE_FOLDERS.PAYMENTS_ADVERTISING,
+          metadata: { userId, reference, machineryId }
+        });
+        proofFileId = upload.id;
+        proofFilename = upload.name;
+      }
+      if (!proofFileId) {
+        if (data.proof_file_id) {
+          proofFileId = data.proof_file_id;
+        } else if (process.env.NODE_ENV === "test" || !this.isLive) {
+          proofFileId = `proof_test_${Date.now()}`;
+        } else {
+          throw new Error("Payment proof document or screenshot is required.");
+        }
+      }
+
+      const now = new Date().toISOString();
+      const paymentId = randomUUID();
+      // Use the calculated price from the dynamic package
+      const expectedAmount = Number(pkg.price);
+
+      const paymentRecord = {
+        id: paymentId,
+        user_id: userId,
+        payment_destination_id: isUuid(dest.id) ? dest.id : null,
+        subscription_id: null,
+        payment_type: "machinery_advertisement",
+        amount: expectedAmount,
+        currency: pkg.currency || "USD",
+        provider: dest.provider || "ecocash",
+        reference,
+        provider_reference: reference,
+        sender_name: data.sender_name || callerProf?.full_name || "",
+        sender_phone: data.sender_phone || callerProf?.phone || "",
+        proof_storage_provider: "google_drive",
+        proof_file_id: proofFileId,
+        proof_filename: proofFilename,
+        status: "pending_review",
+        admin_notes: JSON.stringify({
+          machinery_id: machineryId,
+          package_id: pkg.id,
+          duration_hours: durationHours,
+          duration_days: pkg.duration_days,
+          machinery_name: m.name,
+          machinery_brand: m.brand,
+          machinery_model: m.model
+        }),
+        created_at: now,
+        updated_at: now
+      };
+
+      if (this.supabaseAdmin) {
+        const { error: pErr } = await this.supabaseAdmin.from("payments").insert(paymentRecord);
+        if (pErr) throw new Error(`Database error saving advertisement payment: ${pErr.message}`);
+      }
+
+      if (!this.db.payments) this.db.payments = [];
+      this.db.payments.push({
+        ...paymentRecord,
+        $id: paymentRecord.id,
+        plan_name: `Machinery Ad (${pkg.duration_days} Days)`,
+        plan_duration_days: pkg.duration_days,
+        destination_account_id: dest.id,
+        recipient_name: dest.account_name,
+        recipient_number: dest.account_number
+      });
+
+      // Insert pending advertisement record (status: pending_review - NOT active until admin approval)
+      const adRecord = {
+        machinery_id: machineryId,
+        owner_id: userId,
+        status: "pending_review",
+        start_at: null,
+        end_at: null,
+        impressions: 0,
+        clicks: 0,
+        hire_requests_generated: 0,
+        created_at: now,
+        updated_at: now
+      };
+      if (!this.db.machinery_advertisements) this.db.machinery_advertisements = [];
+      const exIdx = this.db.machinery_advertisements.findIndex((a) => a.machinery_id === machineryId);
+      if (exIdx >= 0) this.db.machinery_advertisements[exIdx] = { ...this.db.machinery_advertisements[exIdx], ...adRecord };
+      else this.db.machinery_advertisements.push({ id: randomUUID(), ...adRecord });
+
+      this._persistLocalDb();
+      await logActivity("machinery_ad_payment_submitted", `Ad payment submitted: $${expectedAmount} for ${pkg.duration_days} days`, `Machinery: ${m.name}`, paymentId);
+
+      return {
+        success: true,
+        payment_id: paymentId,
+        status: "pending_review",
+        package: pkg,
+        amount: expectedAmount,
+        destination: { account_name: dest.account_name, account_number: dest.account_number }
+      };
     }
 
     if (action === "stop_machinery_promotion" || action === "pause_machinery_promotion") {
@@ -5317,7 +5662,7 @@ class SupabaseBackendEngine {
           m = (this.db.machinery || []).find((entry) => entry.id === ad.machinery_id);
         }
 
-        if (m && (m.status === "active" || m.status === "available" || !m.status)) {
+        if (m && ["active", "available"].includes(m.status) && ["approved", "verified"].includes(m.verification_status)) {
           // Increment impressions
           if (this.supabaseAdmin) {
             try {
@@ -5452,6 +5797,31 @@ class SupabaseBackendEngine {
 
       if (machineryId && this.supabaseAdmin) {
         await this.supabaseAdmin.from("machinery_documents").insert(docRecord).catch(() => {});
+        try {
+          const { data: currentM } = await this.supabaseAdmin
+            .from("machinery")
+            .select("documents")
+            .eq("id", machineryId)
+            .maybeSingle();
+          if (currentM) {
+            const currentDocs = Array.isArray(currentM.documents) ? currentM.documents : [];
+            const filtered = currentDocs.filter((d) => (d.document_type || d.type) !== (document_type || "ownership_proof"));
+            filtered.push(docRecord);
+            await this.supabaseAdmin
+              .from("machinery")
+              .update({ documents: filtered, updated_at: new Date().toISOString() })
+              .eq("id", machineryId);
+          }
+        } catch (_) {}
+      }
+
+      if (machineryId) {
+        const localM = (this.db.machinery || []).find((m) => m.id === machineryId);
+        if (localM) {
+          if (!Array.isArray(localM.documents)) localM.documents = [];
+          localM.documents = localM.documents.filter((d) => (d.document_type || d.type) !== (document_type || "ownership_proof"));
+          localM.documents.push(docRecord);
+        }
       }
 
       return {
@@ -5462,6 +5832,92 @@ class SupabaseBackendEngine {
         filename,
         document_type: document_type || "ownership_proof"
       };
+    }
+
+    if (action === "admin_list_machinery_verifications") {
+      const callerProf = await getCallerProfile();
+      if (callerProf?.role !== "admin") {
+        throw new Error("Forbidden: Admin access required to view machinery verification queue.");
+      }
+
+      const statusFilter = String(data.status_filter || data.status || "all").toLowerCase().trim();
+
+      let allMachinery = [];
+      let allDocs = [];
+      let allOwners = [];
+
+      if (this.supabaseAdmin) {
+        let mQuery = this.supabaseAdmin
+          .from("machinery")
+          .select("*")
+          .neq("status", "archived")
+          .order("created_at", { ascending: false });
+        if (statusFilter && statusFilter !== "all") {
+          mQuery = mQuery.eq("verification_status", statusFilter);
+        }
+        const { data: sMach, error: mErr } = await mQuery;
+        if (mErr) throw new Error(`Database error loading machinery: ${mErr.message}`);
+        allMachinery = sMach || [];
+
+        const { data: sDocs } = await this.supabaseAdmin.from("machinery_documents").select("*");
+        allDocs = sDocs || [];
+
+        const ownerIds = [...new Set(allMachinery.map((m) => m.owner_id).filter(Boolean))];
+        if (ownerIds.length > 0) {
+          const { data: sOwners } = await this.supabaseAdmin
+            .from("profiles")
+            .select("id, full_name, email, phone, verification_status")
+            .in("id", ownerIds);
+          allOwners = sOwners || [];
+        }
+      } else {
+        allMachinery = (this.db.machinery || []).filter((m) => m.status !== "archived");
+        if (statusFilter && statusFilter !== "all") {
+          allMachinery = allMachinery.filter((m) => m.verification_status === statusFilter);
+        }
+        allDocs = this.db.machinery_documents || [];
+        allOwners = this.db.profiles || [];
+      }
+
+      const ownerMap = new Map();
+      allOwners.forEach((o) => ownerMap.set(o.id, o));
+
+      const docsByMachinery = new Map();
+      allDocs.forEach((d) => {
+        if (!docsByMachinery.has(d.machinery_id)) docsByMachinery.set(d.machinery_id, []);
+        docsByMachinery.get(d.machinery_id).push(d);
+      });
+
+      const enriched = allMachinery.map((m) => {
+        const owner = ownerMap.get(m.owner_id) || {
+          id: m.owner_id,
+          full_name: "Machinery Owner",
+          email: "",
+          phone: "",
+          verification_status: "pending"
+        };
+        const mDocs = docsByMachinery.get(m.id) || (Array.isArray(m.documents) ? m.documents : []);
+        return {
+          ...m,
+          owner: {
+            id: owner.id,
+            full_name: owner.full_name || "Machinery Owner",
+            email: owner.email || "",
+            phone: owner.phone || "",
+            verification_status: owner.verification_status || "pending"
+          },
+          documents: mDocs
+        };
+      });
+
+      const counts = {
+        total: allMachinery.length,
+        pending: allMachinery.filter((m) => m.verification_status === "pending" || !m.verification_status).length,
+        approved: allMachinery.filter((m) => m.verification_status === "approved" || m.verification_status === "verified").length,
+        rejected: allMachinery.filter((m) => m.verification_status === "rejected").length
+      };
+
+      return { machinery: enriched, summary: counts };
     }
 
     if (action === "admin_verify_machinery") {
@@ -5484,12 +5940,22 @@ class SupabaseBackendEngine {
           .update({ verification_status: status, updated_at: nowIso })
           .eq("id", machineryId);
         if (vErr) throw new Error(`Database error verifying machinery: ${vErr.message}`);
+
+        if (status === "approved") {
+          await this.supabaseAdmin
+            .from("machinery_documents")
+            .update({ verification_status: "verified", updated_at: nowIso })
+            .eq("machinery_id", machineryId);
+        }
       }
 
       const m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
       if (m) {
         m.verification_status = status;
         m.updated_at = nowIso;
+        if (status === "approved" && Array.isArray(m.documents)) {
+          m.documents.forEach((d) => { d.verification_status = "verified"; });
+        }
       }
       this._persistLocalDb();
 

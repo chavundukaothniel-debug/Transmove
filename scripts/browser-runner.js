@@ -6,6 +6,7 @@ export class BrowserRunner {
   constructor(options = {}) {
     this.port = options.port || 9222;
     this.baseUrl = options.baseUrl || 'http://localhost:8080';
+    this.userDataDir = options.userDataDir;
     this.chromeProcess = null;
     this.ws = null;
     this.msgId = 1;
@@ -19,6 +20,7 @@ export class BrowserRunner {
   async start() {
     this.chromeProcess = spawn(CHROME_PATH, [
       '--headless=new',
+      ...(this.userDataDir ? [`--user-data-dir=${this.userDataDir}`] : []),
       `--remote-debugging-port=${this.port}`,
       '--disable-gpu',
       '--no-first-run',

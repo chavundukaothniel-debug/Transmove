@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import { supabaseBackendEngine as e } from '../src/server/supabase-backend.js';
+import { renderPortalGuide } from '../src/components/PortalGuide.js';
+e.supabaseAdmin=null;e.isLive=false;e._persistLocalDb=()=>{};
+e.authenticateUser=async id=>({id});e.getCallerProfile=async id=>({id,role:id==='admin'?'admin':'passenger'});
+e.db.machinery=['pending','rejected','approved','verified'].map((verification_status,i)=>({id:String(i),owner_id:'owner',status:'active',verification_status,name:'Test machine',availability_status:'available',daily_rate:100}));
+e.db.machinery_advertisements=[{id:'ad',machinery_id:'0',status:'active'}];
+assert.equal((await e.execute({action:'list_machinery_marketplace'})).machinery.length,2);
+await assert.rejects(e.execute({action:'get_machinery_details',data:{id:'0'}}),/approval/);
+await assert.rejects(e.execute({action:'submit_machinery_hire_request',jwt:'renter',data:{id:'0'}}),/approved/);
+await assert.rejects(e.execute({action:'admin_verify_machinery',jwt:'renter',data:{id:'0',status:'approved'}}),/Admin access/);
+assert.equal((await e.execute({action:'get_active_sponsored_machinery'})).sponsored_machinery.length,0);
+await e.execute({action:'admin_verify_machinery',jwt:'admin',data:{id:'0',status:'approved'}});
+assert.equal((await e.execute({action:'list_machinery_marketplace'})).machinery.length,3);
+assert.equal((await e.execute({action:'get_active_sponsored_machinery'})).sponsored_machinery.length,1);
+await assert.rejects(e.execute({action:'submit_machinery_hire_request',jwt:'owner',data:{id:'0'}}),/own machinery/);
+e.db.machinery[0].availability_status='booked';
+await assert.rejects(e.execute({action:'submit_machinery_hire_request',jwt:'renter',data:{id:'0'}}),/unavailable/);
+for(const route of ['driver','customer','admin','machinery_owner','machinery_hirer']){const html=renderPortalGuide(route);assert.match(html,/download="TransMove.apk"/);assert.match(html,/Install on iPhone/);}
+console.log('PASS: approval visibility, private details, admin authorization, sponsored visibility, booking guards, and portal download controls.');

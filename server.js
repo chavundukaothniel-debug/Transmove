@@ -1,10 +1,13 @@
 import http from "http";
 import fs from "fs";
 import path from "path";
-import { handler } from "./netlify/functions/trusted-api.js";
+import { resolvePublicFile } from "./src/server/public-files.js";
 
 const PORT = process.env.PORT || 8080;
+const builtSite = path.resolve(process.cwd(), "site-dist");
+const publicRoot = fs.existsSync(path.join(builtSite, "index.html")) ? builtSite : process.cwd();
 const MIME_TYPES = {
+  ".apk": "application/vnd.android.package-archive",
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
@@ -21,6 +24,12 @@ const MIME_TYPES = {
 const server = http.createServer(async (req, res) => {
   const urlPath = req.url.split("?")[0];
 
+  if (urlPath === "/healthz") {
+    res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+    res.end(JSON.stringify({ status: "ok" }));
+    return;
+  }
+
   // Route Netlify serverless functions locally
   if (urlPath === "/.netlify/functions/trusted-api" || urlPath === "/api/trusted-api") {
     let body = "";
@@ -36,6 +45,7 @@ const server = http.createServer(async (req, res) => {
       };
 
       try {
+        const { handler } = await import("./netlify/functions/trusted-api.js");
         const result = await handler(event, {});
         res.writeHead(result.statusCode, result.headers);
         res.end(result.body);
@@ -163,13 +173,15 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Static file serving
-  let relativePath = urlPath === "/" ? "index.html" : urlPath.replace(/^\//, "");
-  let filePath = path.resolve(process.cwd(), relativePath);
+  const filePath = resolvePublicFile(urlPath, publicRoot);
 
-  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+  if (filePath) {
     const ext = path.extname(filePath).toLowerCase();
     const contentType = MIME_TYPES[ext] || "application/octet-stream";
-    res.writeHead(200, { "Content-Type": contentType });
+    const headers = { "Content-Type": contentType, "X-Content-Type-Options": "nosniff" };
+    if ([".html", ".js", ".css", ".apk"].includes(ext)) headers["Cache-Control"] = "no-cache";
+    if (ext === ".apk") headers["Content-Disposition"] = 'attachment; filename="TransMove.apk"';
+    res.writeHead(200, headers);
     fs.createReadStream(filePath).pipe(res);
   } else {
     res.writeHead(404, { "Content-Type": "text/plain" });

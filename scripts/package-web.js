@@ -48,6 +48,11 @@ if (fs.existsSync(path.join(ROOT_DIR, "index.html"))) {
 }
 
 // 2. Copy manifest
+if (fs.existsSync(path.join(ROOT_DIR, "install-ios.html"))) {
+  fs.copyFileSync(path.join(ROOT_DIR, "install-ios.html"), path.join(WWW_DIR, "install-ios.html"));
+}
+
+// 2. Copy manifest
 if (fs.existsSync(path.join(ROOT_DIR, "manifest.webmanifest"))) {
   fs.copyFileSync(path.join(ROOT_DIR, "manifest.webmanifest"), path.join(WWW_DIR, "manifest.webmanifest"));
   console.log("✓ Copied manifest.webmanifest");

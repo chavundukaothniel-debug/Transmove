@@ -1,0 +1,16 @@
+# Match these settings on the EXISTING transmove service; do not create a duplicate.
+services:
+  - type: web
+    name: transmove
+    runtime: node
+    repo: https://github.com/chavundukaothniel-debug/Transmove
+    branch: main
+    autoDeployTrigger: commit
+    buildCommand: npm ci && npm run build:site
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production

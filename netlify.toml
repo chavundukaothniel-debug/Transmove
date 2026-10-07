@@ -1,6 +1,27 @@
 [build]
-  publish = "."
+  command = "node scripts/build-site.js"
+  publish = "site-dist"
   functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/downloads/*.apk"
+  [headers.values]
+    Content-Type = "application/vnd.android.package-archive"
+    Content-Disposition = "attachment; filename=TransMove.apk"
+    Cache-Control = "no-cache"
 
 [[redirects]]
   from = "/api/*"

@@ -267,7 +267,7 @@ CREATE POLICY "Service role full access on machinery"
 
 CREATE POLICY "Public can view active machinery"
     ON public.machinery FOR SELECT TO anon, authenticated
-    USING (status IN ('active', 'available'));
+    USING (status IN ('active', 'available') AND verification_status IN ('approved', 'verified'));
 
 CREATE POLICY "Owner can view own machinery"
     ON public.machinery FOR SELECT TO authenticated
@@ -295,9 +295,7 @@ CREATE POLICY "Participants can view hires"
     ON public.machinery_hires FOR SELECT TO authenticated
     USING (auth.uid() = renter_id OR auth.uid() = owner_id);
 
-CREATE POLICY "Renters can create hire requests"
-    ON public.machinery_hires FOR INSERT TO authenticated
-    WITH CHECK (auth.uid() = renter_id);
+-- Hire creation uses the trusted service-role API for approval and pricing checks.
 
 -- DISMISSALS POLICIES
 CREATE POLICY "Service role full access on machinery_ad_dismissals"

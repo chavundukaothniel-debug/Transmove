@@ -7,7 +7,11 @@
     "setup:appwrite": "node scripts/setup-appwrite.js",
     "package:web": "node scripts/package-web.js",
     "cap:sync": "npx cap sync android",
-    "build:apk:debug": "node scripts/package-web.js && npx cap sync android && cd android && gradlew assembleDebug"
+    "build:apk:debug": "node scripts/package-web.js && npx cap sync android && cd android && gradlew assembleDebug",
+    "build:site": "node scripts/build-site.js",
+    "ios:prepare": "node scripts/package-web.js && npx cap sync ios",
+    "ios:open": "npx cap open ios",
+    "start": "node server.js"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",
@@ -15,6 +19,7 @@
     "@capacitor/cli": "^8.5.2",
     "@capacitor/core": "^8.5.2",
     "@capacitor/geolocation": "8.1.0",
+    "@capacitor/ios": "8.5.2",
     "@capacitor/status-bar": "^8.0.3",
     "@supabase/supabase-js": "^2.116.0",
     "dotenv": "^17.4.2",

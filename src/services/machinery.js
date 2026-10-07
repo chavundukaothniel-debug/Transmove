@@ -250,6 +250,51 @@ export const MachineryService = {
   },
 
   /**
+   * List configurable machinery advertising packages.
+   */
+  async listAdPackages() {
+    const res = await trustedCall("list_machinery_ad_packages", {});
+    return res.packages || [];
+  },
+
+  /**
+   * Submit paid EcoCash advertisement request for machinery.
+   */
+  async submitAdPayment(payload) {
+    return await trustedCall("submit_machinery_ad_payment", payload);
+  },
+
+  /**
+   * Admin list all machinery listings for authoritative verification queue.
+   */
+  async adminListVerifications(statusFilter = "all") {
+    return await trustedCall("admin_list_machinery_verifications", { status_filter: statusFilter });
+  },
+
+  /**
+   * Upload machinery document (Proof of Ownership, Registration, Insurance, Inspection) to Google Drive.
+   */
+  async uploadDocument(file, documentType = "ownership_proof", machineryId = null) {
+    if (!file) throw new Error("No document file selected.");
+    if (file.size > 10 * 1024 * 1024) throw new Error("File exceeds 10MB limit.");
+
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+    return await trustedCall("upload_machinery_document", {
+      file_base64: base64,
+      original_filename: file.name,
+      mime_type: file.type || "application/pdf",
+      document_type: documentType,
+      machinery_id: machineryId
+    });
+  },
+
+  /**
    * Deactivate/archive machinery listing.
    */
   async deactivateListing(machineryId) {

@@ -365,6 +365,16 @@ export const MachineryMarketplaceView = {
           <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; flex-wrap: wrap;">
             <span class="badge badge-info" style="font-size: 0.7rem;">${escapeHtml(item.category)}</span>
             
+            ${(item.verification_status === "approved" || item.verification_status === "verified") ? `
+              <span class="badge badge-success" style="font-size: 0.7rem; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 700;">
+                ${icon("shield-check", 13)} Verified
+              </span>
+            ` : `
+              <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.7rem; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 700;">
+                ${icon("clock", 13)} Pending Verification
+              </span>
+            `}
+
             ${item.owner_verified ? `
               <span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; font-size: 0.7rem; display: inline-flex; align-items: center; gap: 0.2rem; font-weight: 700;">
                 ${icon("shield-check", 13)} Verified Owner

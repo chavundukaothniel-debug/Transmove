@@ -1,3 +1,4 @@
+import { renderPortalGuide } from "../../src/components/PortalGuide.js";
 // ==============================================================================
 // TRANSMOVE SPA APPLICATION CONTROLLER & ROUTER
 // Standardized Layout Shell: Left Sidebar + Top Header + Main Content
@@ -703,7 +704,7 @@ class App {
     }
 
     if (contentContainer) {
-      contentContainer.innerHTML = viewHtml;
+      contentContainer.innerHTML = renderPortalGuide(this.currentRoute.split("?")[0]) + viewHtml;
       this.activeViewModule = activeViewModule;
 
       if (activeViewModule && activeViewModule.init) {

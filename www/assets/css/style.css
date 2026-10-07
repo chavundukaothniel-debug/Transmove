@@ -6362,3 +6362,30 @@ html, body, #app, .app-shell {
     padding: 0.25rem 0.1rem;
   }
 }
+/* Shared portal guidance and layouts that shrink to phone widths. */
+.portal-guide { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:1rem; padding:1.25rem; margin:0 auto 1.25rem; max-width:1440px; border:1px solid var(--border-light); border-radius:14px; background:var(--bg-surface); }
+.portal-guide > div { min-width:0; flex:1 1 280px; }
+.portal-guide h2 { font-size:1rem; margin:0 0 .4rem; }
+.portal-guide p { color:var(--text-muted); font-size:.875rem; line-height:1.6; margin:0 0 .5rem; max-width:760px; }
+.portal-marketplace-link { font-size:.875rem; font-weight:600; }
+.portal-downloads { display:flex; flex-wrap:wrap; gap:.65rem; justify-content:flex-end; }
+.portal-downloads .btn { min-height:44px; white-space:normal; text-align:center; flex-wrap:wrap; gap:.4rem; }
+.download-status { font-size:.7rem; font-weight:500; }
+.app-body, .app-main, .card, .form-group { min-width:0; }
+.card p, .card h3, .portal-guide { overflow-wrap:anywhere; }
+input, select, textarea { max-width:100%; min-width:0; }
+#machinery-owner-fleet-grid { grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)) !important; }
+@media (max-width:640px) {
+  .portal-guide { padding:1rem; }
+  .portal-downloads { justify-content:stretch; }
+  .portal-downloads .btn { flex:1 1 150px; }
+  .machinery-owner-dashboard .dashboard-header { padding:1rem !important; }
+  #driver-main-dashboard-section { grid-template-columns:minmax(0,1fr) !important; }
+  #machinery-hire-form > div[style*="grid-template-columns"],
+  #machinery-enquiry-form > div[style*="grid-template-columns"],
+  #machinery-hire-form > div > div[style*="grid-template-columns"] { grid-template-columns:minmax(0,1fr) !important; }
+  .modal-backdrop { padding:.5rem !important; }
+  .modal-backdrop > div { min-width:0; max-width:100% !important; max-height:calc(100dvh - 1rem); overflow-y:auto; }
+  .btn { overflow-wrap:anywhere; }
+  footer { padding:1.5rem 1rem calc(1.5rem + env(safe-area-inset-bottom)) !important; }
+}
