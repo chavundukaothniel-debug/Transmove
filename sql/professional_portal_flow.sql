@@ -14,3 +14,6 @@ DO $$ BEGIN
  END IF;
 END $$;
 COMMIT;
+
+-- Approved server-only access for the trip review API.
+GRANT SELECT, INSERT ON public.reviews TO service_role;

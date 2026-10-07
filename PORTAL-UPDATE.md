@@ -43,3 +43,5 @@ October 2026 professional flow update:
 - Fleet, marketplace and bid screens provide retry controls on load failures.
 - Applied sql/professional_portal_flow.sql to Supabase and verified all three changes on 7 October 2026.
 - Android APK rebuilt; iOS source synced. Native iOS signing and device testing require macOS/Xcode and Apple credentials.
+
+Reviews follow-up: SELECT and INSERT on public.reviews granted to the existing server-only service_role account with explicit user approval; live server read verified on 7 October 2026.
