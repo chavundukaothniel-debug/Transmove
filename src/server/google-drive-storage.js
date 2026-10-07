@@ -217,7 +217,21 @@ class GoogleDriveStorageService {
    * @param {Object} [options.metadata] - Extra metadata key/values
    * @returns {Promise<Object>} { id, name, mimeType, size, storage_provider }
    */
-  async uploadFile({ buffer, stream, originalFilename, mimeType, folderPath = DRIVE_FOLDERS.RECEIPTS, metadata = {} }) {
+  async uploadFile(options) {
+    try {
+      return await this._uploadFile(options);
+    } catch (error) {
+      const reason = error.response?.data?.error;
+      if (reason === "invalid_grant" || /invalid_grant/.test(error.message || "")) {
+        const failure = new Error("Uploads are temporarily unavailable because TransMove's Google Drive connection needs to be reconnected. Please try again after support restores the connection.");
+        failure.code = "DRIVE_AUTH_EXPIRED";
+        throw failure;
+      }
+      throw error;
+    }
+  }
+
+  async _uploadFile({ buffer, stream, originalFilename, mimeType, folderPath = DRIVE_FOLDERS.RECEIPTS, metadata = {} }) {
     if (!originalFilename) throw new Error("Google Drive upload requires originalFilename.");
     const safeFilename = path.basename(originalFilename).replace(/[^a-zA-Z0-9._-]/g, "_");
     const mime = mimeType || "application/octet-stream";

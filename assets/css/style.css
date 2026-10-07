@@ -6496,3 +6496,50 @@ body.smart-popup-open { overflow:hidden; }
 [id^="machinery-"][id$="-modal-backdrop"] > .card { background:var(--bg-surface,#fff) !important; color:var(--text-main,#102033); opacity:1; max-height:calc(100dvh - 2rem) !important; overscroll-behavior:contain; }
 [id^="machinery-"][id$="-modal-backdrop"] > .card > div:first-child { position:sticky; top:-1.75rem; z-index:2; background:var(--bg-surface,#fff); padding:.75rem 0; }
 [id^="machinery-"][id$="-modal-backdrop"] button[id^="btn-close"] { min-width:44px; min-height:44px; flex-shrink:0; }
+/* TransMove identity: navy, green and lime from the logo. */
+:root, .passenger-dashboard-container, .driver-dashboard-container {
+ --primary:#087f5b; --primary-hover:#056345; --primary-light:#e5f5ed; --primary-border:#aad8c2; --border-focus:#087f5b;
+ --secondary:#12333b; --secondary-hover:#0b252d; --secondary-light:#e9f1ef;
+ --transmove-red:#087f5b; --transmove-red-hover:#056345; --brand-navy:#092a34; --brand-lime:#b6ef4b;
+ --bg-main:#f5f9f6; --bg-subtle:#edf5ef; --bg-input:#f8fbf9; --border-light:#dce9e1; --text-main:#102e35; --text-muted:#59706b;
+}
+.btn-primary, .driver-btn-make-offer { background:var(--primary) !important; border-color:var(--primary) !important; box-shadow:0 4px 12px rgba(8,127,91,.16) !important; }
+.btn-primary:hover, .driver-btn-make-offer:hover { background:var(--primary-hover) !important; }
+.btn-danger { background:#c53535 !important; border-color:#c53535 !important; color:#fff; }
+.app-sidebar { background:var(--brand-navy) !important; color:#edf7f1; }
+.app-sidebar .sidebar-header { background:var(--brand-navy) !important; }
+.app-sidebar .sidebar-brand, .app-sidebar #btn-sidebar-logout { color:#d0e4dc !important; }
+.app-sidebar .sidebar-link { color:#c5d9d4 !important; }
+.app-sidebar .sidebar-link.active { background:#17483f !important; color:#c3f36b !important; }
+.app-sidebar .sidebar-link:hover { background:#123d3c !important; }
+.app-sidebar .brand-text, .app-sidebar .brand-text p, .app-sidebar .sidebar-role-tag, .app-sidebar .sidebar-footer { color:#d0e4dc !important; }
+.app-sidebar .brand-text h1, .app-sidebar .brand-text h2 { color:white !important; }
+.passenger-overview-card { background:linear-gradient(135deg,#fff,#f1f8f1) !important; }
+.passenger-submit-button, .smart-sheet-success-badge { background:var(--primary) !important; }
+.smart-popup-accent { background:linear-gradient(90deg,#087f5b,#b6ef4b) !important; }
+.request-type-btn.active, .passenger-filter-btn.active { color:#087f5b !important; background:#e5f5ed !important; border-color:#aad8c2 !important; }
+.mobile-nav-link.active, .mobile-bottom-nav .active { color:#087f5b !important; }
+.profile-avatar, .smart-popup-avatar, .user-avatar { background:#e5f5ed !important; color:#087f5b !important; }
+[data-theme="dark"], [data-theme="dark"] .passenger-dashboard-container, [data-theme="dark"] .driver-dashboard-container {
+ --primary:#55d89d; --primary-hover:#39be82; --primary-light:#143b2d; --primary-border:#2d664b; --text-main:#eff9f3; --text-muted:#b1c6bc; --bg-main:#0c1a1a; --bg-surface:#122525; --bg-subtle:#19312b; --bg-input:#142a25; --border-light:#2b463d;
+}
+[data-theme="dark"] .btn-primary { background:#087f5b !important; color:#fff !important; }
+[data-theme="dark"] .passenger-overview-card { background:#122525 !important; }
+
+/* Keep upload feedback and actions legible on narrow screens. */
+#photo-preview-notice { flex-wrap: wrap; gap: 1rem; }
+#photo-preview-notice > div:first-child { flex: 1 1 200px; min-width: 0; }
+#photo-preview-notice > div:last-child { flex-wrap: wrap; }
+#photo-preview-notice button { flex-shrink: 0; white-space: nowrap; }
+#photo-preview-filename, #prof-email-display { overflow-wrap: anywhere; }
+#prof-avatar-container { background: var(--primary) !important; color: #fff; }
+.profile-upload-message { padding: 1rem; margin-bottom: 1rem; border-radius: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.profile-upload-message.is-error { background: #fff1f0; border: 1px solid #efb5b0; color: #8f2921; }
+.profile-upload-message.is-success { background: var(--primary-light); border: 1px solid var(--primary-border); color: var(--text-main); }
+[data-theme="dark"] .profile-upload-message.is-error { background: #3a2023; border-color: #805052; color: #ffb8b1; }
+@media (max-width: 600px) {
+ .provider-profile-page > .card { padding: 1rem !important; }
+ .provider-profile-page .grid-2 { grid-template-columns: minmax(0,1fr) !important; }
+ .provider-profile-page input, .provider-profile-page select { min-width: 0; max-width: 100%; }
+ #photo-preview-notice > div:last-child { flex: 1 1 100%; }
+}

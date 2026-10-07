@@ -25,6 +25,23 @@ export const ProfileView = {
   completedJobsCount: 0,
   isPassengerView: false,
 
+  showUploadMessage(kind, message, success = false) {
+    const target = document.getElementById(kind === "photo" ? "photo-preview-notice" : "driver-docs-upload-form");
+    if (!target) return;
+    let notice = document.getElementById(`profile-${kind}-upload-message`);
+    if (!notice) {
+      notice = document.createElement("div");
+      notice.id = `profile-${kind}-upload-message`;
+      notice.setAttribute("role", "status");
+      notice.setAttribute("aria-live", "polite");
+      target.before(notice);
+    }
+    notice.className = `profile-upload-message ${success ? "is-success" : "is-error"}`;
+    notice.textContent = /invalid_grant/.test(message)
+      ? "Uploads are temporarily unavailable. TransMove's Google Drive connection needs to be reconnected. Please try again after support restores it."
+      : message;
+  },
+
   renderAccountControls() {
     return `
       <section style="margin-top:1rem;display:grid;gap:1rem;">
@@ -96,16 +113,16 @@ export const ProfileView = {
     this.isPassengerView = ["customer", "passenger"].includes(currentProfile?.role);
     if (this.isPassengerView) return this.renderPassengerProfile();
     return `
-      <div style="max-width: 960px; margin: 0 auto; padding: 0.5rem 0;">
-        <div class="card" style="background: #ffffff; padding: 2rem; border-radius: 8px; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+      <div class="provider-profile-page" style="max-width: 960px; margin: 0 auto; padding: 0.5rem 0;">
+        <div class="card" style="background: var(--bg-card); padding: 2rem; border-radius: 8px; border: 1px solid var(--border-light); box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
           
           <!-- PROFILE HEADER CARD -->
-          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1.5rem; margin-bottom: 2rem; background: #f8fafc; padding: 1.5rem; border-radius: 8px; border: 1px solid #e2e8f0;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1.5rem; margin-bottom: 2rem; background: var(--bg-subtle); padding: 1.5rem; border-radius: 8px; border: 1px solid var(--border-light);">
             <div style="display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap;">
               
               <!-- Profile Picture / Avatar & Upload Trigger -->
               <div style="position: relative;">
-                <div id="prof-avatar-container" style="width: 84px; height: 84px; border-radius: 50%; background: #2563eb; color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: 800; overflow: hidden; border: 3px solid #ffffff; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <div id="prof-avatar-container" style="width: 84px; height: 84px; border-radius: 50%; background: var(--primary); color: #ffffff; display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: 800; overflow: hidden; border: 3px solid #ffffff; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
                   <span id="prof-avatar-placeholder">${icon("user-round", 32)}</span>
                   <img id="prof-avatar-img" src="" alt="Profile Photo" style="width: 100%; height: 100%; object-fit: cover; display: none;" />
                 </div>
@@ -117,19 +134,19 @@ export const ProfileView = {
               </div>
 
               <div>
-                <h2 id="prof-name-display" style="font-size: 1.4rem; font-weight: 800; color: #0f172a; margin: 0 0 0.25rem 0;">User Profile</h2>
-                <div id="prof-email-display" style="color: #64748b; font-size: 0.9rem; font-weight: 500;">email@example.com</div>
+                <h2 id="prof-name-display" style="font-size: 1.4rem; font-weight: 800; color: var(--text-main); margin: 0 0 0.25rem 0;">User Profile</h2>
+                <div id="prof-email-display" style="color: var(--text-muted); font-size: 0.9rem; font-weight: 500;">email@example.com</div>
                 
                 <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-                  <span id="prof-role-badge" class="badge badge-info" style="background: #e0f2fe; color: #0369a1; padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 700; font-size: 0.75rem;">DRIVER</span>
+                  <span id="prof-role-badge" class="badge badge-info" style="background: var(--primary-light); color: var(--primary); padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 700; font-size: 0.75rem;">DRIVER</span>
                   <span id="prof-status-badge" class="badge badge-success" style="background: #dcfce7; color: #15803d; padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 700; font-size: 0.75rem;">VERIFIED</span>
                   <span id="prof-rating-badge" style="font-size: 0.85rem; font-weight: 700; color: #d97706;">No ratings yet</span>
                 </div>
               </div>
             </div>
 
-            <div style="background: #ffffff; padding: 1rem 1.25rem; border-radius: 8px; border: 1px solid #e2e8f0; min-width: 180px;">
-              <div style="font-size: 0.75rem; color: #64748b; font-weight: 700; text-transform: uppercase;">Completed Jobs</div>
+            <div style="background: var(--bg-card); padding: 1rem 1.25rem; border-radius: 8px; border: 1px solid var(--border-light); min-width: 180px;">
+              <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Completed Jobs</div>
               <div id="prof-completed-jobs-count" style="font-size: 1.5rem; font-weight: 900; color: #059669; margin: 0.1rem 0;">0</div>
               <div style="font-size: 0.75rem; color: #94a3b8;" id="prof-created-date">Member since 2026</div>
             </div>
@@ -151,7 +168,7 @@ export const ProfileView = {
           </div>
 
           <!-- PROFILE SECTIONS -->
-          <div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.75rem; flex-wrap: wrap;">
+          <div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-light); padding-bottom: 0.75rem; flex-wrap: wrap;">
             <button class="btn btn-outline btn-sm prof-tab-btn active" data-tab="details">Personal Profile</button>
             <button class="btn btn-outline btn-sm prof-tab-btn" data-tab="verification">Verification &amp; Documents</button>
             <button class="btn btn-outline btn-sm prof-tab-btn" data-tab="vehicles">My Vehicles &amp; Equipment</button>
@@ -163,33 +180,33 @@ export const ProfileView = {
             <form id="edit-profile-form">
               <div class="grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                 <div>
-                  <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #0f172a; margin-bottom: 0.35rem;">Full Name</label>
+                  <label style="display: block; font-size: 0.85rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.35rem;">Full Name</label>
                   <input type="text" id="prof-fullname" class="form-input" style="width: 100%; padding: 0.65rem; border: 1px solid #cbd5e1; border-radius: 6px;" required />
                 </div>
                 <div>
-                  <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #0f172a; margin-bottom: 0.35rem;">Phone Number</label>
+                  <label style="display: block; font-size: 0.85rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.35rem;">Phone Number</label>
                   <input type="tel" id="prof-phone" class="form-input" style="width: 100%; padding: 0.65rem; border: 1px solid #cbd5e1; border-radius: 6px;" placeholder="+263 77 ..." />
                 </div>
               </div>
 
               <div class="grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                 <div>
-                  <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #0f172a; margin-bottom: 0.35rem;">Email Address (Read-only)</label>
-                  <input type="email" id="prof-email-input" class="form-input" style="width: 100%; padding: 0.65rem; border: 1px solid #e2e8f0; background: #f8fafc; color: #64748b; border-radius: 6px;" readonly />
+                  <label style="display: block; font-size: 0.85rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.35rem;">Email Address (Read-only)</label>
+                  <input type="email" id="prof-email-input" class="form-input" style="width: 100%; padding: 0.65rem; border: 1px solid var(--border-light); background: var(--bg-subtle); color: var(--text-muted); border-radius: 6px;" readonly />
                 </div>
                 <div>
-                  <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #0f172a; margin-bottom: 0.35rem;">City / Operating Location</label>
+                  <label style="display: block; font-size: 0.85rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.35rem;">City / Operating Location</label>
                   <input type="text" id="prof-area" class="form-input" style="width: 100%; padding: 0.65rem; border: 1px solid #cbd5e1; border-radius: 6px;" placeholder="e.g. Harare, Bulawayo, Mutare" />
                 </div>
               </div>
 
               <div style="margin-bottom: 1.25rem;">
-                <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #0f172a; margin-bottom: 0.35rem;">Short Driver Bio (Optional)</label>
+                <label style="display: block; font-size: 0.85rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.35rem;">Short Driver Bio (Optional)</label>
                 <textarea id="prof-bio" class="form-textarea" style="width: 100%; padding: 0.65rem; border: 1px solid #cbd5e1; border-radius: 6px;" rows="3" placeholder="Tell customers about your driving experience, vehicle capacity or delivery services..."></textarea>
               </div>
 
               <div style="display: flex; gap: 1rem;">
-                <button type="submit" id="btn-save-profile" class="btn btn-primary" style="background: #2563eb; color: #ffffff; border: none; padding: 0.65rem 1.5rem; border-radius: 6px; font-weight: 700; flex: 1;">
+                <button type="submit" id="btn-save-profile" class="btn btn-primary" style="background: var(--primary); color: #ffffff; border: none; padding: 0.65rem 1.5rem; border-radius: 6px; font-weight: 700; flex: 1;">
                   Save Profile Changes
                 </button>
               </div>
@@ -198,9 +215,9 @@ export const ProfileView = {
 
           <!-- TAB 2: VERIFICATION & PRIVATE DOCUMENTS -->
           <div id="prof-tab-verification" style="display: none;">
-            <div style="background: #f0f9ff; border: 1px solid #bae6fd; color: #0369a1; padding: 1rem; border-radius: 8px; margin-bottom: 1.25rem;">
+            <div style="background: var(--primary-light); border: 1px solid var(--primary-border); color: var(--text-main); padding: 1rem; border-radius: 8px; margin-bottom: 1.25rem;">
             <h4 class="icon-label" style="font-weight: 700; margin: 0 0 0.25rem 0;">${icon("lock-keyhole", 18)}<span>Private Driver Documents &amp; Verification</span></h4>
-              <p style="font-size: 0.85rem; margin: 0;">Upload confidential documents (Driver's License, Vehicle Registration, Insurance Policy). Documents are kept strictly private in Appwrite Storage with access restricted to your account and TransMove verification.</p>
+              <p style="font-size: 0.85rem; margin: 0;">Upload your driver's license, vehicle registration and insurance policy. Documents are stored privately in Google Drive, with access restricted to your account and TransMove verification.</p>
             </div>
 
             <div id="verification-readiness-summary" style="margin-bottom:1rem;">Loading verification status...</div>
@@ -209,7 +226,7 @@ export const ProfileView = {
             <form id="driver-docs-upload-form">
               <div class="grid-2" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                 <div>
-                  <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #0f172a; margin-bottom: 0.35rem;">Document Type</label>
+                  <label style="display: block; font-size: 0.85rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.35rem;">Document Type</label>
                   <select id="doc-type-select" class="form-select" style="width: 100%; padding: 0.65rem; border: 1px solid #cbd5e1; border-radius: 6px;" required>
                     <option value="driver_license">Driver's License</option>
                     <option value="vehicle_registration">Vehicle Registration Document</option>
@@ -219,7 +236,7 @@ export const ProfileView = {
                   </select>
                 </div>
                 <div>
-                  <label style="display: block; font-size: 0.85rem; font-weight: 700; color: #0f172a; margin-bottom: 0.35rem;">Select Document File (PDF / JPG / PNG)</label>
+                  <label style="display: block; font-size: 0.85rem; font-weight: 700; color: var(--text-main); margin-bottom: 0.35rem;">Select Document File (PDF / JPG / PNG)</label>
                   <input type="file" id="input-doc-file" class="form-input" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px;" required />
                 </div>
               </div>
@@ -233,8 +250,8 @@ export const ProfileView = {
           <!-- TAB 3: VEHICLES -->
           <div id="prof-tab-vehicles" style="display: none;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-              <h3 style="font-size: 1.1rem; font-weight: 800; color: #0f172a; margin: 0;">Registered Vehicles</h3>
-              <a href="#driver" class="icon-label" style="font-size: 0.85rem; font-weight: 700; color: #2563eb; text-decoration: none;"><span>Manage in Driver Dashboard</span>${icon("arrow-right", 16)}</a>
+              <h3 style="font-size: 1.1rem; font-weight: 800; color: var(--text-main); margin: 0;">Registered Vehicles</h3>
+              <a href="#driver" class="icon-label" style="font-size: 0.85rem; font-weight: 700; color: var(--primary); text-decoration: none;"><span>Manage in Driver Dashboard</span>${icon("arrow-right", 16)}</a>
             </div>
             <div id="prof-vehicles-list">Loading vehicles...</div>
           </div>
@@ -242,7 +259,7 @@ export const ProfileView = {
           <!-- TAB 4: RATINGS & REVIEWS -->
           <div id="prof-tab-reviews" style="display: none;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-              <h3 style="font-size: 1.1rem; font-weight: 800; color: #0f172a; margin: 0;">Verified Passenger Reviews</h3>
+              <h3 style="font-size: 1.1rem; font-weight: 800; color: var(--text-main); margin: 0;">Verified Passenger Reviews</h3>
             </div>
             <div id="prof-recent-reviews-list">Loading reviews...</div>
           </div>
@@ -310,7 +327,7 @@ export const ProfileView = {
 
         if (ratingBadgeEl) {
           if (count > 0 && rating !== null) {
-            ratingBadgeEl.innerHTML = `${renderRatingIcons(Math.round(rating), 15)} ${rating.toFixed(1)} <span style="font-weight: 500; color: #64748b;">(${count} ${count === 1 ? "review" : "reviews"})</span>`;
+            ratingBadgeEl.innerHTML = `${renderRatingIcons(Math.round(rating), 15)} ${rating.toFixed(1)} <span style="font-weight: 500; color: var(--text-muted);">(${count} ${count === 1 ? "review" : "reviews"})</span>`;
             ratingBadgeEl.style.color = "#d97706";
           } else {
             ratingBadgeEl.innerText = "No ratings yet";
@@ -389,7 +406,7 @@ export const ProfileView = {
         };
         reader.readAsDataURL(file);
       } catch (err) {
-        alert(err.message);
+        this.showUploadMessage("photo", err.message);
         photoInput.value = "";
       }
     });
@@ -408,7 +425,7 @@ export const ProfileView = {
 
       try {
         const photoUrl = await VehicleService.uploadProfilePicture(selectedPhotoFile);
-        alert("Profile picture uploaded successfully!");
+        this.showUploadMessage("photo", "Your profile photo has been saved.", true);
         if (avatarPlaceholder) avatarPlaceholder.style.display = "none";
         if (avatarImg) {
           avatarImg.src = photoUrl;
@@ -421,7 +438,7 @@ export const ProfileView = {
         this.profile = await AuthService.getCurrentProfile() || this.profile;
         if (previewNotice) previewNotice.style.display = "none";
       } catch (err) {
-        alert("Error uploading profile photo: " + err.message);
+        this.showUploadMessage("photo", err.message || "Your photo could not be uploaded. Please try again.");
       } finally {
         saveBtn.disabled = false;
         saveBtn.innerHTML = `${icon("camera", 16)}<span>Upload &amp; Save</span>`;
@@ -466,11 +483,11 @@ export const ProfileView = {
 
       try {
         await VehicleService.uploadVerificationDocument(file, docType);
-        alert("Document uploaded securely to private storage and submitted for verification!");
+        this.showUploadMessage("document", "Your document has been uploaded securely and submitted for verification.", true);
         fileInput.value = "";
         await this.loadVerificationState();
       } catch (err) {
-        alert("Error uploading document: " + err.message);
+        this.showUploadMessage("document", err.message || "Your document could not be uploaded. Please try again.");
       } finally {
         btn.disabled = false;
         btn.innerHTML = `${icon("file-up", 17)}<span>Upload Private Verification Document</span>`;
@@ -566,7 +583,7 @@ export const ProfileView = {
     };
     const badge = (label, status) => {
       const meta = statusMeta(status);
-      return `<div style="border:1px solid #e2e8f0;border-radius:7px;padding:0.75rem;background:#fff;"><div style="font-size:0.75rem;color:#64748b;font-weight:700;text-transform:uppercase;">${escapeHtml(label)}</div><div style="display:inline-block;margin-top:0.3rem;padding:0.2rem 0.5rem;border-radius:4px;background:${meta.bg};color:${meta.color};font-size:0.78rem;font-weight:800;">${escapeHtml(meta.label)}</div></div>`;
+      return `<div style="border:1px solid var(--border-light);border-radius:7px;padding:0.75rem;background:#fff;"><div style="font-size:0.75rem;color:#64748b;font-weight:700;text-transform:uppercase;">${escapeHtml(label)}</div><div style="display:inline-block;margin-top:0.3rem;padding:0.2rem 0.5rem;border-radius:4px;background:${meta.bg};color:${meta.color};font-size:0.78rem;font-weight:800;">${escapeHtml(meta.label)}</div></div>`;
     };
 
     try {
@@ -616,7 +633,7 @@ export const ProfileView = {
 
       documentsContainer.innerHTML = effectiveDocuments.length ? effectiveDocuments.map((document) => {
         const meta = statusMeta(document.effective_status);
-        return `<div style="border:1px solid #e2e8f0;border-radius:7px;padding:0.75rem;display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+        return `<div style="border:1px solid var(--border-light);border-radius:7px;padding:0.75rem;display:flex;justify-content:space-between;align-items:center;gap:0.75rem;flex-wrap:wrap;">
           <div><strong>${escapeHtml((document.document_type || "document").replaceAll("_", " "))}</strong><div style="font-size:0.78rem;color:#64748b;">Uploaded ${new Date(document.created_at).toLocaleDateString("en-GB")}${document.expires_at ? ` · Expires ${new Date(document.expires_at).toLocaleDateString("en-GB")}` : ""}</div>${document.rejection_reason ? `<div style="font-size:0.78rem;color:#b91c1c;">${escapeHtml(document.rejection_reason)}</div>` : ""}</div>
           <div style="display:flex;align-items:center;gap:0.5rem;"><span style="padding:0.2rem 0.5rem;border-radius:4px;background:${meta.bg};color:${meta.color};font-size:0.75rem;font-weight:800;">${escapeHtml(meta.label)}</span><a href="${escapeHtml(document.view_url)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm">View</a></div>
         </div>`;
@@ -634,15 +651,15 @@ export const ProfileView = {
     try {
       const vehicles = await VehicleService.getDriverVehicles();
       if (!vehicles || vehicles.length === 0) {
-        container.innerHTML = `<div style="padding: 1.5rem; text-align: center; color: #64748b;">No registered vehicles yet. Add a vehicle on the Driver Dashboard.</div>`;
+        container.innerHTML = `<div style="padding: 1.5rem; text-align: center; color: var(--text-muted);">No registered vehicles yet. Add a vehicle on the Driver Dashboard.</div>`;
         return;
       }
 
       container.innerHTML = vehicles.map(v => `
-        <div style="border: 1px solid #e2e8f0; padding: 1rem; border-radius: 8px; margin-bottom: 0.75rem; display: flex; align-items: center; justify-content: space-between;">
+        <div style="border: 1px solid var(--border-light); padding: 1rem; border-radius: 8px; margin-bottom: 0.75rem; display: flex; align-items: center; justify-content: space-between;">
           <div>
-            <div style="font-weight: 700; font-size: 1rem; color: #0f172a;">${v.make} ${v.model} (${v.year})</div>
-            <div style="font-size: 0.85rem; color: #64748b;">Plate: <strong>${v.registration_number}</strong> • Category: ${v.service_category || v.vehicle_type}</div>
+            <div style="font-weight: 700; font-size: 1rem; color: var(--text-main);">${v.make} ${v.model} (${v.year})</div>
+            <div style="font-size: 0.85rem; color: var(--text-muted);">Plate: <strong>${v.registration_number}</strong> • Category: ${v.service_category || v.vehicle_type}</div>
           </div>
           <span class="badge ${v.verification_status === "approved" ? "badge-success" : v.verification_status === "rejected" ? "badge-danger" : "badge-warning"}" style="padding: 0.25rem 0.65rem; border-radius: 4px; font-weight: 700; font-size: 0.75rem;">
             ${v.verification_status.toUpperCase()}
@@ -662,10 +679,10 @@ export const ProfileView = {
     const reviews = this.driverReviews || [];
     if (reviews.length === 0) {
       container.innerHTML = `
-        <div style="padding: 2rem; text-align: center; color: #64748b; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;">
+        <div style="padding: 2rem; text-align: center; color: var(--text-muted); background: var(--bg-subtle); border-radius: 8px; border: 1px dashed #cbd5e1;">
           <div class="feature-icon" style="margin-bottom: 0.5rem;">${icon("star", 24)}</div>
-          <div style="font-weight: 700; font-size: 0.95rem; color: #0f172a; margin-bottom: 0.25rem;">No ratings yet</div>
-          <div style="font-size: 0.85rem; color: #64748b;">As passengers complete and review journeys with you, their ratings and feedback will display here.</div>
+          <div style="font-weight: 700; font-size: 0.95rem; color: var(--text-main); margin-bottom: 0.25rem;">No ratings yet</div>
+          <div style="font-size: 0.85rem; color: var(--text-muted);">As passengers complete and review journeys with you, their ratings and feedback will display here.</div>
         </div>
       `;
       return;
@@ -678,7 +695,7 @@ export const ProfileView = {
       const comment = r.comment ? escapeHtmlValue(r.comment) : "<em>No written feedback provided.</em>";
 
       return `
-        <div style="border: 1px solid #e2e8f0; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; background: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
+        <div style="border: 1px solid var(--border-light); border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 0.75rem; background: var(--bg-card); box-shadow: 0 1px 2px rgba(0,0,0,0.02);">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
             <span style="color: #f59e0b; font-size: 1.1rem; letter-spacing: 2px;">${stars}</span>
             <small style="color: #94a3b8; font-size: 0.8rem;">${dateStr}</small>
