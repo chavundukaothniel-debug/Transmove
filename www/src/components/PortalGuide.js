@@ -1,6 +1,7 @@
 import { APP_DOWNLOADS } from "../config/downloads.js";
 
 export function renderPortalGuide(route) {
+  if (route !== "profile") return "";
   const guides = {
     machinery_owner: ["Your listing journey", "Upload machinery and documents → Admin review → Approved listing appears in the marketplace → Review hire requests and confirm availability."],
     machinery: ["Find equipment for your next job", "Browse approved machinery, compare rates and operator options, then request your dates. Your booking is confirmed when the owner accepts."],

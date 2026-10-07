@@ -5162,6 +5162,15 @@ class SupabaseBackendEngine {
       const isOwner = hire.owner_id === userId;
       const isRenter = hire.renter_id === userId;
 
+      if (!isOwner && !isRenter && !isAdmin) throw new Error("Forbidden: You cannot change this hire request.");
+      const hireTransitions = {
+        pending: ["accepted", "declined", "cancelled"],
+        accepted: ["active", "cancelled"],
+        active: ["completed"]
+      };
+      if (!(hireTransitions[hire.status] || []).includes(newStatus)) throw new Error("This hire request cannot be changed from its current status.");
+      if (["active", "completed"].includes(newStatus) && !isOwner && !isAdmin) throw new Error("Forbidden: Only the owner can start or complete a hire.");
+
       if (newStatus === "accepted" || newStatus === "declined") {
         if (!isOwner && !isAdmin) {
           throw new Error("Forbidden: Only the machinery owner can accept or decline this hire request.");

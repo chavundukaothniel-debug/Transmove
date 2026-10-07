@@ -16,5 +16,13 @@ assert.equal((await e.execute({action:'get_active_sponsored_machinery'})).sponso
 await assert.rejects(e.execute({action:'submit_machinery_hire_request',jwt:'owner',data:{id:'0'}}),/own machinery/);
 e.db.machinery[0].availability_status='booked';
 await assert.rejects(e.execute({action:'submit_machinery_hire_request',jwt:'renter',data:{id:'0'}}),/unavailable/);
-for(const route of ['driver','customer','admin','machinery_owner','machinery_hirer']){const html=renderPortalGuide(route);assert.match(html,/download="TransMove.apk"/);assert.match(html,/Install on iPhone/);}
+for(const route of ['driver','customer','admin','machinery_owner','machinery_hirer']){const html=renderPortalGuide(route);assert.equal(html,'');}
 console.log('PASS: approval visibility, private details, admin authorization, sponsored visibility, booking guards, and portal download controls.');
+
+assert.match(renderPortalGuide('profile'), /Install on iPhone/);
+e.db.machinery_hires=[{id:'hire',renter_id:'renter',owner_id:'owner',status:'pending'}];
+await assert.rejects(e.execute({action:'update_machinery_hire_status',jwt:'other',data:{hire_id:'hire',status:'cancelled'}}), /Forbidden/);
+await e.execute({action:'update_machinery_hire_status',jwt:'renter',data:{hire_id:'hire',status:'cancelled'}});
+assert.equal(e.db.machinery_hires[0].status,'cancelled');
+await assert.rejects(e.execute({action:'update_machinery_hire_status',jwt:'owner',data:{hire_id:'hire',status:'accepted'}}), /current status/);
+console.log('PASS: profile-only installation controls and cancellation ownership/terminal guards.');

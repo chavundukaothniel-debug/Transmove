@@ -1989,6 +1989,7 @@ export const CustomerView = {
           </div>
         </div>
 
+        <button type="button" class="btn btn-outline btn-sm btn-cancel-open-request" data-request-id="${escapeHtml(reqId)}" style="margin-bottom:1rem">Cancel request</button>
         <div class="quote-route-summary" style="display: flex; gap: 1.5rem; margin-bottom: 1rem; font-size: 0.9rem;">
           <div><small style="color: #64748b; display: block;">Route</small><strong>${escapeHtml(req.pickup_address || req.pickup_location)} → ${escapeHtml(req.destination_address || req.destination)}</strong></div>
           <div><small style="color: #64748b; display: block;">Request ID</small><strong style="font-family: monospace;">#${escapeHtml(String(reqId).slice(0, 10).toUpperCase())}</strong></div>
@@ -2012,6 +2013,17 @@ export const CustomerView = {
   },
 
   attachBidActionHandlers(container) {
+    if (!container) return;
+    container.querySelectorAll('.btn-cancel-open-request').forEach(button => button.addEventListener('click', async () => {
+      if (!confirm('Cancel this request and withdraw the outstanding offers?')) return;
+      button.disabled = true;
+      try {
+        await RequestService.cancelRequest(button.dataset.requestId);
+        await this.loadOverviewActiveRequests();
+        await this.loadActiveBids();
+        NotificationService.showToast('Request cancelled', 'Your request has been withdrawn.', 'info');
+      } catch (error) { alert('Could not cancel request: ' + error.message); button.disabled = false; }
+    }));
     if (!container) return;
 
     container.querySelectorAll(".btn-counter-offer").forEach((btn) => {
