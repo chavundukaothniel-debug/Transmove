@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const publicFiles = new Set(["index.html", "install-ios.html", "manifest.webmanifest", "sw.js", "favicon.ico"]);
+const publicFiles = new Set(["index.html", "about.html", "privacy.html", "terms.html", "googlea4ceea99234e80f4.html", "install-ios.html", "manifest.webmanifest", "sw.js", "favicon.ico"]);
 const publicDirectories = ["assets/", "downloads/", "src/components/", "src/config/", "src/services/", "src/utils/", "src/views/"];
 
 export function resolvePublicFile(urlPath, root) {

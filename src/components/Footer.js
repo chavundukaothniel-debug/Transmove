@@ -74,8 +74,9 @@ export function renderFooter() {
           <div>
             <h4 style="font-size: 0.95rem; font-weight: 800; color: var(--text-main); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1rem;">Legal &amp; Policy</h4>
             <ul style="list-style: none; padding: 0; margin: 0; font-size: 0.875rem; display: flex; flex-direction: column; gap: 0.65rem;">
-              <li><a href="#legal?page=terms" class="footer-link">Terms of Service</a></li>
-              <li><a href="#legal?page=privacy" class="footer-link">Privacy Policy</a></li>
+              <li><a href="/about.html" class="footer-link">About TransMove</a></li>
+              <li><a href="/terms.html" class="footer-link">Terms of Service</a></li>
+              <li><a href="/privacy.html" class="footer-link">Privacy Policy</a></li>
               <li><a href="#legal?page=cancellation" class="footer-link">Cancellation Policy</a></li>
               <li><a href="#legal?page=refund" class="footer-link">Refund Policy</a></li>
               <li><a href="#legal?page=driver-terms" class="footer-link">Driver Terms</a></li>

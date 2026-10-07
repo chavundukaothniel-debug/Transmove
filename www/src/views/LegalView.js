@@ -2,6 +2,7 @@
 // TRANSMOVE LEGAL CENTRE & POLICIES VIEW
 // ==============================================================================
 import { icon } from "../components/Icon.js";
+import { privacyContent, termsContent } from "../config/legal-content.js";
 
 export const LegalView = {
   activeDoc: "terms", // 'terms' | 'privacy' | 'cancellation' | 'refund' | 'driver-terms' | 'customer-terms' | 'advertising' | 'machinery'
@@ -90,6 +91,8 @@ export const LegalView = {
   },
 
   getDocContent(doc) {
+    if (doc === "privacy") return privacyContent;
+    if (doc === "terms") return termsContent;
     switch (doc) {
       case "privacy":
         return `

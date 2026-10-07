@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import "./build-public-pages.js";
 
 const ROOT_DIR = process.cwd();
 const WWW_DIR = path.join(ROOT_DIR, "www");
@@ -45,6 +46,11 @@ function copyRecursive(src, dest) {
 if (fs.existsSync(path.join(ROOT_DIR, "index.html"))) {
   fs.copyFileSync(path.join(ROOT_DIR, "index.html"), path.join(WWW_DIR, "index.html"));
   console.log("✓ Copied index.html");
+}
+
+// 2. Copy manifest
+for (const name of ["about.html", "privacy.html", "terms.html"]) {
+  fs.copyFileSync(path.join(ROOT_DIR, name), path.join(WWW_DIR, name));
 }
 
 // 2. Copy manifest
