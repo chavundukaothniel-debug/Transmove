@@ -1,3 +1,4 @@
+import { renderJourneyProgress } from '../components/JourneyProgress.js';
 // ==============================================================================
 // TRANSMOVE PASSENGER DASHBOARD VIEW
 // Supabase-backed requests, bids, and bookings via the trusted API.
@@ -1463,7 +1464,7 @@ export const CustomerView = {
       const amountFormatted = isPositiveAmount ? (Number.isInteger(amount) ? String(amount) : amount.toFixed(2)) : null;
 
       return `
-        <article class="smart-sheet-driver-card" data-bid-id="${escapeHtml(bidId)}">
+        <article class="smart-sheet-driver-card" data-bid-id="${escapeHtml(bidId)}"><span class="badge badge-info">${bid.status === "withdrawn" ? "Withdrawn" : bid.negotiation_status?.startsWith("counter") ? "Counter offer" : "New offer"}</span>
           <div class="smart-popup-profile">
             <div class="smart-popup-avatar">
               ${avatar ? `<img src="${escapeHtml(avatar)}" alt="${escapeHtml(name)}">` : escapeHtml(name.charAt(0))}
@@ -2004,7 +2005,7 @@ export const CustomerView = {
         </div>
 
         <button type="button" class="btn btn-outline btn-sm btn-cancel-open-request" data-request-id="${escapeHtml(reqId)}" style="margin-bottom:1rem">Cancel request</button>
-        <div class="quote-route-summary" style="display: flex; gap: 1.5rem; margin-bottom: 1rem; font-size: 0.9rem;">
+        ${renderJourneyProgress("reviewing")}<div class="quote-route-summary" style="display: flex; gap: 1.5rem; margin-bottom: 1rem; font-size: 0.9rem;">
           <div><small style="color: #64748b; display: block;">Route</small><strong>${escapeHtml(req.pickup_address || req.pickup_location)} → ${escapeHtml(req.destination_address || req.destination)}</strong></div>
           <div><small style="color: #64748b; display: block;">Request ID</small><strong style="font-family: monospace;">#${escapeHtml(String(reqId).slice(0, 10).toUpperCase())}</strong></div>
         </div>
@@ -2165,8 +2166,7 @@ export const CustomerView = {
             const result = await BidService.getBidsForRequest(reqId);
             return Array.isArray(result) ? result : (result?.bids || []);
           } catch (err) {
-            console.warn(`Could not load quotations for request ${req.$id || req.id}:`, err.message);
-            return [];
+            throw new Error("Some driver offers could not be loaded. Please retry.");
           }
         })
       );
@@ -2179,6 +2179,7 @@ export const CustomerView = {
         description: "Your driver quotations could not be loaded right now. Please try again.",
         icon: "car"
       });
+      const retry=document.createElement("button");retry.type="button";retry.className="btn btn-primary";retry.textContent="Retry";retry.addEventListener("click",()=>this.loadActiveBids());container.appendChild(retry);
     }
   },
 
@@ -2401,7 +2402,7 @@ export const CustomerView = {
       if (isCompleted) {
         try {
           const revs = await ReviewService.getBookingReviews(booking.id);
-          existingReview = (revs || [])[0] || null;
+          existingReview = (revs || []).find(r => r.reviewer_id === (this.currentProfile?.id || this.currentProfile?.user_id)) || null;
         } catch (_) {}
       }
 
@@ -2483,23 +2484,14 @@ export const CustomerView = {
             <div class="booking-detail-buttons" style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1.25rem;">
               <a href="#messages?booking=${booking.id}" class="btn btn-primary">Contact Driver</a>
               <button type="button" class="btn btn-outline btn-share-trip" data-booking-id="${booking.id}">${icon("share-2", 17)}<span>Share Trip</span></button>
-              <button type="button" class="btn btn-outline btn-view-receipt" data-booking-id="${booking.id}">${icon("file-text", 17)}<span>View Receipt</span></button>
+              <button type="button" class="btn btn-outline btn-view-receipt" data-booking-id="${booking.id}">${icon("file-text", 17)}<span>Download Receipt</span></button>
               ${booking.driver_id ? `<button type="button" class="btn btn-outline btn-save-driver" data-driver-id="${booking.driver_id}">${icon("heart", 17, { className: isDriverFav ? "is-filled" : "" })}<span>${isDriverFav ? "Saved" : "Save Driver"}</span></button>` : ""}
               ${(isCompleted || isCancelled) ? `<button type="button" class="btn btn-outline btn-repeat-booking">${icon("repeat-2", 17)}<span>Request Again</span></button>` : ""}
               ${canCancel ? `<button type="button" class="btn btn-outline btn-cancel-passenger-booking" data-booking-id="${booking.id}">Cancel Booking</button>` : ""}
               <button type="button" class="btn btn-outline btn-dispute-booking" data-booking-id="${booking.id}" style="color: #dc2626; border-color: #fca5a5;">${icon("triangle-alert", 17)}<span>Report Issue</span></button>
             </div>
           </section>
-          <section class="card booking-timeline-card">
-            <h3>Trip Progress</h3>
-            <div class="booking-timeline">
-              ${steps.map((step, index) => `
-                <div class="timeline-step ${index <= currentStep ? "complete" : ""} ${index === currentStep ? "current" : ""}">
-                  <span class="timeline-dot"></span>
-                  <div><strong>${stepLabels[step]}</strong><small>${index <= currentStep ? "Status recorded" : "Pending"}</small></div>
-                </div>`).join("")}
-            </div>
-          </section>
+          <section class="card booking-timeline-card"><h3>Trip progress</h3>${renderJourneyProgress(booking.status)}</section>
         </div>
 
         ${isCompleted ? `
@@ -2568,7 +2560,7 @@ export const CustomerView = {
 
       container.querySelector(".btn-view-receipt")?.addEventListener("click", async () => {
         try {
-          await ReceiptService.printReceipt(booking.id);
+          await ReceiptService.downloadReceipt(booking.id);
         } catch (err) {
           alert("Could not generate receipt: " + err.message);
         }

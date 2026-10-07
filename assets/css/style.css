@@ -6471,3 +6471,24 @@ body.smart-popup-open { overflow:hidden; }
 .mobile-time-toggle button.active { background:var(--primary); color:white; border-color:var(--primary); }
 #request-schedule-field[hidden] { display:none !important; }
 #request-schedule-field small { display:block; margin-top:.4rem; color:var(--text-muted); }
+.journey-progress-card { border:1px solid var(--border-light); border-radius:12px; padding:1rem; margin:.8rem 0; background:var(--bg-subtle); }
+.journey-progress-card ol { list-style:none; padding:0; margin:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; }
+.journey-progress-card li { display:flex; align-items:center; gap:.4rem; color:var(--text-muted); font-size:.75rem; overflow-wrap:anywhere; }
+.journey-progress-card li span { display:grid; place-items:center; border:1px solid var(--border-light); border-radius:50%; width:26px; height:26px; flex-shrink:0; }
+.journey-progress-card li.complete { color:#15803d; }
+.journey-progress-card li.current { color:var(--primary); font-weight:800; }
+.journey-progress-card li.current span { background:var(--primary); color:white; }
+.journey-progress-card p { font-size:.85rem; margin:.9rem 0 0; line-height:1.5; }
+.availability-calendar { border:1px solid var(--border-light); border-radius:12px; padding:1rem; margin:.6rem 0 1rem; }
+.availability-calendar h4 { margin:0 0 .6rem; }
+.availability-days { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:.25rem; text-align:center; }
+.availability-days > * { padding:.5rem 0; font-size:.75rem; border-radius:6px; }
+.availability-days .available { background:var(--bg-subtle); }
+.availability-days .booked { background:#fee2e2; color:#991b1b; font-weight:800; }
+.availability-calendar p { font-size:.75rem; color:var(--text-muted); line-height:1.5; margin:.8rem 0 0; }
+.calendar-navigation { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
+.approval-feedback { padding:.75rem; border:1px solid var(--border-light); border-radius:8px; background:var(--bg-subtle); margin-bottom:.8rem; font-size:.8rem; line-height:1.5; }
+.approval-feedback p { margin:0 0 .5rem; }
+.offer-history { margin-bottom:1.5rem; }
+.offer-history-row { display:flex; justify-content:space-between; gap:.75rem; flex-wrap:wrap; padding:.8rem 0; border-bottom:1px solid var(--border-light); }
+@media(max-width:480px) { .journey-progress-card ol { grid-template-columns:repeat(2,minmax(0,1fr)); } }

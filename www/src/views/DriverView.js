@@ -1,3 +1,6 @@
+import { renderJourneyProgress } from '../components/JourneyProgress.js';
+import { ReviewService } from '../services/reviews.js';
+import { ReceiptService } from '../services/receipts.js';
 // ==============================================================================
 // TRANSMOVE DRIVER DASHBOARD VIEW — FUNCTIONALLY REPAIRED
 // Real Appwrite Data: Profile Photo, Primary Vehicle, 5-Free-Jobs Enforcement,
@@ -1067,7 +1070,7 @@ export const DriverView = {
           </span>
         </div>
 
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 0.75rem;">
+        ${renderJourneyProgress(booking.status,"driver")}<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 0.75rem;">
           <div>
             <div style="font-size: 1.05rem; font-weight: 800; color: #0f172a; margin-bottom: 0.25rem;">
               ${pickup} → ${dest}
@@ -1371,8 +1374,8 @@ export const DriverView = {
 
     try {
       const [bids, bookings] = await Promise.all([
-        BidService.getDriverBids().catch(() => []),
-        BookingService.getDriverBookings().catch(() => [])
+        BidService.getDriverBids(),
+        BookingService.getDriverBookings()
       ]);
 
       const activeList = (bookings || []).filter(b => ["confirmed", "driver_arriving", "arrived", "in_progress"].includes(b.status));
@@ -1436,6 +1439,7 @@ export const DriverView = {
                   </div>
                 </div>
 
+                <button type="button" class="btn btn-outline btn-sm btn-withdraw-bid" data-bid-id="${escapeHtml(bid.id || bid.$id)}" style="margin-top:.75rem">Withdraw bid</button>
                 ${isCounteredByPassenger ? `
                   <div style="margin-top: 0.75rem; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 0.65rem 0.85rem;">
                     <div style="font-weight: 800; color: #166534; font-size: 0.88rem;">
@@ -1464,6 +1468,7 @@ export const DriverView = {
           }).join("")}
         </div>
 
+        <section class="card offer-history"><h3>Offer history</h3>${otherBids.length ? otherBids.map(bid=>'<div class="offer-history-row"><strong>'+escapeHtml(bid.request?.pickup_location||'Pickup')+' → '+escapeHtml(bid.request?.destination||'Destination')+'</strong><span class="badge">'+escapeHtml(bid.status||'Closed')+'</span></div>').join('') : '<p>No closed offers yet. Withdrawn and declined bids will appear here.</p>'}</section>
         <!-- COMPLETED WORK HISTORY -->
         <div>
           <h3 style="font-size: 1.05rem; font-weight: 800; color: #0f172a; margin-bottom: 0.75rem;">
@@ -1484,7 +1489,7 @@ export const DriverView = {
                   <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.2rem;">Fare: <strong>$${Number.parseFloat(b.amount || 0).toFixed(2)}</strong> · Passenger: <strong>${passenger}</strong> · Completed ${timeAgo(b.completed_at || b.updated_at)}</div>
                 </div>
                 <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-                  <span class="badge badge-success">${icon("circle-check", 15)}<span>Completed</span></span>
+                  <button type="button" class="btn btn-outline btn-sm btn-driver-review" data-booking-id="${escapeHtml(b.id)}">Review passenger</button><button type="button" class="btn btn-outline btn-sm btn-driver-receipt" data-booking-id="${escapeHtml(b.id)}">Download receipt</button><span class="badge badge-success">${icon("circle-check", 15)}<span>Completed</span></span>
                   ${isSettled ? `
                     <span class="settlement-badge-received icon-label">${icon("circle-check", 15)}<span>Payment Confirmed</span></span>
                   ` : `
@@ -1499,6 +1504,23 @@ export const DriverView = {
         </div>
       `;
 
+      container.querySelectorAll('.btn-withdraw-bid').forEach(button=>button.addEventListener('click',async()=>{
+        if(!confirm('Withdraw this pending offer? The passenger will no longer be able to accept it.')) return;
+        button.disabled=true;
+        try { await BidService.withdrawBid(button.dataset.bidId);await this.renderOffersTab();await this.syncDriverJourneyState();NotificationService.showToast('Bid withdrawn','Your offer has been removed.','info'); }
+        catch(error){button.disabled=false;NotificationService.showToast('Could not withdraw',error.message,'error');}
+      }));
+      container.querySelectorAll('.btn-driver-receipt').forEach(button=>button.addEventListener('click',async()=>{
+        try{await ReceiptService.downloadReceipt(button.dataset.bookingId);}catch(error){NotificationService.showToast('Receipt unavailable',error.message,'error');}
+      }));
+      container.querySelectorAll('.btn-driver-review').forEach(button=>button.addEventListener('click',async()=>{
+        try {
+          const reviews=await ReviewService.getBookingReviews(button.dataset.bookingId);
+          const own=reviews.find(r=>r.reviewer_id===this.getPopupUserId());
+          if(own){NotificationService.showToast('Review already submitted','Thank you for your feedback.','info');return;}
+          SmartPopup.open({title:'Review your passenger',html:'<label class="smart-popup-field">Rating<select id="passenger-review-rating"><option value="5">5 — Excellent</option><option value="4">4 — Good</option><option value="3">3 — Okay</option><option value="2">2 — Poor</option><option value="1">1 — Very poor</option></select></label><label class="smart-popup-field">Feedback (optional)<textarea id="passenger-review-comment" rows="3" maxlength="500"></textarea></label>',actions:[{label:'Later'},{label:'Submit review',primary:true,busyLabel:'Saving…',onClick:async({backdrop})=>{await ReviewService.submitReview({bookingId:button.dataset.bookingId,rating:Number(backdrop.querySelector('#passenger-review-rating').value),comment:backdrop.querySelector('#passenger-review-comment').value});NotificationService.showToast('Review saved','Thank you for your feedback.','success');}}]});
+        }catch(error){NotificationService.showToast('Review unavailable',error.message,'error');}
+      }));
       container.querySelectorAll(".btn-driver-accept-counter").forEach(btn => {
         btn.addEventListener("click", async (e) => {
           const bidId = e.currentTarget.getAttribute("data-bid-id");
@@ -1536,7 +1558,8 @@ export const DriverView = {
         });
       });
     } catch (err) {
-      container.innerHTML = `<div style="padding: 2rem; text-align: center; color: #ef4444;">Could not load offers data: ${escapeHtml(err.message)}</div>`;
+      container.innerHTML = `<div style="padding: 2rem; text-align: center; color: #ef4444;"><h3>Your bids could not be loaded</h3><p>${escapeHtml(err.message)}</p><button type="button" id="retry-driver-offers" class="btn btn-primary">Retry</button></div>`;
+      container.querySelector("#retry-driver-offers")?.addEventListener("click",()=>this.renderOffersTab());
     }
   },
 

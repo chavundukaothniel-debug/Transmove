@@ -1,0 +1,9 @@
+const escape = value => String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+export function renderJourneyProgress(status, role='passenger') {
+ const steps=['reviewing','confirmed','driver_arriving','arrived','in_progress','completed'];
+ const labels=['Review offers','Driver confirmed','On the way','Arrived','Trip started','Completed'];
+ const next={reviewing:role==='driver'?'Wait for the passenger to respond. Manage pending offers from My Bids.':'Compare fares and driver profiles, then accept your preferred offer.',confirmed:role==='driver'?'Select “Start heading to pickup” when you are ready.':'Your driver is confirmed. You can message them about your pickup.',driver_arriving:role==='driver'?'Follow directions to pickup, then mark yourself as arrived.':'Your driver is on the way. Be ready at the pickup point.',arrived:role==='driver'?'Meet the passenger and verify their trip PIN before starting.':'Meet your driver. Share your PIN only after checking the vehicle and driver.',in_progress:role==='driver'?'Complete the trip once you reach the destination.':'Your journey is in progress. Use the booking page for contact and safety tools.',completed:'Download your trip receipt and leave a review.'};
+ if(status==='cancelled') return '<section class="journey-progress-card"><strong>Trip cancelled</strong><p>You can create a new request when you are ready.</p></section>';
+ const index=Math.max(0,steps.indexOf(status));
+ return '<section class="journey-progress-card" aria-label="Trip progress"><ol>'+steps.map((step,i)=>'<li class="'+(i<index?'complete':i===index?'current':'')+'" '+(i===index?'aria-current="step"':'')+'><span>'+String(i+1)+'</span>'+labels[i]+'</li>').join('')+'</ol><p><strong>Next step:</strong> '+escape(next[status]||next.reviewing)+'</p></section>';
+}

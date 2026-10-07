@@ -1,3 +1,4 @@
+import { renderAvailabilityCalendar } from '../components/AvailabilityCalendar.js';
 // ==============================================================================
 // TRANSMOVE MACHINERY MARKETPLACE VIEW
 // Heavy plant, agricultural & construction equipment search, multi-rate pricing,
@@ -330,9 +331,10 @@ export const MachineryMarketplaceView = {
       if (statusEl) statusEl.textContent = "Could not load listings.";
       grid.innerHTML = `
         <div class="card" style="grid-column: 1 / -1; padding: 2rem; color: #ef4444; text-align: center;">
-          Failed to load machinery marketplace: ${escapeHtml(err.message)}
+          <h3>Machinery listings are unavailable</h3><p>${escapeHtml(err.message)}</p><button type="button" id="retry-marketplace" class="btn btn-primary">Retry</button>
         </div>
       `;
+      grid.querySelector("#retry-marketplace")?.addEventListener("click",()=>this.loadListings(container));
     }
   },
 
@@ -619,7 +621,7 @@ export const MachineryMarketplaceView = {
     const callerPhone = this.currentProfile?.phone || "";
 
     bodyEl.innerHTML = `
-      <form id="machinery-hire-form">
+      <form id="machinery-hire-form"><section id="hire-availability-panel"><p>Checking booked dates…</p></section>
         <!-- EQUIPMENT SUMMARY -->
         <div style="background: var(--bg-hover); padding: 0.85rem; border-radius: 8px; margin-bottom: 1.25rem; border: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
           <div>
@@ -808,6 +810,15 @@ export const MachineryMarketplaceView = {
       }
     };
 
+    const availabilityPanel=bodyEl.querySelector('#hire-availability-panel');
+    const loadAvailability=async()=>{
+      if(!availabilityPanel) return;
+      try {
+        const ranges=await MachineryService.getAvailability(item.id);
+        let month=new Date();
+        const draw=()=>{ availabilityPanel.innerHTML='<div class="calendar-navigation"><button type="button" class="btn btn-outline btn-sm" data-month="-1" aria-label="Previous month">←</button><strong>Booked dates</strong><button type="button" class="btn btn-outline btn-sm" data-month="1" aria-label="Next month">→</button></div>'+renderAvailabilityCalendar(ranges,month);availabilityPanel.querySelectorAll('[data-month]').forEach(button=>button.addEventListener('click',()=>{month=new Date(month.getFullYear(),month.getMonth()+Number(button.dataset.month),1);draw();}));};draw();
+      }catch(error){availabilityPanel.innerHTML='<p>Availability could not be checked. Please retry before choosing dates.</p><button type="button" class="btn btn-outline btn-sm" id="retry-availability">Retry</button>';availabilityPanel.querySelector('#retry-availability').addEventListener('click',loadAvailability);}
+    };loadAvailability();
     periodRadios.forEach((r) => r.addEventListener("change", updateCalc));
     opRadios.forEach((r) => r.addEventListener("change", updateCalc));
     durationInput?.addEventListener("input", updateCalc);

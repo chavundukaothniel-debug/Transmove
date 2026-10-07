@@ -27,6 +27,12 @@ async function callTrustedApi(action, data = {}) {
 }
 
 export const ReceiptService = {
+  async downloadReceipt(bookingId) {
+    const receipt=await this.getReceipt(bookingId);
+    const html='<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TransMove trip receipt</title><style>body{margin:0;padding:1rem} .transmove-receipt{box-sizing:border-box;width:100%}</style></head><body>'+this.renderReceiptHtml(receipt)+'</body></html>';
+    const url=URL.createObjectURL(new Blob([html],{type:'text/html'}));
+    const link=document.createElement('a');link.href=url;link.download='TransMove-receipt-'+String(bookingId).replace(/[^a-z0-9-]/gi,'')+'.html';document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+  },
   /**
    * Fetches official booking receipt from trusted server.
    */
@@ -39,6 +45,7 @@ export const ReceiptService = {
    * Generates a printable HTML receipt string.
    */
   renderReceiptHtml(receipt) {
+    receipt = Object.fromEntries(Object.entries(receipt).map(([key,value])=>[key,typeof value==='string'?value.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])):value]));
     const isPaid = Boolean(receipt.paid);
     const dateFormatted = receipt.date ? new Date(receipt.date).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : "—";
 

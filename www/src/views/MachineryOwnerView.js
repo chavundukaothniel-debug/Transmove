@@ -376,9 +376,10 @@ export const MachineryOwnerView = {
     } catch (err) {
       grid.innerHTML = `
         <div style="grid-column: 1 / -1; padding: 2rem; color: #ef4444; text-align: center;" class="card">
-          Could not load your machinery fleet: ${escapeHtml(err.message)}
+          <h3>Your machinery fleet could not be loaded</h3><p>${escapeHtml(err.message)}</p><button type="button" class="btn btn-primary" id="retry-owner-fleet">Retry</button>
         </div>
       `;
+      grid.querySelector("#retry-owner-fleet")?.addEventListener("click",()=>this.loadFleet(root));
     }
   },
 
@@ -433,6 +434,7 @@ export const MachineryOwnerView = {
             </span>
           </div>
 
+          <div class="approval-feedback"><p>${item.verification_status === 'rejected' ? 'Admin feedback: '+escapeHtml(item.rejection_reason || 'Please contact support for the rejection details.') : ['approved','verified'].includes(item.verification_status) ? 'Customers can find and request this equipment while it is available.' : 'Your listing will appear in the marketplace after admin approval.'}</p>${item.verification_status === 'rejected' ? '<button type="button" class="btn btn-outline btn-sm btn-card-edit" data-id="'+escapeHtml(item.id)+'">Update and resubmit</button>' : ''}</div>
           <!-- PRICING SUMMARY -->
           <div style="background: var(--bg-hover); padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.85rem; border: 1px solid var(--border);">
             ${rates.length > 0 ? `

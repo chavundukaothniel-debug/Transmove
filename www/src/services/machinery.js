@@ -63,6 +63,7 @@ async function trustedCall(action, data = {}) {
 }
 
 export const MachineryService = {
+  async getAvailability(machineryId) { const res=await trustedCall('get_machinery_availability',{machinery_id:machineryId});return res.ranges||[]; },
   /**
    * Search and filter machinery marketplace listings.
    * Authoritative backend returns sponsored listings prioritized first.
@@ -196,10 +197,10 @@ export const MachineryService = {
   /**
    * Admin verify machinery listing and documents.
    */
-  async adminVerify(machineryId, status = "approved") {
+  async adminVerify(machineryId, status = "approved", reason = "") {
     return await trustedCall("admin_verify_machinery", {
       machinery_id: machineryId,
-      status
+      status, reason
     });
   },
 

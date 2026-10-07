@@ -2007,7 +2007,7 @@ export const AdminView = {
           if (!reason) return;
           btn.disabled = true;
           try {
-            await MachineryService.adminVerify(id, "rejected");
+            await MachineryService.adminVerify(id, "rejected", reason);
             alert("Machinery listing marked as rejected.");
             this.loadMachineryVerifications();
           } catch (err) {

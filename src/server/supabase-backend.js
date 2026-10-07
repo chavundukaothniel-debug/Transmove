@@ -709,6 +709,26 @@ class SupabaseBackendEngine {
       return profile;
     };
 
+    const recordById = async (table, id) => {
+      if (!this.supabaseAdmin) return (this.db[table] || []).find(row => row.id === id) || null;
+      const {data: row, error} = await this.supabaseAdmin.from(table).select('*').eq('id',id).maybeSingle();
+      if (error) throw new Error('Could not load '+table+': '+error.message);
+      return row;
+    };
+    const bookedRanges = async (id) => {
+      if (!this.supabaseAdmin) return (this.db.machinery_hires || []).filter(h=>h.machinery_id===id && ['accepted','active'].includes(h.status));
+      const {data: rows,error} = await this.supabaseAdmin.from('machinery_hires').select('id,start_date,end_date,status').eq('machinery_id',id).in('status',['accepted','active']);
+      if(error) throw new Error('Could not check availability: '+error.message);
+      return rows || [];
+    };
+    const overlaps = (a,b) => new Date(a.start_date)<new Date(b.end_date) && new Date(a.end_date)>new Date(b.start_date);
+    if(action === 'get_machinery_availability') {
+      const m = await recordById('machinery',data.machinery_id);
+      if(!m) throw new Error('Machinery not found.');
+      if(m.owner_id !== userId && !['approved','verified'].includes(m.verification_status)) throw new Error('Machinery is awaiting approval.');
+      return {ranges:(await bookedRanges(m.id)).map(h=>({start_date:h.start_date,end_date:h.end_date}))};
+    }
+
     // =========================================================================
     // 1. PROFILES
     // =========================================================================
@@ -2081,12 +2101,14 @@ class SupabaseBackendEngine {
       const loadedBid = await this._loadBidRecord(bidId);
       if (!loadedBid || loadedBid.record.driver_id !== userId) throw new Error("Bid not found or forbidden.");
       let bid = loadedBid.record;
+      if (bid.status !== "pending") throw new Error("Only pending bids can be withdrawn.");
 
       const now = new Date().toISOString();
       if (loadedBid.authoritative) {
         const { data: updatedBid, error } = await this.supabaseAdmin
           .from("bids")
           .update({ status: "withdrawn", updated_at: now })
+          .eq("status", "pending")
           .eq("id", bidId)
           .eq("driver_id", userId)
           .select()
@@ -2498,76 +2520,44 @@ class SupabaseBackendEngine {
     // =========================================================================
     // 7. REVIEWS & RATINGS
     // =========================================================================
-    if (action === "submit_review" || action === "create_review") {
-      const bookingId = data.booking_id;
-      const rating = parseInt(data.rating, 10);
-      if (isNaN(rating) || rating < 1 || rating > 5) throw new Error("Rating must be between 1 and 5.");
-
-      const booking = this.db.bookings.find((b) => b.id === bookingId);
-      if (!booking) throw new Error("Booking not found.");
-      if (booking.passenger_id !== userId) throw new Error("Only the passenger of this booking can review the driver.");
-      if (booking.status !== "completed") throw new Error("Cannot review an incomplete trip.");
-
-      const existing = this.db.reviews.find((r) => r.booking_id === bookingId);
-      if (existing) throw new Error("You have already reviewed this booking.");
-
-      const review = {
-        id: `rev_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        booking_id: bookingId,
-        reviewer_id: userId,
-        reviewee_id: booking.driver_id,
-        rating,
-        comment: data.comment || "",
-        created_at: new Date().toISOString()
-      };
-
-      this.db.reviews.push(review);
-
-      // Recalculate driver ratings
-      const driverReviews = this.db.reviews.filter((r) => r.reviewee_id === booking.driver_id);
-      const sum = driverReviews.reduce((acc, r) => acc + r.rating, 0);
-      const avg = Number((sum / driverReviews.length).toFixed(2));
-
-      const driverProfile = this.db.profiles.find((p) => p.id === booking.driver_id || p.user_id === booking.driver_id);
-      if (driverProfile) {
-        driverProfile.rating_avg = avg;
-        driverProfile.rating_count = driverReviews.length;
+    if (action === 'submit_review' || action === 'create_review') {
+      const booking = await recordById('bookings', data.booking_id);
+      if(!booking || ![booking.passenger_id,booking.driver_id].includes(userId)) throw new Error('Only trip participants can leave a review.');
+      if(booking.status !== 'completed') throw new Error('Cannot review an incomplete trip.');
+      const rating=Number(data.rating);
+      if(!Number.isInteger(rating)||rating<1||rating>5) throw new Error('Rating must be between 1 and 5.');
+      const review={id:randomUUID(),booking_id:booking.id,reviewer_id:userId,reviewee_id:userId===booking.passenger_id?booking.driver_id:booking.passenger_id,rating,comment:String(data.comment||'').slice(0,500),created_at:new Date().toISOString()};
+      if(this.supabaseAdmin) {
+        const {error}=await this.supabaseAdmin.from('reviews').insert(review);
+        if(error) throw new Error(error.code==='23505'?'You have already reviewed this trip.':'Could not save review: '+error.message);
+      } else {
+        if(this.db.reviews.some(r=>r.booking_id===booking.id&&r.reviewer_id===userId)) throw new Error('You have already reviewed this trip.');
       }
-
-      this._persistLocalDb();
-      return review;
+      this.db.reviews.push(review);
+      let rows=this.db.reviews.filter(r=>r.reviewee_id===review.reviewee_id);
+      if(this.supabaseAdmin) { const {data: ratings,error}=await this.supabaseAdmin.from('reviews').select('rating').eq('reviewee_id',review.reviewee_id); if(!error) rows=ratings||rows; }
+      const avg=Number((rows.reduce((n,r)=>n+Number(r.rating),0)/rows.length).toFixed(2));
+      const profile=this.db.profiles.find(p=>p.id===review.reviewee_id||p.user_id===review.reviewee_id);
+      if(profile){profile.rating_avg=avg;profile.rating_count=rows.length;}
+      if(this.supabaseAdmin) await this.supabaseAdmin.from('profiles').update({rating_avg:avg,rating_count:rows.length}).eq('id',review.reviewee_id);
+      this._persistLocalDb();return review;
     }
-
-    if (action === "get_booking_reviews") {
-      const bookingId = data.booking_id;
-      const reviews = this.db.reviews.filter((r) => r.booking_id === bookingId);
-      return { reviews };
+    if(action==='get_booking_reviews' || action==='get_driver_reviews') {
+      const byBooking=action==='get_booking_reviews';
+      if(byBooking) { const b=await recordById('bookings',data.booking_id);if(!b||![b.passenger_id,b.driver_id].includes(userId)) throw new Error('Forbidden: Trip participants only.'); }
+      const field=byBooking?'booking_id':'reviewee_id',id=byBooking?data.booking_id:data.driver_id;
+      let rows=(this.db.reviews||[]).filter(r=>r[field]===id);
+      if(this.supabaseAdmin){const {data: found,error}=await this.supabaseAdmin.from('reviews').select('*').eq(field,id);if(error)throw new Error('Could not load reviews: '+error.message);rows=found||[];}
+      return {reviews:rows};
     }
-
-    if (action === "get_driver_reviews") {
-      const driverId = data.driver_id;
-      const reviews = this.db.reviews.filter((r) => r.reviewee_id === driverId);
-      return { reviews };
-    }
-
-    if (action === "get_booking_receipt") {
-      const bookingId = data.booking_id;
-      const booking = this.db.bookings.find((b) => b.id === bookingId);
-      if (!booking) throw new Error("Booking not found.");
-      const req = this.db.service_requests.find((r) => r.id === booking.request_id);
-      const driver = this.db.profiles.find((p) => p.id === booking.driver_id || p.user_id === booking.driver_id);
-      const passenger = this.db.profiles.find((p) => p.id === booking.passenger_id || p.user_id === booking.passenger_id);
-      const payment = this.db.payments.find((p) => p.booking_id === bookingId) || null;
-
-      return {
-        booking,
-        request: req,
-        driver: driver ? { full_name: driver.full_name, phone: driver.phone } : null,
-        passenger: passenger ? { full_name: passenger.full_name, phone: passenger.phone } : null,
-        payment,
-        receipt_number: `RCP-${booking.id.toUpperCase()}`,
-        issued_at: booking.completed_at || booking.updated_at
-      };
+    if(action==='get_booking_receipt') {
+      const booking=await recordById('bookings',data.booking_id);
+      if(!booking||![booking.passenger_id,booking.driver_id].includes(userId)) throw new Error('Forbidden: Trip participants only.');
+      if(booking.status!=='completed') throw new Error('Receipts are available after the trip is completed.');
+      const req=await recordById('service_requests',booking.request_id);
+      const driver=await recordById('profiles',booking.driver_id),passenger=await recordById('profiles',booking.passenger_id);
+      const vehicle=booking.vehicle_id?await recordById('vehicles',booking.vehicle_id):null;
+      return {receipt_id:'RCP-'+booking.id.toUpperCase(),date:booking.completed_at||booking.updated_at,paid:['received','paid'].includes(booking.payment_status),pickup:req?.pickup_location||req?.pickup_address||'Pickup',destination:req?.destination||req?.destination_address||'Destination',service_type:req?.service_type||'ride',passenger_name:passenger?.full_name||'Passenger',driver_name:driver?.full_name||'Driver',vehicle:[vehicle?.make,vehicle?.model].filter(Boolean).join(' ')||'Not recorded',registration:vehicle?.registration_number||'',amount:Number(booking.amount||0).toFixed(2),currency:"USD",booking_status:booking.status,payment_status:booking.payment_status||"Pending",booking_id:booking.id};
     }
 
     // =========================================================================
@@ -5051,6 +5041,13 @@ class SupabaseBackendEngine {
       }
 
       const durationUnits = Math.max(1, Number(data.duration_units || data.duration_days || 1));
+      if(!Number.isFinite(durationUnits) || durationUnits<=0) throw new Error('Enter a valid duration.');
+      const startDate = new Date(data.start_date || Date.now());
+      const periodMs = {hourly:3600000,daily:86400000,weekly:604800000,monthly:2592000000}[ratePeriod];
+      const endDate = new Date(startDate.getTime()+durationUnits*periodMs);
+      if(!periodMs || !Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime())) throw new Error('Invalid hire dates.');
+      const requestedRange={start_date:startDate.toISOString(),end_date:endDate.toISOString()};
+      if((await bookedRanges(m.id)).some(h=>overlaps(h,requestedRange))) throw new Error('This equipment is already booked for those dates. Choose another date.');
       const calculatedTotal = Number((rateApplied * durationUnits).toFixed(2));
 
       const callerProf = await getCallerProfile();
@@ -5066,8 +5063,8 @@ class SupabaseBackendEngine {
         rate_period: ratePeriod,
         rate_applied: rateApplied,
         duration_units: durationUnits,
-        start_date: data.start_date || now,
-        end_date: data.end_date || new Date(Date.now() + durationUnits * 86400000).toISOString(),
+        start_date: requestedRange.start_date,
+        end_date: requestedRange.end_date,
         calculated_total: calculatedTotal,
         job_location: data.job_location || m.location,
         notes: data.notes || "",
@@ -5117,7 +5114,8 @@ class SupabaseBackendEngine {
           .select("*, machinery:machinery_id(name, brand, model, primary_photo)")
           .eq("owner_id", userId)
           .order("created_at", { ascending: false });
-        if (!hErr && supaHires) hires = supaHires;
+        if (hErr) throw new Error("Could not load hire requests: " + hErr.message);
+        hires = supaHires || [];
       } else {
         hires = (this.db.machinery_hires || []).filter((h) => h.owner_id === userId);
       }
@@ -5171,6 +5169,7 @@ class SupabaseBackendEngine {
       if (!(hireTransitions[hire.status] || []).includes(newStatus)) throw new Error("This hire request cannot be changed from its current status.");
       if (["active", "completed"].includes(newStatus) && !isOwner && !isAdmin) throw new Error("Forbidden: Only the owner can start or complete a hire.");
 
+      if (newStatus === 'accepted' && (await bookedRanges(hire.machinery_id)).some(h=>h.id!==hire.id&&overlaps(h,hire))) throw new Error('Another hire already covers those dates.');
       if (newStatus === "accepted" || newStatus === "declined") {
         if (!isOwner && !isAdmin) {
           throw new Error("Forbidden: Only the machinery owner can accept or decline this hire request.");
@@ -5192,7 +5191,10 @@ class SupabaseBackendEngine {
             decline_reason: declineReason,
             updated_at: now
           })
-          .eq("id", hireId);
+          .eq("id", hireId)
+          .eq("status", hire.status)
+          .select("id")
+          .single();
         if (updErr) throw new Error(`Database error updating hire status: ${updErr.message}`);
       }
 
@@ -5942,11 +5944,13 @@ class SupabaseBackendEngine {
         throw new Error("Invalid verification status. Must be 'approved', 'rejected', or 'pending'.");
       }
 
+      const reason=status==='rejected'?String(data.reason||'').trim():null;
+      if(status==='rejected'&&!reason) throw new Error('A rejection reason is required.');
       const nowIso = new Date().toISOString();
       if (this.supabaseAdmin) {
         const { error: vErr } = await this.supabaseAdmin
           .from("machinery")
-          .update({ verification_status: status, updated_at: nowIso })
+          .update({ verification_status: status, rejection_reason: reason, updated_at: nowIso })
           .eq("id", machineryId);
         if (vErr) throw new Error(`Database error verifying machinery: ${vErr.message}`);
 
@@ -5961,6 +5965,7 @@ class SupabaseBackendEngine {
       const m = (this.db.machinery || []).find((entry) => entry.id === machineryId);
       if (m) {
         m.verification_status = status;
+        m.rejection_reason = reason;
         m.updated_at = nowIso;
         if (status === "approved" && Array.isArray(m.documents)) {
           m.documents.forEach((d) => { d.verification_status = "verified"; });
