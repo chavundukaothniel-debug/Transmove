@@ -327,12 +327,12 @@ export const CustomerView = {
         <!-- TAB 1: NEW REQUEST FORM -->
         <div id="tab-content-new-request" class="${this.activeTab === "new-request" ? "" : "hidden"}" style="${this.activeTab === "new-request" ? "" : "display:none;"}">
           <div class="passenger-page-heading">
-            <div><h2>Request details</h2><p>Choose the route, timing and fare you want to offer.</p></div>
+            <div><h2>Where would you like to go?</h2><p>Set your route and offer a fare. Compare driver offers before confirming your booking.</p></div>
           </div>
           <div class="grid-2 passenger-request-layout">
             <!-- Left Form Column -->
             <div class="card passenger-form-card">
-              <form id="create-request-form">
+              <form id="create-request-form"><div class="request-flow-steps" aria-label="Booking steps"><span class="current">1. Request a trip</span><span>2. Compare offers</span><span>3. Confirm driver</span></div>
                 <div class="mobile-ride-sheet-heading">
                   <h3>Ride details</h3>
                   <p>Set your trip and choose what you want to pay.</p>
@@ -359,7 +359,7 @@ export const CustomerView = {
                     <input type="text" id="req-pickup" class="form-input" placeholder="Enter pickup location or click map" autocomplete="off" required />
                     <button type="button" id="btn-clear-pickup" class="btn btn-outline btn-sm icon-button" title="Clear pickup" aria-label="Clear pickup" style="display: none;">${icon("x", 17)}</button>
                     <button type="button" id="btn-cust-gps" class="btn btn-outline btn-sm" title="Auto-detect current GPS">
-              ${icon("locate-fixed", 17)}<span>GPS</span>
+              ${icon("locate-fixed", 17)}<span>Locate</span>
                     </button>
                   </div>
                   <div id="pickup-suggestions" class="address-suggestions-dropdown" style="display: none;"></div>
@@ -412,16 +412,17 @@ export const CustomerView = {
                   </div>
                 </div>
 
+                <div id="request-schedule-field" class="form-group" hidden><label class="form-label" for="req-departure-time">Departure date and time</label><input id="req-departure-time" type="datetime-local" class="form-input"><small>Choose when you want your driver to arrive.</small></div>
                 <div class="grid-2 request-fare-grid">
                   <div class="form-group">
                     <label class="form-label">Estimated Route Distance</label>
-                    <input type="text" id="req-distance" class="form-input" value="Enter a destination to calculate your route." readonly style="font-size: 0.85rem; font-weight: 600; color: var(--primary);" />
+                    <input type="text" id="req-distance" class="form-input" value="Route distance appears here" readonly style="font-size: 0.85rem; font-weight: 600; color: var(--primary);" />
                   </div>
                   <div class="form-group request-price-group">
-                    <div class="request-price-label-row"><label class="form-label">Your price</label><span>Suggested <strong id="mobile-suggested-price">$10</strong></span></div>
+                    <div class="request-price-label-row"><label class="form-label" for="req-suggested-price">Your offered fare</label><span>Suggested <strong id="mobile-suggested-price">$10</strong></span></div>
                     <div class="request-price-stepper">
                       <button type="button" data-request-price-delta="-1" aria-label="Decrease price">−</button>
-                      <span>$</span><input type="number" id="req-suggested-price" class="form-input" value="10" min="1" step="0.5" required />
+                      <span>$</span><input inputmode="decimal" type="number" id="req-suggested-price" class="form-input" value="10" min="1" step="0.5" required />
                       <button type="button" data-request-price-delta="1" aria-label="Increase price">+</button>
                     </div>
                     <div class="request-price-chips" aria-label="Quick price adjustments">
@@ -439,8 +440,9 @@ export const CustomerView = {
                 </div>
 
                 <button type="submit" id="btn-submit-request" class="btn btn-primary btn-lg btn-full passenger-submit-button" disabled>
-                  Find Drivers
+                  Send request to drivers
                 </button>
+                <p class="request-submit-hint">Review offers and driver profiles next. Your booking is confirmed when you accept an offer.</p>
               </form>
             </div>
 
@@ -715,7 +717,11 @@ export const CustomerView = {
       button.addEventListener("click", () => {
         document.querySelectorAll("[data-trip-time]").forEach((item) => item.classList.toggle("active", item === button));
         const later = button.getAttribute("data-trip-time") === "later";
-        this.pendingRequestMeta = { ...(this.pendingRequestMeta || {}), requestDate: later ? new Date(Date.now() + 86400000).toISOString() : null };
+        const field = document.getElementById('request-schedule-field');
+        if (field) field.hidden = !later;
+        const input = document.getElementById('req-departure-time');
+        if (input) { input.required = later; const local = new Date(Date.now() - new Date().getTimezoneOffset() * 60000); input.min = local.toISOString().slice(0,16); }
+        this.pendingRequestMeta = { ...(this.pendingRequestMeta || {}), requestDate: null };
       });
     });
 
@@ -800,6 +806,14 @@ export const CustomerView = {
         return;
       }
 
+      const scheduled = document.querySelector('[data-trip-time="later"].active');
+      if (scheduled) {
+        const departure = new Date(document.getElementById('req-departure-time')?.value || '');
+        if (!Number.isFinite(departure.getTime()) || departure.getTime() <= Date.now()) {
+          NotificationService.showToast('Choose a departure time', 'Please choose a date and time in the future.', 'error'); return;
+        }
+        this.pendingRequestMeta = { ...(this.pendingRequestMeta || {}), requestDate: departure.toISOString() };
+      }
       // Immediately disable button and indicate publishing state
       this.isPublishingRequest = true;
       if (submitBtn) {
@@ -1480,7 +1494,7 @@ export const CustomerView = {
 
           ${bid.message ? `<p style="font-size: 0.85rem; font-style: italic; color: var(--text-muted); margin: 0.4rem 0;">“${escapeHtml(bid.message)}”</p>` : ""}
 
-          <div style="display: flex; gap: 0.5rem; margin-top: 0.85rem;">
+          <div class="offer-decision-actions" style="display: flex; gap: 0.5rem; margin-top: 0.85rem;">
             <button type="button" class="btn btn-outline smart-view-driver" style="flex: 1; padding: 0.65rem 0.45rem; font-weight: 700; border-radius: 8px;">View profile</button>
             <button type="button" class="btn btn-outline smart-counter-offer" style="flex: 1; padding: 0.65rem 1rem; font-weight: 700; border-radius: 8px;" ${!isPositiveAmount ? "disabled" : ""}>Counter</button>
             ${isPositiveAmount
@@ -3445,11 +3459,12 @@ export const CustomerView = {
         </div>
       `,
       actions: [
+        { label: "Keep browsing", primary: true, close: false, onClick: () => { SmartPopup.minimize(); return false; } },
         {
           label: "Cancel request",
           danger: true,
           onClick: async () => {
-            if (!confirm("Are you sure you want to cancel this request?")) return;
+            if (!confirm("Are you sure you want to cancel this request?")) return false;
             try {
               await RequestService.cancelRequest(requestId);
               if (this.matchingPollInterval) {
@@ -3461,7 +3476,7 @@ export const CustomerView = {
               NotificationService.showToast("Request cancelled", "Your request has been withdrawn.", "info");
               this.switchTab("overview");
             } catch (err) {
-              alert("Could not cancel request: " + err.message);
+              throw new Error("Could not cancel request: " + err.message);
             }
           }
         }

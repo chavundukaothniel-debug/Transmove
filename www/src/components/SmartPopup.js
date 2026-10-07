@@ -66,6 +66,18 @@ export const SmartPopup = {
     if (!current?.backdrop) return;
     const { backdrop } = current;
     const actions = Array.isArray(options.actions) ? options.actions : [];
+    backdrop.onkeydown = (event) => {
+      if (event.key === 'Escape') {
+        if (options.minimizable) this.minimize();
+        else if (options.dismissible !== false) this.close();
+      }
+      if (event.key === 'Tab') {
+        const items = [...backdrop.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]')].filter(el => el.getClientRects().length);
+        const first = items[0], last = items[items.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    };
     backdrop.querySelector(".smart-popup-close")?.addEventListener("click", () => this.close());
     backdrop.querySelector(".smart-popup-minimize")?.addEventListener("click", () => this.minimize());
 
@@ -128,7 +140,11 @@ export const SmartPopup = {
             update: (next) => this.update(next),
             minimize: () => this.minimize()
           });
-          if (action.close !== false && result !== false) this.close();
+          if (this.current === current && action.close !== false && result !== false) this.close();
+          else if (this.current === current) {
+            allButtons.forEach((item) => { item.disabled = false; });
+            button.textContent = original;
+          }
         } catch (cause) {
           error.textContent = cause?.message || "This action could not be completed.";
           error.hidden = false;
@@ -163,7 +179,8 @@ export const SmartPopup = {
     backdrop.setAttribute("aria-label", options.title);
     backdrop.innerHTML = this._markup(options);
     document.body.appendChild(backdrop);
-    this.current = { ...options, userId, backdrop, minimized: false, pill: null };
+    this.current = { ...options, userId, backdrop, minimized: false, pill: null, returnFocus: document.activeElement };
+    document.body.classList.add("smart-popup-open");
     if (options.eventKey) this.markSeen(userId, options.eventKey);
     backdrop.addEventListener("click", (event) => {
       if (event.target === backdrop && this.current?.dismissible !== false && !this.current?.minimizable) this.close();
@@ -182,6 +199,7 @@ export const SmartPopup = {
   update(options = {}) {
     if (!this.current?.backdrop) return this.open(options);
     const previous = this.current;
+    const keepMinimized = previous.minimized && options.state === previous.state && options.flowKey === previous.flowKey;
     const merged = {
       ...previous,
       ...options,
@@ -202,6 +220,8 @@ export const SmartPopup = {
     card?.classList.add("smart-popup-card--transitioning");
     setTimeout(() => card?.classList.remove("smart-popup-card--transitioning"), 260);
     this._bind(merged);
+    document.body.classList.add("smart-popup-open");
+    if (keepMinimized) this.minimize();
     if (this.autoMinimizeTimer) clearTimeout(this.autoMinimizeTimer);
     this.autoMinimizeTimer = null;
     if (typeof options.autoMinimizeAfter === "number" && options.autoMinimizeAfter > 0) {
@@ -219,6 +239,8 @@ export const SmartPopup = {
     if (!current?.backdrop || current.minimized) return false;
     current.minimized = true;
     current.backdrop.style.display = "none";
+    document.body.classList.remove("smart-popup-open");
+    if (current.returnFocus?.isConnected) current.returnFocus.focus();
     const pill = document.createElement("button");
     pill.type = "button";
     pill.className = "smart-popup-pill";
@@ -239,8 +261,14 @@ export const SmartPopup = {
     current.pill?.remove();
     current.pill = null;
     current.backdrop.style.display = "flex";
+    document.body.classList.add("smart-popup-open");
+    this._bindFocus(current.backdrop);
     current.backdrop.querySelector(".smart-popup-card")?.classList.add("smart-popup-card--transitioning");
     return true;
+  },
+
+  _bindFocus(backdrop) {
+    backdrop.querySelector(".smart-popup-action.btn-primary, .smart-popup-minimize, .smart-popup-close, button")?.focus();
   },
 
   setConnectionStatus(isOffline) {
@@ -259,6 +287,8 @@ export const SmartPopup = {
     this.current = null;
     current?.pill?.remove();
     current?.backdrop?.remove();
+    document.body.classList.remove("smart-popup-open");
+    if (current?.returnFocus?.isConnected) current.returnFocus.focus();
     const next = this.queue.shift();
     if (next) setTimeout(() => this.open(next), 80);
   },

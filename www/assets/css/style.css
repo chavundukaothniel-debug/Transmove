@@ -6405,3 +6405,69 @@ input, select, textarea { max-width:100%; min-width:0; }
 @media(max-width:768px) { .sidebar-mount { width:0; flex-basis:0; } }
 .machinery-request-row { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; padding:1rem 0; border-bottom:1px solid var(--border-light); }
 .machinery-request-row p { margin:.3rem 0; color:var(--text-muted); }
+/* Shared passenger request form and calm journey dialogs, on web and native. */
+.request-flow-steps, .journey-progress { display:flex; gap:.5rem; flex-wrap:wrap; margin:0 0 1.25rem; }
+.request-flow-steps span, .journey-progress span { padding:.45rem .7rem; border-radius:999px; background:var(--bg-subtle); color:var(--text-muted); font-size:.75rem; font-weight:700; }
+.request-flow-steps .current, .journey-progress .current { background:#e8f1ff; color:#1859b7; }
+.journey-progress .complete { background:#dcfce7; color:#166534; }
+.request-price-label-row { display:flex; justify-content:space-between; align-items:baseline; gap:.5rem; flex-wrap:wrap; margin-bottom:.55rem; }
+.request-price-label-row .form-label { margin:0; }
+.request-price-label-row > span { font-size:.75rem; color:var(--text-muted); }
+.request-price-stepper { display:grid; grid-template-columns:44px 18px minmax(0,1fr) 44px; align-items:center; gap:.45rem; padding:.45rem; border:1px solid var(--border-light); border-radius:12px; background:var(--bg-subtle); }
+.request-price-stepper button { min-height:44px; border:1px solid var(--border-light); border-radius:9px; background:var(--bg-surface); color:var(--text-main); font-size:1.3rem; font-weight:700; cursor:pointer; }
+.request-price-stepper span { font-weight:800; text-align:center; }
+.request-price-stepper #req-suggested-price { min-width:0; width:100%; text-align:center; font-size:1.2rem !important; font-weight:800; border:0 !important; background:transparent !important; padding:.4rem !important; box-shadow:none !important; }
+.request-price-chips { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.5rem; margin-top:.65rem; }
+.request-price-chips button { min-height:36px; border:1px solid var(--border-light); border-radius:8px; background:var(--bg-surface); color:var(--text-muted); font:inherit; font-size:.8rem; font-weight:700; cursor:pointer; }
+.passenger-form-card #btn-cust-gps { flex-shrink:0; white-space:nowrap; min-width:44px; }
+.passenger-form-card input { min-width:0; }
+.passenger-form-card .form-group { margin-bottom:1.15rem; }
+.request-submit-hint { font-size:.8rem; line-height:1.6; color:var(--text-muted); text-align:center; margin:.85rem 0 0; }
+body.smart-popup-open { overflow:hidden; }
+.smart-popup-backdrop { align-items:center; justify-content:center; background:rgba(8,19,35,.45); backdrop-filter:blur(3px); }
+.smart-popup-card { width:min(100%,560px); max-height:calc(100dvh - 48px); padding:0; display:flex; flex-direction:column; overflow:hidden; }
+.smart-popup-header { padding:1.25rem 1.4rem .85rem; flex-shrink:0; }
+.smart-popup-body { padding:.25rem 1.4rem 1.25rem; overflow-y:auto; overscroll-behavior:contain; min-height:0; }
+.smart-popup-title { font-size:1.25rem !important; line-height:1.35; overflow-wrap:anywhere; }
+.smart-popup-actions { margin:0; padding:1rem 1.4rem; background:var(--bg-surface); flex-shrink:0; }
+.smart-popup-actions .btn { min-height:44px; white-space:normal; }
+.smart-popup-error { margin:.5rem 1.4rem; flex-shrink:0; }
+.smart-popup-connection { margin:.25rem 1.4rem; flex-shrink:0; }
+.smart-popup-profile > div:last-child { min-width:0; overflow-wrap:anywhere; }
+.offer-decision-actions { flex-wrap:wrap; }
+.smart-sheet-waiting-text { line-height:1.65; }
+.journey-progress { justify-content:center; margin-top:1rem; }
+@media(min-width:769px) {
+ .passenger-request-layout { grid-template-columns:minmax(0,1.05fr) minmax(0,1fr) !important; align-items:start; gap:1.25rem; }
+ .request-fare-grid { grid-template-columns:1fr !important; gap:.25rem; }
+ .passenger-map-card { position:sticky; top:1rem; }
+}
+@media(max-width:768px) {
+ .smart-popup-backdrop { align-items:flex-end; padding:0; }
+ .smart-popup-card { width:100%; max-height:calc(100dvh - 24px); border-radius:20px 20px 0 0; padding:0 0 env(safe-area-inset-bottom); }
+ .smart-popup-grabber { margin:.65rem auto 0; flex-shrink:0; }
+ .smart-popup-header { padding:1rem; }
+ .smart-popup-body { padding:.25rem 1rem 1rem; }
+ .smart-popup-actions { padding:.85rem 1rem; }
+ .offer-decision-actions .smart-accept-offer { flex-basis:100% !important; }
+ .passenger-form-card .form-group:has(#req-notes) { display:block !important; }
+ .passenger-form-card #req-notes { height:auto !important; min-height:72px !important; }
+ .request-flow-steps { gap:.3rem; margin-bottom:.9rem; }
+ .request-flow-steps span { font-size:.66rem; padding:.4rem .5rem; }
+}
+@media(prefers-reduced-motion:reduce) {
+ .smart-popup-card, .smart-popup-backdrop, .smart-popup-pill { animation:none !important; }
+}
+.smart-popup-card { overflow:hidden !important; max-width:min(calc(100vw - 2rem),560px) !important; padding:0 !important; }
+.smart-popup-body { max-height:none !important; }
+@media(max-width:768px) {
+ .smart-popup-card { max-width:100% !important; padding:0 0 env(safe-area-inset-bottom) !important; }
+ .smart-popup-actions { gap:.6rem !important; }
+}
+.mobile-ride-options { display:block; border-top:1px solid var(--border-light); margin-bottom:1rem; }
+.mobile-ride-option-row { display:flex; align-items:center; justify-content:space-between; gap:.5rem; min-height:50px; border-bottom:1px solid var(--border-light); font-size:.85rem; font-weight:700; }
+.mobile-count-stepper, .mobile-time-toggle { display:flex; gap:.5rem; align-items:center; }
+.mobile-count-stepper button, .mobile-time-toggle button { min-width:40px; min-height:36px; padding:.4rem .7rem; border:1px solid var(--border-light); border-radius:8px; background:var(--bg-surface); color:var(--text-main); cursor:pointer; }
+.mobile-time-toggle button.active { background:var(--primary); color:white; border-color:var(--primary); }
+#request-schedule-field[hidden] { display:none !important; }
+#request-schedule-field small { display:block; margin-top:.4rem; color:var(--text-muted); }

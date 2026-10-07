@@ -2366,7 +2366,7 @@ export const DriverView = {
       title: "Offer sent",
       minimizable: true,
       pillText: `$${formattedAmount} offer • Waiting`,
-      autoMinimizeAfter: 2000,
+      autoMinimizeAfter: 6500,
       html: `
         <div class="smart-sheet-status-box">
           <div class="smart-sheet-success-badge">${icon("check", 20)}</div>
@@ -2375,10 +2375,13 @@ export const DriverView = {
             <div style="font-size: 0.85rem; color: var(--text-muted); font-weight: 700;">Your offer</div>
             <div class="smart-offer-sent-amount">$${formattedAmount}</div>
           </div>
-          <p class="smart-sheet-waiting-text">Waiting for passenger...</p>
+          <p class="smart-sheet-waiting-text">The passenger is reviewing your offer. You can keep browsing; we’ll notify you when they respond.</p><div class="journey-progress" aria-label="Offer progress"><span class="complete">Offer sent</span><span class="current">Passenger review</span><span>Booking confirmed</span></div>
         </div>
       `,
-      actions: []
+      actions: [
+        { label: "Keep browsing", close: false, onClick: () => { SmartPopup.minimize(); return false; } },
+        { label: "View my bids", primary: true, onClick: () => { window.location.hash = '#driver?tab=offers'; } }
+      ]
     });
   },
 
