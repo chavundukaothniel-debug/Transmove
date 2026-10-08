@@ -1,3 +1,4 @@
+import { createMachineryHireRequests } from "../components/MachineryHireRequests.js";
 import { renderJourneyProgress } from '../components/JourneyProgress.js';
 import { ReviewService } from '../services/reviews.js';
 import { ReceiptService } from '../services/receipts.js';
@@ -135,7 +136,7 @@ export const DriverView = {
             <small>Work status</small>
           </div>
         </section>
-        <div id="driver-promoted-machinery-banner-container"></div>
+        <div id="driver-promoted-machinery-banner-container"></div><section id="driver-machinery-requests" class="card" style="padding:1.25rem;margin-bottom:1.25rem" aria-label="My machinery requests" hidden></section>
 
         <!-- 4 SUMMARY CARDS GRID -->
         <div class="summary-cards-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.25rem;">
@@ -590,6 +591,12 @@ export const DriverView = {
   async init() {
     try {
       this.driverProfile = await AuthService.getCurrentProfile();
+      this.machineryHireRequests?.destroy();
+      const machineryPanel = document.getElementById("driver-machinery-requests");
+      if (machineryPanel && this.driverProfile) {
+        this.machineryHireRequests = createMachineryHireRequests(machineryPanel);
+        this.machineryHireRequests.start();
+      }
       if (this.driverProfile) {
         const displayName = this.driverProfile.full_name || "Driver";
         const nameEl = document.getElementById("driver-display-name");
@@ -2548,6 +2555,8 @@ export const DriverView = {
   },
 
   destroy() {
+    this.machineryHireRequests?.destroy();
+    this.machineryHireRequests = null;
     this.stopRealtimeJobs();
     if (this.adPopupTimer) clearTimeout(this.adPopupTimer);
     this.adPopupTimer = null;

@@ -1,3 +1,4 @@
+import { createMachineryHireRequests } from "../components/MachineryHireRequests.js";
 import { renderAvailabilityCalendar } from '../components/AvailabilityCalendar.js';
 // ==============================================================================
 // TRANSMOVE MACHINERY MARKETPLACE VIEW
@@ -144,7 +145,7 @@ export const MachineryMarketplaceView = {
           </div>
         </div>
 
-        <section id="machinery-my-requests" class="card" style="margin-bottom:1.25rem" aria-label="My machinery hire requests" hidden></section>
+        <section id="machinery-my-requests" class="card" style="padding:1.25rem;margin-bottom:1.25rem" aria-label="My machinery hire requests" hidden></section>
         <!-- LISTINGS FEED -->
         <div id="machinery-feed-status" style="margin-bottom: 1rem; font-size: 0.9rem; color: var(--text-muted); font-weight: 600;">
           Loading machinery listings...
@@ -192,6 +193,7 @@ export const MachineryMarketplaceView = {
   },
 
   async init(containerArg = document) {
+    this.destroy();
     const container = containerArg && typeof containerArg.querySelector === "function" ? containerArg : document;
     try {
       this.currentProfile = await AuthService.getCurrentProfile().catch(() => null);
@@ -224,19 +226,18 @@ export const MachineryMarketplaceView = {
   },
 
   async loadMyRequests(container = document) {
-    const panel = container.querySelector('#machinery-my-requests');
+    const panel = container.querySelector("#machinery-my-requests");
     if (!panel || !this.currentProfile) return;
-    panel.hidden = false;
-    try {
-      const hires = await MachineryService.getRenterHires();
-      panel.innerHTML = '<h2 style="font-size:1.15rem">My machinery requests</h2>' + (hires.length ? hires.map(h => '<div class="machinery-request-row"><div><strong>' + escapeHtml(h.machinery_name || h.machinery?.name || 'Machinery hire') + '</strong><p>' + escapeHtml(h.start_date ? String(h.start_date).slice(0,10) : '') + ' · ' + escapeHtml(h.status) + '</p></div>' + (['pending','accepted'].includes(h.status) ? '<button type="button" class="btn btn-outline" data-cancel-hire="' + escapeHtml(h.id) + '">Cancel request</button>' : '') + '</div>').join('') : '<p>No hire requests yet. Your requests will appear here.</p>');
-      panel.querySelectorAll('[data-cancel-hire]').forEach(button => button.addEventListener('click', async () => {
-        if (!confirm('Cancel this machinery request?')) return;
-        button.disabled = true;
-        try { await MachineryService.updateHireStatus(button.dataset.cancelHire, 'cancelled', 'Cancelled by renter'); await this.loadMyRequests(container); }
-        catch (error) { alert(error.message); button.disabled = false; }
-      }));
-    } catch (error) { panel.innerHTML = '<p>Could not load your requests: ' + escapeHtml(error.message) + '</p>'; }
+    if (!this.hireRequestsController) {
+      const tab = new URLSearchParams(window.location.hash.split("?")[1] || "").get("tab");
+      this.hireRequestsController = createMachineryHireRequests(panel, { alwaysVisible: true, filter: ["rentals", "history"].includes(tab) ? tab : "all" });
+      await this.hireRequestsController.start();
+    } else await this.hireRequestsController.refresh(true);
+  },
+
+  destroy() {
+    this.hireRequestsController?.destroy();
+    this.hireRequestsController = null;
   },
 
   bindFilters(container) {

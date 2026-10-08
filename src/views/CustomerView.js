@@ -1,3 +1,4 @@
+import { createMachineryHireRequests } from "../components/MachineryHireRequests.js";
 import { renderJourneyProgress } from '../components/JourneyProgress.js';
 // ==============================================================================
 // TRANSMOVE PASSENGER DASHBOARD VIEW
@@ -142,7 +143,7 @@ export const CustomerView = {
     }[hashParams.get("tab")] || "overview";
 
     return `
-      <div class="customer-dashboard passenger-dashboard-container">
+      <div class="customer-dashboard passenger-dashboard-container"><section id="customer-machinery-requests" class="card" style="padding:1.25rem;margin-bottom:1.25rem" aria-label="My machinery requests" hidden></section>
         <!-- Existing tab controls remain mounted for the sidebar and quick actions. -->
         <div class="customer-tab-switcher" aria-hidden="true">
           <button class="btn btn-outline btn-sm cust-tab-btn ${this.activeTab === "overview" ? "active" : ""}" data-tab="overview">
@@ -538,6 +539,12 @@ export const CustomerView = {
   },
 
   async init() {
+    this.machineryHireRequests?.destroy();
+    const machineryPanel = document.getElementById("customer-machinery-requests");
+    if (machineryPanel && this.currentProfile) {
+      this.machineryHireRequests = createMachineryHireRequests(machineryPanel);
+      this.machineryHireRequests.start();
+    }
     // Reset location & map state
     this.pickupCoords = null;
     this.destCoords = null;
@@ -1173,6 +1180,8 @@ export const CustomerView = {
   },
 
   destroy() {
+    this.machineryHireRequests?.destroy();
+    this.machineryHireRequests = null;
     this.stopJourneySync();
     if (this.matchingPollInterval) clearInterval(this.matchingPollInterval);
     this.matchingPollInterval = null;

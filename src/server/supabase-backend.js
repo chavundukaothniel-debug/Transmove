@@ -5164,11 +5164,27 @@ class SupabaseBackendEngine {
           .select("*, machinery:machinery_id(name, brand, model, primary_photo)")
           .eq("renter_id", userId)
           .order("created_at", { ascending: false });
-        if (!hErr && supaHires) hires = supaHires;
+        if (hErr) throw new Error("Could not load your machinery requests: " + hErr.message);
+        hires = supaHires || [];
       } else {
         hires = (this.db.machinery_hires || []).filter((h) => h.renter_id === userId);
       }
-      return { hires };
+      const confirmedStatuses = ["accepted", "active", "completed"];
+      const ownerIds = [...new Set(hires.filter(h => confirmedStatuses.includes(h.status)).map(h => h.owner_id))];
+      let owners = [];
+      if (this.supabaseAdmin && ownerIds.length) {
+        const { data: profiles, error } = await this.supabaseAdmin.from("profiles")
+          .select("id, full_name, phone").in("id", ownerIds);
+        if (!error) owners = profiles || [];
+      } else if (!this.supabaseAdmin) {
+        owners = this.db.profiles || [];
+      }
+      return { hires: hires.map(h => {
+        const confirmed = confirmedStatuses.includes(h.status);
+        const owner = confirmed ? owners.find(p => p.id === h.owner_id || p.user_id === h.owner_id) : null;
+        const machinery = h.machinery || (this.db.machinery || []).find(m => m.id === h.machinery_id);
+        return { ...h, machinery_name: machinery?.name || h.machinery_name || "Machinery hire", owner_name: owner?.full_name || null, owner_phone: owner?.phone || null };
+      }) };
     }
 
     if (action === "update_machinery_hire_status") {
