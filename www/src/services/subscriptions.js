@@ -36,7 +36,7 @@ export const SubscriptionService = {
    */
   async getPlans() {
     const result = await trustedCall("list_subscription_plans", {});
-    if (!Array.isArray(result.plans) || result.plans.length === 0) {
+    if (!Array.isArray(result.plans)) {
       throw new Error("No active subscription plans are currently available.");
     }
     return result.plans;

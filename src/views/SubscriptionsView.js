@@ -392,9 +392,10 @@ export const SubscriptionsView = {
 
   renderPaymentForm(preselectedPlan = null) {
     const selectedPlan = preselectedPlan || this.plans.find((p) => (p.$id || p.id) === this.selectedPlanId) || this.plans[0];
-    const planId = selectedPlan ? (selectedPlan.$id || selectedPlan.id) : "";
-    const planPrice = selectedPlan ? selectedPlan.price : 15;
-    const planDuration = selectedPlan ? selectedPlan.duration_days : 30;
+    if (!selectedPlan) return '<div class="card" style="padding:1.5rem">No subscription plans are currently available. Please check again later.</div>';
+    const planId = selectedPlan.$id || selectedPlan.id;
+    const planPrice = selectedPlan.price;
+    const planDuration = selectedPlan.duration_days;
 
     const selectedDestId = this.selectedDestinationId || this.destinations[0]?.$id || this.destinations[0]?.id;
 
@@ -615,6 +616,10 @@ export const SubscriptionsView = {
       const planId = planSelect.value;
       this.selectedPlanId = planId;
       const plan = this.plans.find((p) => (p.$id || p.id) === planId);
+      if (!plan) {
+        if (summaryDiv) summaryDiv.textContent = "No subscription plans are currently available.";
+        if (instructionAmount) instructionAmount.textContent = "—";
+      }
       if (plan) {
         if (summaryDiv) summaryDiv.textContent = `${plan.name} · $${plan.price} USD (${plan.duration_days} Days)`;
         if (instructionAmount) instructionAmount.textContent = plan.price;
@@ -649,6 +654,10 @@ export const SubscriptionsView = {
       const transactionRef = document.getElementById("eco-transaction-ref")?.value?.trim()?.toUpperCase() || "";
       const proofFile = proofInput?.files?.[0] || null;
 
+      if (!selectedPlan) {
+        if (errorDiv) { errorDiv.textContent = "Select an available subscription plan before submitting."; errorDiv.style.display = "block"; }
+        return;
+      }
       if (!destinationId) {
         if (errorDiv) {
           errorDiv.textContent = "An EcoCash destination account is required.";
@@ -693,6 +702,13 @@ export const SubscriptionsView = {
           submitBtn.textContent = "Uploading proof of payment...";
         }
 
+        const currentPlans = await SubscriptionService.getPlans();
+        const currentPlan = currentPlans.find((p) => (p.$id || p.id) === (selectedPlan.$id || selectedPlan.id));
+        if (!currentPlan || Number(currentPlan.price) !== Number(selectedPlan.price) || currentPlan.currency !== selectedPlan.currency || currentPlan.duration_days !== selectedPlan.duration_days) {
+          this.plans = currentPlans;
+          this.updateVisiblePrices();
+          throw new Error("This plan has changed. Review the current price and duration before submitting your payment.");
+        }
         // Step 1: Upload proof file to Google Drive via trusted backend
         fileId = await SubscriptionService.uploadProof(proofFile);
 
@@ -762,8 +778,26 @@ export const SubscriptionsView = {
     }
   },
 
+  updateVisiblePrices() {
+    const container = document.getElementById("subscription-page-container");
+    if (!container) return;
+    if (this.activeTab !== "payment") { this.renderFullView(container); return; }
+    // Preserve payment details and the selected proof file during price updates.
+    const select = container.querySelector("#payment-plan-select");
+    if (select) {
+      const selected = select.value;
+      select.innerHTML = this.plans.map((p) => '<option value="' + escapeHtml(p.$id || p.id) + '">' + escapeHtml(p.name) + ' · $' + Number(p.price).toFixed(2) + ' USD (' + p.duration_days + ' days)</option>').join("");
+      select.value = this.plans.some((p) => (p.$id || p.id) === selected) ? selected : (this.plans[0]?.$id || this.plans[0]?.id || "");
+      this.selectedPlanId = select.value;
+      select.dispatchEvent(new Event("change"));
+    }
+    const notice = container.querySelector("#eco-submit-error");
+    if (notice) { notice.textContent = "Subscription plans have changed. Review the latest price before paying."; notice.style.display = "block"; }
+  },
+
   startLiveRefresh() {
     const signature = () => JSON.stringify({
+      plans: this.plans,
       active: Boolean(this.subStatus?.active),
       plan: this.subStatus?.plan || null,
       expiresAt: this.subStatus?.expires_at || null,
@@ -775,17 +809,21 @@ export const SubscriptionsView = {
       if (this.refreshInFlight || this.submissionInFlight || !document.getElementById("subscription-page-container")) return;
       this.refreshInFlight = true;
       try {
-        const [subStatus, paymentHistory] = await Promise.all([
-          SubscriptionService.getSubscriptionStatus(),
-          SubscriptionService.getPaymentHistory()
+        const [plans, subStatus, paymentHistory] = await Promise.all([
+          SubscriptionService.getPlans(),
+          this.currentProfile ? SubscriptionService.getSubscriptionStatus() : null,
+          this.currentProfile ? SubscriptionService.getPaymentHistory() : []
         ]);
+        const pricesChanged = JSON.stringify(this.plans) !== JSON.stringify(plans);
+        this.plans = plans;
         this.subStatus = subStatus;
         this.paymentHistory = paymentHistory;
         const nextSignature = signature();
         if (nextSignature !== previousSignature) {
           previousSignature = nextSignature;
           const container = document.getElementById("subscription-page-container");
-          if (container) this.renderFullView(container);
+          if (pricesChanged) this.updateVisiblePrices();
+          else if (container && this.activeTab !== "payment") this.renderFullView(container);
         }
       } catch (error) {
         console.warn("Subscription status refresh:", error.message);

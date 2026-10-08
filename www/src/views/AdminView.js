@@ -2,6 +2,7 @@
 // TRANSMOVE SECURE ADMIN PORTAL VIEW
 // Server-verified driver/owner approvals, real Appwrite analytics, audit logs & dispute desk
 // ==============================================================================
+import { renderPaymentCharts, renderBookingChart, summarizePayments } from "../components/AdminCharts.js";
 import { AdminService } from "../services/admin.js";
 import { AuthService } from "../services/auth.js";
 import { DisputeService } from "../services/disputes.js";
@@ -102,7 +103,7 @@ export const AdminView = {
         </div>
 
         <!-- TAB 1: ANALYTICS -->
-        <div id="adm-tab-analytics">
+        <div id="adm-tab-analytics"><div id="admin-visual-analytics" style="margin-bottom:1.5rem"></div>
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
             <div class="card" style="padding: 1.25rem;">
               <div style="font-size: 0.85rem; color: var(--text-muted); font-weight: 600;">Registered Passengers</div>
@@ -274,7 +275,7 @@ export const AdminView = {
             <button id="btn-refresh-payments" class="btn btn-outline btn-sm">${icon("refresh-cw", 16)}<span>Refresh</span></button>
               </div>
             </div>
-            <div id="admin-transactions-container">
+            <div id="admin-payment-charts" aria-live="polite" style="padding:1rem"></div><div id="admin-transactions-container">
               <div style="padding: 2rem; text-align: center; color: var(--text-muted);">Loading payment queue...</div>
             </div>
           </div>
@@ -286,7 +287,7 @@ export const AdminView = {
             <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
               <div>
             <h3 class="card-title icon-label">${icon("package", 20)}<span>Provider Subscription Plans</span></h3>
-                <span class="badge badge-info">Multi-Tier Pricing</span>
+                <span class="badge badge-info">Live subscription pricing</span><p style="color: var(--text-muted); margin-top: .5rem;">Edit a plan to publish its price for new subscriptions and renewals. Open pricing pages update within 15 seconds. Existing paid subscriptions keep their expiry date.</p>
               </div>
               <button id="btn-admin-add-plan" class="btn btn-primary btn-sm">${icon("plus", 16)}<span>Add New Plan</span></button>
             </div>
@@ -862,7 +863,9 @@ export const AdminView = {
 
   async loadStats() {
     try {
-      const analytics = await AdminService.getAnalytics();
+      const [analytics, payments] = await Promise.all([AdminService.getAnalytics(), AdminService.getAllPayments()]);
+      const charts = document.getElementById("admin-visual-analytics");
+      if (charts) charts.innerHTML = renderPaymentCharts(payments) + renderBookingChart(analytics);
       const setStat = (id, val) => {
         const el = document.getElementById(id);
         if (el) el.innerText = val !== undefined && val !== null ? val : "0";
@@ -882,9 +885,12 @@ export const AdminView = {
       setStat("stat-pending-documents", analytics.pendingDocuments);
       setStat("stat-expired-documents", analytics.expiredDocuments);
       setStat("stat-disputes", analytics.openDisputes);
-      setStat("stat-revenue", `$${Number(analytics.paymentsTotal || 0).toFixed(2)}`);
+      const revenue = Object.entries(summarizePayments(payments).currencies).map(([currency, totals]) => `${totals.approved.toFixed(2)} ${currency}`).join(" · ");
+      setStat("stat-revenue", revenue || "0.00 USD");
       setStat("stat-users", (analytics.registeredPassengers || 0) + (analytics.registeredProviders || 0));
     } catch (err) {
+      const charts = document.getElementById("admin-visual-analytics");
+      if (charts) charts.textContent = "Could not load analytics: " + err.message;
       console.warn("Could not fetch real analytics:", err);
     }
   },
@@ -1058,7 +1064,10 @@ export const AdminView = {
 
     try {
       const filter = document.getElementById("admin-payments-filter")?.value || "";
-      const txns = await AdminService.getPendingPayments(filter);
+      const payments = await AdminService.getAllPayments();
+      const charts = document.getElementById("admin-payment-charts");
+      if (charts) charts.innerHTML = renderPaymentCharts(payments);
+      const txns = filter ? payments.filter(p => p.status === filter) : payments;
 
       if (!txns || txns.length === 0) {
         container.innerHTML = renderEmptyState({
@@ -1238,6 +1247,8 @@ export const AdminView = {
         });
       });
     } catch (err) {
+      const charts = document.getElementById("admin-payment-charts");
+      if (charts) charts.textContent = "Could not load payment charts.";
       container.innerHTML = renderEmptyState({
         title: "Payment queue unavailable",
         description: "Could not load payments: " + err.message,
@@ -1378,7 +1389,7 @@ export const AdminView = {
         <div class="grid-2">
           <div class="form-group">
             <label class="form-label" style="font-weight: 700;">Price (USD)</label>
-            <input type="number" step="0.01" min="0" id="modal-plan-price" class="form-input" placeholder="15.00" value="${escapeHtml(plan?.price ?? "")}" required />
+            <input type="number" step="0.01" min="0.01" id="modal-plan-price" class="form-input" placeholder="15.00" value="${escapeHtml(plan?.price ?? "")}" required />
           </div>
           <div class="form-group">
             <label class="form-label" style="font-weight: 700;">Duration (Days)</label>
@@ -1396,7 +1407,7 @@ export const AdminView = {
         <div class="grid-2">
           <div class="form-group">
             <label class="form-label" style="font-weight: 700;">Sort Order</label>
-            <input type="number" id="modal-plan-sort" class="form-input" value="${escapeHtml(plan?.sort_order ?? 0)}" />
+            <input type="number" id="modal-plan-sort" class="form-input" value="${escapeHtml(plan?.display_order ?? 0)}" />
           </div>
           <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.5rem;">
             <input type="checkbox" id="modal-plan-active" ${plan ? (plan.active ? "checked" : "") : "checked"} />
@@ -1442,7 +1453,7 @@ export const AdminView = {
           duration_days,
           description,
           features,
-          sort_order,
+          display_order: sort_order,
           active
         });
         Modal.close();

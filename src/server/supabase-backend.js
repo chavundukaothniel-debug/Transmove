@@ -3064,6 +3064,7 @@ class SupabaseBackendEngine {
       }
 
       if (operation === "create") {
+        if (!Number.isInteger(Number(data.duration_days)) || Number(data.price) !== Math.round(Number(data.price) * 100) / 100) throw new Error("Use a price with at most two decimal places and a whole number of days.");
         if (!String(data.name || "").trim() || !String(data.slug || "").trim() || !positiveNumber(data.price) || !positiveNumber(data.duration_days)) {
           throw new Error("Missing required plan fields (name, slug, price, duration_days).");
         }
@@ -3094,6 +3095,12 @@ class SupabaseBackendEngine {
       if (!isUuid(planId)) throw new Error("Missing or invalid plan_id.");
 
       if (operation === "update") {
+        if (data.price !== undefined && (!positiveNumber(data.price) || Number(data.price) !== Math.round(Number(data.price) * 100) / 100)) {
+          throw new Error("Plan price must be positive and have at most two decimal places.");
+        }
+        if (data.duration_days !== undefined && (!positiveNumber(data.duration_days) || !Number.isInteger(Number(data.duration_days)))) {
+          throw new Error("Plan duration must be a positive whole number of days.");
+        }
         const updateData = { updated_at: new Date().toISOString() };
         if (data.name !== undefined) updateData.name = String(data.name).trim();
         if (data.slug !== undefined) updateData.slug = String(data.slug).trim().toLowerCase();
@@ -3158,16 +3165,18 @@ class SupabaseBackendEngine {
     }
 
     if (action === "list_subscription_plans") {
-      if (this.isLive && this.supabaseAdmin) {
+      if (data.include_all) await requireAdmin();
+      if (this.supabaseAdmin) {
         let plansQuery = this.supabaseAdmin
           .from("subscription_plans")
           .select("*")
           .order("display_order", { ascending: true });
         if (!data.include_all) plansQuery = plansQuery.eq("active", true);
         const { data: plans, error } = await plansQuery;
-        if (!error && plans?.length) return { plans, source: "supabase" };
-        if (error) console.warn("[payments] Supabase plan lookup unavailable:", error.message);
+        if (error) throw new Error(`Failed to load current subscription prices: ${error.message}`);
+        return { plans: plans || [], source: "supabase" };
       }
+      if (this.isLive) throw new Error("Current subscription prices are temporarily unavailable.");
       return {
         plans: this.db.subscription_plans.filter((p) => p.active).sort((a, b) => a.display_order - b.display_order),
         source: "trusted_server_config"
@@ -3247,11 +3256,10 @@ class SupabaseBackendEngine {
           plan = livePlan;
           supabasePaymentsAvailable = supabasePaymentsAvailable && true;
         } else if (planError) {
-          supabasePaymentsAvailable = false;
-          console.warn("[payments] Supabase plan validation unavailable:", planError.message);
+          throw new Error("Could not verify the current subscription price. Please try again later.");
         }
       }
-      if (!plan) {
+      if (!plan && !this.isLive) {
         plan = this.db.subscription_plans.find((p) => (p.id === requestedPlanId || p.slug === requestedPlanId) && p.active) || null;
       }
       if (!plan) throw new Error("Invalid or inactive subscription plan.");
@@ -3415,6 +3423,9 @@ class SupabaseBackendEngine {
     if (action === "admin_list_payments" || action === "admin_list_pending_payments") {
       await requireAdmin();
       const statusFilter = String(data.status || "").trim();
+      const offset = Math.max(0, Number.parseInt(data.offset, 10) || 0);
+      const pageSize = 500;
+      let paginated = false;
       let list = this.db.payments
         .filter((payment) => !statusFilter || payment.status === statusFilter)
         .map((payment) => {
@@ -3444,6 +3455,7 @@ class SupabaseBackendEngine {
           .select("*, user:profiles!user_id(id, full_name, email, phone), destination:payment_destinations(*), subscription:subscriptions(*, plan_details:subscription_plans(*))")
           .order("created_at", { ascending: false });
         if (statusFilter) paymentQuery = paymentQuery.eq("status", statusFilter);
+        if (data.paginate) { paymentQuery = paymentQuery.order("id", { ascending: true }).range(offset, offset + pageSize - 1); paginated = true; }
         const { data: livePayments, error } = await paymentQuery;
         if (!error) {
           list = (livePayments || []).map((payment) => ({
@@ -3466,10 +3478,10 @@ class SupabaseBackendEngine {
             rejection_reason: payment.admin_notes || ""
           }));
         } else {
-          console.warn("[payments] Supabase admin payment queue unavailable:", error.message);
+          throw new Error(`Failed to load payment records: ${error.message}`);
         }
       }
-      return { payments: list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)) };
+      return { payments: list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)), has_more: paginated && list.length === pageSize };
     }
 
     if (action === "admin_get_financial_report") {
@@ -4129,6 +4141,27 @@ class SupabaseBackendEngine {
         pendingVerifs = Math.max(pendingDocs, pendingProfiles, pendingVehs);
       }
 
+      let liveMetrics = {};
+      if (this.isLive && this.supabaseAdmin) {
+        const count = async (table, filters = []) => {
+          let query = this.supabaseAdmin.from(table).select("id", { count: "exact", head: true });
+          for (const [field, value] of filters) query = Array.isArray(value) ? query.in(field, value) : query.eq(field, value);
+          const { count: total, error } = await query;
+          if (error) throw new Error("Could not load " + table + " analytics: " + error.message);
+          return total || 0;
+        };
+        const definitions = {
+          registeredPassengers: ["profiles", [["role", ["passenger", "customer"]]]],
+          registeredProviders: ["profiles", [["role", ["driver", "owner", "vehicle_owner", "machinery_owner", "logistics"]]]],
+          activeProviders: ["driver_presence", [["is_online", true]]],
+          requestsPosted: ["service_requests"],
+          bookingsAwarded: ["bookings"],
+          completedBookings: ["bookings", [["status", "completed"]]],
+          cancelledBookings: ["bookings", [["status", "cancelled"]]],
+          activeSubscriptions: ["subscriptions", [["status", "active"]]]
+        };
+        liveMetrics = Object.fromEntries(await Promise.all(Object.entries(definitions).map(async ([key, args]) => [key, await count(...args)])));
+      }
       const passengers = this.db.profiles.filter((p) => ["passenger", "customer"].includes(p.role)).length;
       const providers = this.db.profiles.filter((p) => p.role === "driver" || p.role === "owner").length;
       return {
@@ -4147,7 +4180,8 @@ class SupabaseBackendEngine {
         pendingDocuments: pendingDocs,
         expiredDocuments: 0,
         paymentsTotal: this.db.payments.filter((p) => p.status === "approved").reduce((sum, p) => sum + (p.amount || 0), 0),
-        openDisputes: (this.db.disputes || []).filter((d) => d.status === "open").length
+        openDisputes: (this.db.disputes || []).filter((d) => d.status === "open").length,
+        ...liveMetrics
       };
     }
 

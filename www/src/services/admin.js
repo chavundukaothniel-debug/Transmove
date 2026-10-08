@@ -190,8 +190,14 @@ export const AdminService = {
   },
 
   async getAllPayments() {
-    const result = await trustedCall("admin_list_pending_payments", {});
-    return result.payments || [];
+    const payments = [];
+    let hasMore;
+    do {
+      const result = await trustedCall("admin_list_pending_payments", { paginate: true, offset: payments.length });
+      payments.push(...(result.payments || []));
+      hasMore = Boolean(result.has_more) && (result.payments || []).length > 0;
+    } while (hasMore);
+    return payments;
   },
 
   /**
