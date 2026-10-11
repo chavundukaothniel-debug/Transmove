@@ -88,7 +88,7 @@ export const AdvertiseView = {
       </div>
 
       <!-- Preset Advertising Packages (Quick Launch) -->
-      <div style="margin-bottom: 3rem;">
+      <div style="display: ${this.packages.length ? "block" : "none"}; margin-bottom: 3rem;">
         <div style="margin-bottom: 1.25rem;">
           <h2 style="font-size: 1.4rem; font-weight: 800; color: var(--text-main); margin: 0;">
           ${icon("badge-percent", 20)}<span>Curated Advertising Packages</span>
@@ -159,15 +159,15 @@ export const AdvertiseView = {
 
             <div style="display: flex; flex-direction: column; gap: 0.65rem;">
               <label style="display: flex; align-items: center; gap: 0.6rem; cursor: pointer;">
-                <input type="checkbox" id="calc-targeted" />
+                <input type="checkbox" id="calc-targeted" disabled />
                 <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-main);">
-                  Targeted Route &amp; City Filter (+<span id="label-tmult">20</span>%)
+                  City targeting — coming soon
                 </span>
               </label>
               <label style="display: flex; align-items: center; gap: 0.6rem; cursor: pointer;">
-                <input type="checkbox" id="calc-featured" />
+                <input type="checkbox" id="calc-featured" disabled />
                 <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-main);">
-                  Featured Spotlight Glow &amp; Top Badge (+<span id="label-fmult">40</span>%)
+                  Featured spotlight — coming soon
                 </span>
               </label>
             </div>
@@ -316,11 +316,11 @@ export const AdvertiseView = {
 
     const pkg = this.selectedPackage;
     const placementSelect = document.getElementById("calc-placement");
-    const defaultPlacement = pkg ? pkg.placement : (placementSelect ? placementSelect.value : "homepage_banner");
+    const defaultPlacement = pkg ? pkg.placement : (placementSelect ? placementSelect.value : "home_banner");
     const defaultDays = pkg ? pkg.duration_days : (document.getElementById("calc-days")?.value || 7);
     const estimatedPrice = pkg ? pkg.price : (parseFloat(document.getElementById("calc-out-total")?.textContent?.replace("$", "")) || 70);
 
-    const modal = new Modal();
+    const modal = Modal;
     const modalContent = `
       <div style="padding: 0.5rem; max-height: 80vh; overflow-y: auto;">
         <div style="text-align: center; margin-bottom: 1.5rem;">
@@ -428,12 +428,15 @@ export const AdvertiseView = {
       </div>
     `;
 
-    modal.setContent(modalContent);
-    modal.open();
+    modal.open("Advertising campaign", modalContent);
 
     const form = document.getElementById("form-create-ad-campaign");
     const submitBtn = document.getElementById("btn-submit-camp");
     const errorDiv = document.getElementById("camp-submit-error");
+    let savedCampaign = null;
+    let savedCampaignData = "";
+    let uploadedImage = null;
+    let uploadedProof = null;
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -471,9 +474,11 @@ export const AdvertiseView = {
 
         // Step 1: Upload ad image and proof screenshot
         const [adImageFileId, proofFileId] = await Promise.all([
-          AdvertisingService.uploadAdImage(imgFile),
-          PaymentService.uploadPaymentProof(proofFile)
+          uploadedImage?.file === imgFile ? uploadedImage.id : AdvertisingService.uploadAdImage(imgFile),
+          uploadedProof?.file === proofFile ? uploadedProof.id : PaymentService.uploadPaymentProof(proofFile)
         ]);
+        uploadedImage = { file: imgFile, id: adImageFileId };
+        uploadedProof = { file: proofFile, id: proofFileId };
 
         submitBtn.textContent = "Creating campaign...";
 
@@ -490,13 +495,18 @@ export const AdvertiseView = {
           is_targeted: document.getElementById("calc-targeted")?.checked || false,
           is_featured: document.getElementById("calc-featured")?.checked || false
         };
-        const campaign = await AdvertisingService.submitCampaign(campaignData);
+        const campaignSignature = JSON.stringify(campaignData);
+        const campaign = savedCampaign && savedCampaignData === campaignSignature ? savedCampaign : await AdvertisingService.submitCampaign(campaignData);
+        savedCampaign = campaign;
+        savedCampaignData = campaignSignature;
 
         submitBtn.textContent = "Submitting payment for verification...";
 
         // Step 3: Submit EcoCash payment linked to campaign
         await AdvertisingService.submitCampaignPayment({
-          campaignId: campaign.$id,
+          campaignId: campaign.$id || campaign.id,
+          businessName: campaignData.business_name,
+          description: campaignData.description,
           destinationId,
           senderName,
           senderPhone,

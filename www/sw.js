@@ -4,12 +4,13 @@
 // payments, and verification documents strictly BYPASSED from cache.
 // ==============================================================================
 
-const CACHE_NAME = "transmove-mobile-v6-approval";
+const CACHE_NAME = "transmove-v7-blue-orange-20261011";
 const STATIC_ASSETS = [
   "/",
   "/index.html",
   "/manifest.webmanifest",
   "/assets/css/style.css",
+  "/assets/css/brand.css",
   "/assets/images/icon.svg"
 ];
 

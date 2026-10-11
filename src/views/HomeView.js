@@ -18,6 +18,7 @@ export const HomeView = {
       <div class="home-container" style="max-width: 1200px; margin: 0 auto; padding-bottom: 2rem;">
         <!-- Hero Section -->
         <section class="hero-section" style="padding: 2.5rem 0 2rem 0; text-align: center;">
+          <img class="hero-brand-logo" src="/assets/images/logo.png" alt="TransMove — Negotiate your move" />
           <h1 class="hero-title" style="font-size: 2.75rem; font-weight: 900; letter-spacing: -0.03em; line-height: 1.2; color: var(--text-main); margin-bottom: 1rem;">
             Fair Rides, Freight &amp; Machinery.<br>
             <span style="color: var(--transmove-red);">You Agree on the Price.</span>

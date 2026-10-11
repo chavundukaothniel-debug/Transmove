@@ -122,6 +122,8 @@ export const AdvertisingService = {
    */
   async submitCampaignPayment({
     campaignId,
+    businessName,
+    description,
     destinationId,
     senderName,
     senderPhone,
@@ -132,6 +134,8 @@ export const AdvertisingService = {
     return PaymentService.submitEcocashPayment({
       payment_type: "advertising",
       related_id: campaignId,
+      business_name: businessName,
+      description,
       payment_destination_id: destinationId,
       sender_name: senderName,
       sender_phone: senderPhone,
@@ -139,5 +143,14 @@ export const AdvertisingService = {
       proof_file_id: proofFileId,
       amount_declared: amountDeclared
     });
+  },
+
+  async recordImpression(campaignId) {
+    return trustedCall("log_ad_impression", { campaign_id: campaignId }).catch(() => null);
+  },
+
+  async recordClick(campaignId) {
+    const result = await trustedCall("log_ad_click", { campaign_id: campaignId });
+    return result.destination_url;
   }
 };

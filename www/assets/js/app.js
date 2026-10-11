@@ -7,6 +7,7 @@ import { AuthService } from "../../src/services/auth.js";
 import { renderSidebar } from "../../src/components/Sidebar.js";
 import { renderHeader, initHeaderNotifications, headerIcon } from "../../src/components/Header.js";
 import { renderMobileNav } from "../../src/components/MobileNav.js";
+import { AdPlacement } from "../../src/components/AdPlacement.js";
 import { ThemeService } from "../../src/services/theme.js";
 import { DevicePermissionService } from "../../src/services/device-permissions.js";
 
@@ -92,6 +93,16 @@ class App {
     window.addEventListener("hashchange", () => {
       this.handleRoute();
     });
+    window.addEventListener("resize", () => {
+      const mobile = window.matchMedia("(max-width: 768px)").matches;
+      const sidebar = document.getElementById("app-sidebar");
+      if (!mobile) {
+        sidebar?.classList.remove("mobile-open");
+        document.getElementById("sidebar-mobile-backdrop")?.classList.remove("active");
+        document.body.classList.remove("mobile-drawer-open");
+      }
+      document.getElementById("btn-mobile-sidebar-trigger")?.setAttribute("aria-expanded", String(mobile ? Boolean(sidebar?.classList.contains("mobile-open")) : !this.sidebarCollapsed));
+    }, { passive: true });
 
     // 4. Stealth Keyboard Shortcut for Admin Access (Ctrl + Shift + A)
     window.addEventListener("keydown", (e) => {
@@ -429,7 +440,6 @@ class App {
         machinery_hirer: ["machinery_hirer"],
         owner: ["owner"],
         business: ["business_admin", "business"],
-        advertise: ["advertiser"],
         admin: ["admin"]
       };
 
@@ -507,7 +517,12 @@ class App {
         const sidebar = document.getElementById("app-sidebar");
         if (sidebar) sidebar.classList.toggle("collapsed", this.sidebarCollapsed);
         const btn = document.getElementById("btn-toggle-sidebar");
-        if (btn) btn.innerText = this.sidebarCollapsed ? "❯" : "❮";
+        if (btn) {
+          btn.innerText = this.sidebarCollapsed ? "❯" : "❮";
+          btn.setAttribute("aria-label", this.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar");
+          btn.setAttribute("aria-expanded", String(!this.sidebarCollapsed));
+        }
+        document.getElementById("btn-mobile-sidebar-trigger")?.setAttribute("aria-expanded", String(!this.sidebarCollapsed));
       });
 
       // Bind Sidebar Logout Button
@@ -547,7 +562,7 @@ class App {
 
     // Render Top Header
     if (headerMount) {
-      headerMount.innerHTML = renderHeader(this.currentProfile, this.currentRoute);
+      headerMount.innerHTML = renderHeader(this.currentProfile, this.currentRoute, this.sidebarCollapsed);
 
       // Mobile Menu Trigger Listener
       document.getElementById("btn-mobile-sidebar-trigger")?.addEventListener("click", () => {
@@ -704,12 +719,14 @@ class App {
     }
 
     if (contentContainer) {
-      contentContainer.innerHTML = renderPortalGuide(this.currentRoute.split("?")[0]) + viewHtml;
+      const adPlacement = { home: "home_banner", driver: "driver_dashboard", customer: "passenger_dashboard", machinery_owner: "machinery_owner_dashboard", machinery_hirer: "machinery_hirer_dashboard" }[this.currentRoute];
+      contentContainer.innerHTML = renderPortalGuide(this.currentRoute.split("?")[0]) + viewHtml + (adPlacement ? AdPlacement.renderContainer(adPlacement) : "");
       this.activeViewModule = activeViewModule;
 
       if (activeViewModule && activeViewModule.init) {
         await activeViewModule.init(this.currentRoute, this.currentProfile);
       }
+      if (adPlacement) AdPlacement.init(adPlacement);
     }
   }
 }

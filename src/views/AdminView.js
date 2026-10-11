@@ -353,7 +353,7 @@ export const AdminView = {
                 <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;">Admin verification enabled</div>
               </div>
               <div style="background: var(--bg-subtle); padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-light);">
-                <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700;">APPWRITE ENGINE</div>
+                <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700;">CLOUD BACKEND</div>
               <div id="sys-status-appwrite" class="icon-label" style="font-weight: 800; color: #64748b; margin-top: 0.25rem;">${icon("loader-circle", 16)}<span>Checking…</span></div>
                 <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;">Cloud database &amp; auth</div>
               </div>
@@ -456,6 +456,8 @@ export const AdminView = {
   },
 
   async init() {
+    this.destroy();
+    this.activeTab = "analytics";
     const isAdmin = await AdminService.verifyAdminAccess();
     if (!isAdmin) {
       alert("Access Denied: You do not have server-verified administrative permissions.");
@@ -467,6 +469,7 @@ export const AdminView = {
     document.querySelectorAll(".adm-tab-btn").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         const tab = e.currentTarget.getAttribute("data-tab");
+        this.activeTab = tab;
         document.querySelectorAll(".adm-tab-btn").forEach((b) => b.classList.remove("active"));
         e.currentTarget.classList.add("active");
         e.currentTarget.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
@@ -579,6 +582,17 @@ export const AdminView = {
     this.loadLiveTrips();
     this.loadDisputes();
     this.loadSystemStatus();
+    this.refreshTimer = window.setInterval(() => {
+      if (document.hidden || document.querySelector(".modal-backdrop")) return;
+      if (this.activeTab === "ads") this.loadAds();
+      if (this.activeTab === "financials") this.loadTransactions();
+      if (this.activeTab === "analytics") this.loadStats();
+    }, 15000);
+  },
+
+  destroy() {
+    if (this.refreshTimer) window.clearInterval(this.refreshTimer);
+    this.refreshTimer = null;
   },
 
   async loadUsers() {
@@ -644,6 +658,7 @@ export const AdminView = {
   },
 
   async loadSystemStatus() {
+    if (!document.getElementById("sys-status-appwrite")) return;
     const setStatus = (id, iconName, text, color) => {
       const el = document.getElementById(id);
       if (el) {
@@ -653,15 +668,11 @@ export const AdminView = {
     };
 
     try {
-      await getAppwriteAccount().get();
+      await AdminService.getAnalytics();
       setStatus("sys-status-appwrite", "circle-check", "Connected", "#10b981");
     } catch (err) {
-      if (err && typeof err.code === "number") {
-        setStatus("sys-status-appwrite", "circle-check", "Reachable", "#10b981");
-      } else {
-        console.warn("Appwrite reachability check:", err);
-        setStatus("sys-status-appwrite", "circle-x", "Unreachable", "#ef4444");
-      }
+      console.warn("Backend connection check:", err);
+      setStatus("sys-status-appwrite", "circle-x", "Unavailable", "#ef4444");
     }
 
     const mapsLoaded = typeof window.L !== "undefined";
@@ -1697,7 +1708,7 @@ export const AdminView = {
             <tbody>
               ${campaigns.map((c) => {
                 const campId = c.$id || c.id;
-                const isPending = ["pending_review", "submitted"].includes(c.status);
+                const isPending = !c.legacy && ["pending_review", "submitted"].includes(c.status);
                 const statusBadge = c.status === "active" ? "badge-success" : c.status === "approved" ? "badge-info" : c.status === "rejected" ? "badge-danger" : "badge-warning";
                 const imageUrl = c.creative_file_id ? PaymentService.getProofViewUrl(c.creative_file_id) : (c.image_url || null);
 
@@ -1731,22 +1742,24 @@ export const AdminView = {
                         </a>
                       ` : `<span style="font-size: 0.75rem; color: var(--text-muted);">Text only</span>`}
                   ${c.target_url ? `<div style="font-size: 0.75rem; margin-top: 0.2rem;"><a class="icon-label icon-label--inline" href="${escapeHtml(c.target_url)}" target="_blank" rel="noopener noreferrer" style="color: #0284c7;"><span>Link</span>${icon("external-link", 14)}</a></div>` : ""}
+                  ${c.proof_file_id ? `<button class="btn btn-outline btn-sm btn-ad-proof" data-payment-id="${escapeHtml(c.payment_id)}">View payment proof</button>` : ""}
                     </td>
                     <td style="padding: 0.75rem;">
                       <span class="badge ${statusBadge}">${escapeHtml(String(c.status || "pending_review").replace(/_/g, " ").toUpperCase())}</span>
+                      <div style="font-size: 0.75rem; margin-top: 0.3rem;">Payment: ${escapeHtml(String(c.payment_status || "awaiting_payment").replace(/_/g, " "))}</div>
                       ${c.rejection_reason ? `<div style="font-size: 0.75rem; color: #ef4444; margin-top: 0.2rem; max-width: 150px;">${escapeHtml(c.rejection_reason)}</div>` : ""}
                     </td>
                     <td style="padding: 0.75rem; text-align: right;">
                       ${isPending ? `
                         <div style="display: flex; gap: 0.35rem; justify-content: flex-end;">
-                          <button type="button" class="btn btn-primary btn-sm btn-approve-ad" data-ad-id="${campId}" style="padding: 0.35rem 0.6rem; font-size: 0.8rem;">
+                          <button type="button" class="btn btn-primary btn-sm btn-approve-ad" data-ad-id="${campId}" data-kind="${c.kind || "campaign"}" style="padding: 0.35rem 0.6rem; font-size: 0.8rem;">
                             ${icon("circle-check", 16)}<span>Approve</span>
                           </button>
-                          <button type="button" class="btn btn-danger btn-sm btn-reject-ad" data-ad-id="${campId}" style="padding: 0.35rem 0.6rem; font-size: 0.8rem;">
+                          <button type="button" class="btn btn-danger btn-sm btn-reject-ad" data-ad-id="${campId}" data-kind="${c.kind || "campaign"}" style="padding: 0.35rem 0.6rem; font-size: 0.8rem;">
                             ${icon("circle-x", 16)}<span>Reject</span>
                           </button>
                         </div>
-                      ` : `<span style="font-size: 0.8rem; color: var(--text-muted);">Moderated</span>`}
+                      ` : `<span style="font-size: 0.8rem; color: var(--text-muted);">${c.legacy ? "Advertiser must resubmit" : "Moderated"}</span>`}
                     </td>
                   </tr>
                 `;
@@ -1756,13 +1769,23 @@ export const AdminView = {
         </div>
       `;
 
+      container.querySelectorAll(".btn-ad-proof").forEach(btn => btn.addEventListener("click", async () => {
+        const preview = window.open("", "_blank");
+        try {
+          const result = await AdminService.openPaymentProof(btn.dataset.paymentId);
+          if (preview) preview.location = result.view_url;
+          else window.open(result.view_url, "_blank", "noopener,noreferrer");
+        } catch (error) { preview?.close(); alert("Could not open payment proof: " + error.message); }
+      }));
       container.querySelectorAll(".btn-approve-ad").forEach((btn) => {
         btn.addEventListener("click", async (e) => {
           const campId = e.currentTarget.getAttribute("data-ad-id");
-          if (!confirm("Approve this ad creative content for publication?")) return;
+          const machinery = e.currentTarget.dataset.kind === "machinery";
+          if (!confirm(machinery ? "Confirm you have verified this machinery advertising payment and publish its promotion?" : "Approve this ad content? Publication also requires payment approval.")) return;
           e.currentTarget.disabled = true;
           try {
-            await AdminService.approveAdContent(campId);
+            if (machinery) await AdminService.approvePayment(campId);
+            else await AdminService.approveAdContent(campId);
             alert("Ad campaign content approved successfully!");
             this.loadAds();
           } catch (err) {
@@ -1779,7 +1802,8 @@ export const AdminView = {
           if (!reason || !reason.trim()) return;
           e.currentTarget.disabled = true;
           try {
-            await AdminService.rejectAdContent(campId, reason.trim());
+            if (e.currentTarget.dataset.kind === "machinery") await AdminService.rejectPayment(campId, reason.trim());
+            else await AdminService.rejectAdContent(campId, reason.trim());
             alert("Ad campaign content marked as rejected.");
             this.loadAds();
           } catch (err) {

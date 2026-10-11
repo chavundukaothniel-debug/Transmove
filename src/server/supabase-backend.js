@@ -12,6 +12,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { googleDriveStorage, DRIVE_FOLDERS } from "./google-drive-storage.js";
+import { handleAdvertising, paymentMetadata } from "./advertising-backend.js";
 
 // Service category matching table
 export const SERVICE_TYPE_TO_VEHICLE_CATEGORIES = {
@@ -664,7 +665,7 @@ class SupabaseBackendEngine {
       "get_active_sponsored_machinery",
       "list_active_popup_ads",
       "list_machinery_ad_packages",
-      "list_ad_packages"
+      "list_ad_packages", "list_ad_rate_cards", "list_active_ads_by_placement", "log_ad_impression", "log_ad_click"
     ];
 
     let verifiedUser = null;
@@ -715,6 +716,8 @@ class SupabaseBackendEngine {
       if (error) throw new Error('Could not load '+table+': '+error.message);
       return row;
     };
+    const advertisingResult = await handleAdvertising({ engine: this, action, data, userId, requireAdmin, recordById });
+    if (advertisingResult !== undefined) return advertisingResult;
     const bookedRanges = async (id) => {
       if (!this.supabaseAdmin) return (this.db.machinery_hires || []).filter(h=>h.machinery_id===id && ['accepted','active'].includes(h.status));
       const {data: rows,error} = await this.supabaseAdmin.from('machinery_hires').select('id,start_date,end_date,status').eq('machinery_id',id).in('status',['accepted','active']);
@@ -2845,6 +2848,7 @@ class SupabaseBackendEngine {
       } else {
         throw new Error("No campaign creative file provided.");
       }
+      if (!["image/jpeg", "image/png", "image/webp"].includes(mimeType) || fileBuffer.length < 1 || fileBuffer.length > 5 * 1024 * 1024) throw new Error("Advertising images must be JPG, PNG or WebP files of up to 5MB.");
 
       const upload = await googleDriveStorage.uploadFile({
         buffer: fileBuffer,
@@ -3406,12 +3410,12 @@ class SupabaseBackendEngine {
           list = (livePayments || []).map((payment) => ({
             ...payment,
             plan_id: payment.subscription?.plan_id || null,
-            plan_name: payment.subscription?.plan_details?.name || payment.subscription?.plan || "Subscription",
             destination_account_id: payment.destination?.id || payment.payment_destination_id,
             recipient_name: payment.destination?.account_name || "Payment destination",
             recipient_number: payment.destination?.account_number || "",
             transaction_reference: payment.provider_reference || payment.reference,
-            rejection_reason: payment.admin_notes || ""
+            rejection_reason: paymentMetadata(payment).rejection_reason || (payment.payment_type === "subscription" ? payment.admin_notes || "" : ""),
+            plan_name: payment.payment_type === "machinery_advertisement" ? `Machinery promotion: ${paymentMetadata(payment).machinery_name || "Listing"}` : payment.payment_type === "advertising" ? "Advertising campaign" : payment.subscription?.plan_details?.name || payment.subscription?.plan || "Subscription"
           }));
         } else {
           console.warn("[payments] Supabase user payment history unavailable:", error.message);
@@ -3475,7 +3479,8 @@ class SupabaseBackendEngine {
             recipient_number: payment.destination?.account_number || "",
             transaction_reference: payment.provider_reference || payment.reference,
             submitted_at: payment.created_at,
-            rejection_reason: payment.admin_notes || ""
+            rejection_reason: paymentMetadata(payment).rejection_reason || (payment.payment_type === "subscription" ? payment.admin_notes || "" : ""),
+            plan_name: payment.payment_type === "machinery_advertisement" ? `Machinery promotion: ${paymentMetadata(payment).machinery_name || "Listing"}` : payment.payment_type === "advertising" ? "Advertising campaign" : payment.subscription?.plan_details?.name || payment.subscription?.plan || "Subscription"
           }));
         } else {
           throw new Error(`Failed to load payment records: ${error.message}`);
@@ -3933,7 +3938,9 @@ class SupabaseBackendEngine {
       if (payment.status !== "pending_review") throw new Error(`Conflict: Only pending-review payments can be rejected (current status: ${payment.status}).`);
 
       payment.status = "rejected";
-      payment.admin_notes = data.rejection_reason || data.reason || "Payment details could not be verified.";
+      const rejectionReason = data.rejection_reason || data.reason || "Payment details could not be verified.";
+      payment.admin_notes = ["advertising", "machinery_advertisement"].includes(payment.payment_type)
+        ? JSON.stringify({ ...paymentMetadata(payment), rejection_reason: rejectionReason }) : rejectionReason;
       payment.updated_at = new Date().toISOString();
 
       if (this.isLive && this.supabaseAdmin && isUuid(payment.id)) {
@@ -3958,11 +3965,11 @@ class SupabaseBackendEngine {
             await this.supabaseAdmin
               .from("machinery_advertisements")
               .update({ status: "rejected", updated_at: payment.updated_at })
-              .eq("machinery_id", machineryId);
+              .eq("machinery_id", machineryId).eq("status", "pending_review");
           }
           if (this.db.machinery_advertisements && machineryId) {
             const localAd = this.db.machinery_advertisements.find((a) => a.machinery_id === machineryId);
-            if (localAd) localAd.status = "rejected";
+            if (localAd?.status === "pending_review") localAd.status = "rejected";
           }
         }
       }
@@ -3980,7 +3987,7 @@ class SupabaseBackendEngine {
         user_id: payment.user_id,
         type: "payment_rejected",
         title: "Payment Submission Declined",
-        message: `Your payment submission was rejected: ${payment.admin_notes}`,
+        message: `Your payment submission was rejected: ${rejectionReason}`,
         related_id: payment.id,
         read: false,
         created_at: new Date().toISOString()
@@ -4144,7 +4151,7 @@ class SupabaseBackendEngine {
       let liveMetrics = {};
       if (this.isLive && this.supabaseAdmin) {
         const count = async (table, filters = []) => {
-          let query = this.supabaseAdmin.from(table).select("id", { count: "exact", head: true });
+          let query = this.supabaseAdmin.from(table).select("*", { count: "exact", head: true });
           for (const [field, value] of filters) query = Array.isArray(value) ? query.in(field, value) : query.eq(field, value);
           const { count: total, error } = await query;
           if (error) throw new Error("Could not load " + table + " analytics: " + error.message);
@@ -4248,7 +4255,8 @@ class SupabaseBackendEngine {
 
     if (action === "list_active_popup_ads") {
       const nowIso = new Date().toISOString();
-      let ads = (this.db.ad_campaigns || []).filter((c) => (c.status === "approved" || c.status === "active") && (!c.end_at || c.end_at > nowIso));
+      const popupResult = await handleAdvertising({ engine: this, action: "list_active_ads_by_placement", data: { placement: "popup" }, userId, requireAdmin, recordById });
+      let ads = popupResult.ads;
 
       // Query active machinery advertisements
       let activeMachAds = [];
@@ -4262,7 +4270,7 @@ class SupabaseBackendEngine {
           if (sAds) activeMachAds = sAds;
         } catch (_) {}
       }
-      if (activeMachAds.length === 0) {
+      if (!this.supabaseAdmin) {
         activeMachAds = (this.db.machinery_advertisements || []).filter(
           (a) => a.status === "active" && a.end_at && a.end_at > nowIso
         );
@@ -4284,7 +4292,7 @@ class SupabaseBackendEngine {
           machine = (this.db.machinery || []).find((m) => m.id === mAd.machinery_id);
         }
 
-        if (machine) {
+        if (machine && ["approved", "verified"].includes(machine.verification_status)) {
           const photoUrl = machine.primary_photo?.file_url || (Array.isArray(machine.photos) && machine.photos.length > 0 ? (machine.photos[0].file_url || machine.photos[0]) : "");
           ads.push({
             id: `mach_ad_${mAd.id || mAd.machinery_id}`,
@@ -5328,6 +5336,7 @@ class SupabaseBackendEngine {
 
     // SPONSORED MACHINERY ADVERTISING (Parts 6, 7, 8, 9)
     if (action === "promote_machinery_listing") {
+      throw new Error("Submit an advertising payment for admin review before promoting your machinery.");
       const machineryId = data.machinery_id || data.id;
       if (!machineryId) throw new Error("Machinery ID is required.");
 
@@ -5452,7 +5461,7 @@ class SupabaseBackendEngine {
       // Validate package
       // New dynamic pricing: accept duration_hours (or fallback to duration_days for legacy support)
       const durationHours = Number(data.duration_hours || (data.duration_days ? data.duration_days * 24 : null));
-      if (!durationHours || durationHours <= 0) {
+      if (!Number.isFinite(durationHours) || durationHours <= 0 || durationHours > 8760) {
         throw new Error("Invalid or missing advertising duration (hours). Use duration_hours or duration_days.");
       }
       // Compute price server‑side using the base rate
@@ -5480,13 +5489,18 @@ class SupabaseBackendEngine {
           .maybeSingle();
         dest = liveDest;
       }
-      if (!dest) {
-        dest = DEFAULT_PAYMENT_DESTINATIONS.find((d) => d.id === destinationId || d.account_number === destinationId || d.active);
+      if (!dest && !this.supabaseAdmin) {
+        dest = DEFAULT_PAYMENT_DESTINATIONS.find((d) => d.active && (d.id === destinationId || d.account_number === destinationId));
       }
       if (!dest) throw new Error("Invalid or inactive EcoCash payment destination.");
 
       const reference = String(data.transaction_reference || data.reference || "").trim();
       if (!reference) throw new Error("Transaction reference / EcoCash confirmation code is required.");
+      if (this.supabaseAdmin) {
+        const { data: duplicate, error: duplicateError } = await this.supabaseAdmin.from("payments").select("id").eq("provider_reference", reference).eq("provider", dest.provider || "ecocash").limit(1);
+        if (duplicateError) throw new Error("Could not check the payment reference: " + duplicateError.message);
+        if (duplicate?.length) throw new Error("This transaction reference has already been submitted.");
+      } else if (this.db.payments.some(p => (p.provider_reference || p.reference) === reference && p.provider === (dest.provider || "ecocash"))) throw new Error("This transaction reference has already been submitted.");
 
       let proofFileId = data.proof_file_id || "";
       let proofFilename = data.proof_filename || "ad_payment_proof.jpg";
@@ -5502,15 +5516,11 @@ class SupabaseBackendEngine {
         proofFileId = upload.id;
         proofFilename = upload.name;
       }
-      if (!proofFileId) {
-        if (data.proof_file_id) {
-          proofFileId = data.proof_file_id;
-        } else if (process.env.NODE_ENV === "test" || !this.isLive) {
-          proofFileId = `proof_test_${Date.now()}`;
-        } else {
-          throw new Error("Payment proof document or screenshot is required.");
-        }
-      }
+      if (!proofFileId) throw new Error("Payment proof document or screenshot is required.");
+      const adProof = await googleDriveStorage.getFileMetadata(proofFileId);
+      if (!adProof || !["image/jpeg", "image/png", "application/pdf"].includes(adProof.mimeType) || Number(adProof.size) <= 0 || Number(adProof.size) > 5 * 1024 * 1024) throw new Error("Upload a valid payment proof of up to 5MB.");
+      const adProofOwner = (adProof.metadata || adProof.customMetadata || {}).userId;
+      if (adProofOwner && adProofOwner !== userId) throw new Error("Use payment proof uploaded by your account.");
 
       const now = new Date().toISOString();
       const paymentId = randomUUID();
@@ -5578,8 +5588,8 @@ class SupabaseBackendEngine {
       };
       if (!this.db.machinery_advertisements) this.db.machinery_advertisements = [];
       const exIdx = this.db.machinery_advertisements.findIndex((a) => a.machinery_id === machineryId);
-      if (exIdx >= 0) this.db.machinery_advertisements[exIdx] = { ...this.db.machinery_advertisements[exIdx], ...adRecord };
-      else this.db.machinery_advertisements.push({ id: randomUUID(), ...adRecord });
+      if (exIdx >= 0 && !["active", "paused"].includes(this.db.machinery_advertisements[exIdx].status)) this.db.machinery_advertisements[exIdx] = { ...this.db.machinery_advertisements[exIdx], ...adRecord };
+      else if (exIdx < 0) this.db.machinery_advertisements.push({ id: randomUUID(), ...adRecord });
 
       this._persistLocalDb();
       await logActivity("machinery_ad_payment_submitted", `Ad payment submitted: $${expectedAmount} for ${pkg.duration_days} days`, `Machinery: ${m.name}`, paymentId);
@@ -5659,6 +5669,7 @@ class SupabaseBackendEngine {
       }
 
       const nowIso = new Date().toISOString();
+      if (ad.status !== "paused" || !ad.end_at || new Date(ad.end_at) <= new Date()) throw new Error("Only a paused, unexpired promotion can be resumed.");
       if (this.supabaseAdmin) {
         const { error: updErr } = await this.supabaseAdmin
           .from("machinery_advertisements")

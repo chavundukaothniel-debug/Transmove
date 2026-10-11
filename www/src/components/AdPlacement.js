@@ -35,7 +35,7 @@ export const AdPlacement = {
           </span>
           <span style="font-size: 0.75rem; color: var(--text-muted);">Verified Advertiser</span>
         </div>
-        <div id="ad-content-${placementKey}" style="display: flex; gap: 1rem; align-items: center;">
+        <div id="ad-content-${placementKey}" style="display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;">
           <div style="font-size: 0.85rem; color: var(--text-muted); padding: 0.5rem 0;">Checking active promotions...</div>
         </div>
       </div>
@@ -66,7 +66,7 @@ export const AdPlacement = {
 
       content.innerHTML = `
         ${ad.image_url ? `<img src="${escapeHtml(ad.image_url)}" alt="${escapeHtml(ad.title)}" style="width: 80px; height: 80px; object-fit: cover; border-radius: var(--radius-md); border: 1px solid var(--border-light);" />` : ''}
-        <div style="flex: 1;">
+        <div style="flex: 1 1 150px; min-width: 0; overflow-wrap: anywhere;">
           <div style="font-size: 0.75rem; font-weight: 700; color: var(--primary); text-transform: uppercase;">${escapeHtml(ad.company_name || 'Partner')}</div>
           <div style="font-size: 1rem; font-weight: 800; color: var(--text-main); margin: 0.2rem 0;">${escapeHtml(ad.title)}</div>
           <div style="font-size: 0.85rem; color: var(--text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">${escapeHtml(ad.description)}</div>

@@ -3,7 +3,8 @@ import path from "path";
 import "./build-public-pages.js";
 
 const ROOT_DIR = process.cwd();
-const WWW_DIR = path.join(ROOT_DIR, "www");
+const WWW_DIR = path.resolve(ROOT_DIR, "www");
+if (path.dirname(WWW_DIR) !== path.resolve(ROOT_DIR) || path.basename(WWW_DIR) !== "www") throw new Error("Invalid native web output directory");
 
 console.log("Packaging TransMove frontend for Android Capacitor...");
 

@@ -145,7 +145,8 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
     { route: "register", label: "Create Account", icon: "clipboard-pen-line" }
   ];
 
-  const navItems = (currentProfile && roleNavItems[activeRole]) ? roleNavItems[activeRole] : guestNavItems;
+  const navItems = [...((currentProfile && roleNavItems[activeRole]) ? roleNavItems[activeRole] : guestNavItems)];
+  if (currentProfile && !["admin", "advertiser"].includes(activeRole)) navItems.push({ route: "advertise", label: "Advertising", icon: "megaphone" });
   const avatarUrl = resolveAvatarUrl(currentProfile);
   const initials = avatarInitials(currentProfile?.full_name || "Guest Account");
 
@@ -154,11 +155,11 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
       <div class="sidebar-header" style="flex-direction: column; align-items: flex-start; justify-content: center; height: auto; padding: 1.25rem 1.25rem 1rem 1.25rem;">
         <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
           <a href="#home" class="sidebar-brand" title="TransMove Platform" style="display: flex; align-items: center; gap: 0.65rem; font-size: 1.35rem; font-weight: 900; color: #ffffff; text-decoration: none;">
-            <img src="/assets/images/logo.png" alt="TransMove Logo" style="height: 36px; width: 36px; object-fit: contain; border-radius: 8px; flex-shrink: 0;" />
-            <span class="brand-text" style="letter-spacing: -0.02em;">Trans<span style="color: #10b981;">Move</span></span>
+            <img class="sidebar-brand-mark" src="/assets/images/icon.png" alt="TransMove" />
+            <img class="sidebar-wordmark" src="/assets/images/logo.png" alt="TransMove — Negotiate your move" />
           </a>
 
-          <button type="button" id="btn-toggle-sidebar" class="btn-sidebar-toggle" title="Collapse or expand sidebar" aria-label="${isCollapsed ? "Expand" : "Collapse"} sidebar">
+          <button type="button" id="btn-toggle-sidebar" class="btn-sidebar-toggle" title="Collapse or expand sidebar" aria-label="${isCollapsed ? "Expand" : "Collapse"} sidebar" aria-controls="app-sidebar" aria-expanded="${!isCollapsed}">
             ${sidebarIcon(isCollapsed ? "chevron-right" : "chevron-left", 18)}
           </button>
           <button type="button" id="btn-close-mobile-sidebar" class="btn-close-mobile-sidebar" title="Close navigation" aria-label="Close navigation menu">
@@ -166,7 +167,7 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
           </button>
         </div>
         <div class="brand-text" style="font-size: 0.7rem; color: #9ca3af; margin-top: 0.25rem; font-weight: 500;">
-          People. Goods. Opportunities.
+          Negotiate your move.
         </div>
       </div>
 
@@ -185,7 +186,7 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
             isActive = (currentHash === item.route) || (!currentHash.includes("?") && currentRoute === item.route);
           }
           return `
-            <a href="#${item.route}" class="sidebar-link ${isActive ? "active" : ""}">
+            <a href="#${item.route}" class="sidebar-link ${isActive ? "active" : ""}" title="${item.label}">
               <span class="link-icon">${sidebarIcon(item.icon)}</span>
               <span class="link-text">${item.label}</span>
             </a>
@@ -207,7 +208,7 @@ export function renderSidebar(currentProfile, currentRoute, isCollapsed = false)
           </div>
           <div class="user-info">
             <div class="user-name">${currentProfile?.full_name || "Guest Account"}</div>
-            <div class="user-email">${currentProfile?.email || "Click to Sign In"}</div>
+            <div class="user-email">${currentProfile?.email || (currentProfile ? "Manage account" : "Click to Sign In")}</div>
           </div>
         </a>
         <div class="brand-text" style="padding: 0.75rem 0.5rem 0.25rem 0.5rem; font-size: 0.7rem; color: #94a3b8; border-top: 1px solid rgba(255, 255, 255, 0.08); margin-top: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">

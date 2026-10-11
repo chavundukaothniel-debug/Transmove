@@ -112,7 +112,7 @@ export const headerIcon = (name, size = 22) => {
   return icon(names[name] || name, size);
 };
 
-export function renderHeader(currentProfile, currentRoute) {
+export function renderHeader(currentProfile, currentRoute, sidebarCollapsed = false) {
   const isAuth = Boolean(currentProfile);
   const activeRole = currentProfile?.activeRole || currentProfile?.role || "guest";
   const isPassengerDashboard = ["customer", "passenger"].includes(activeRole) || currentRoute === "customer";
@@ -177,12 +177,11 @@ export function renderHeader(currentProfile, currentRoute) {
   return `
     <header class="app-header ${isPassengerDashboard ? "app-header--passenger" : ""}" style="height: 60px; background: var(--bg-surface); border-bottom: 1px solid var(--border-light); display: flex; align-items: center; justify-content: space-between; padding: 0 1.5rem; position: sticky; top: 0; z-index: 40; transition: background 0.15s ease, border-color 0.15s ease;">
       <div class="header-left" style="display: flex; align-items: center; gap: 1rem;">
-        <button id="btn-mobile-sidebar-trigger" class="btn-mobile-menu" aria-label="Toggle navigation menu" style="background: transparent; border: none; cursor: pointer; color: var(--text-main);">
+        <button id="btn-mobile-sidebar-trigger" type="button" class="btn-mobile-menu" aria-controls="app-sidebar" aria-expanded="${!window.matchMedia("(max-width: 768px)").matches && !sidebarCollapsed}" aria-label="Open or close navigation" style="background: transparent; border: none; cursor: pointer; color: var(--text-main);">
           ${headerIcon("menu", 25)}
         </button>
         <a class="header-mobile-brand" href="${isAuth ? `#${currentProfile?.role === "driver" ? "driver" : "customer"}` : "#home"}" aria-label="TransMove home">
-          ${icon("car-front", 26)}
-          <span>Trans<em>Move</em></span>
+          <img class="header-brand-logo" src="/assets/images/logo.png" alt="TransMove" />
         </a>
         <h1 class="header-page-title" style="font-size: 1.2rem; font-weight: 800; color: var(--text-main); margin: 0;">${pageTitle}</h1>
       </div>
