@@ -525,3 +525,6 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.payment_destinations TO ser
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.payments TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.subscriptions TO service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.profiles TO service_role;
+GRANT SELECT, INSERT, UPDATE ON TABLE public.advertising_campaigns TO service_role;
+GRANT SELECT, INSERT ON TABLE public.advertising_impressions TO service_role;
+GRANT SELECT, INSERT ON TABLE public.advertising_clicks TO service_role;
