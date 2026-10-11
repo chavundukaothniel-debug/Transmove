@@ -12,7 +12,13 @@ COMMIT;
 
 -- Each result should be true after the repair.
 SELECT
-  has_table_privilege('service_role', 'public.advertising_campaigns', 'SELECT, INSERT, UPDATE') AS campaigns_ready,
-  has_table_privilege('service_role', 'public.advertising_impressions', 'SELECT, INSERT') AS impressions_ready,
-  has_table_privilege('service_role', 'public.advertising_clicks', 'SELECT, INSERT') AS clicks_ready,
-  has_table_privilege('service_role', 'public.machinery_advertisements', 'SELECT, INSERT, UPDATE') AS machinery_ready;
+  (has_table_privilege('service_role', 'public.advertising_campaigns', 'SELECT')
+    AND has_table_privilege('service_role', 'public.advertising_campaigns', 'INSERT')
+    AND has_table_privilege('service_role', 'public.advertising_campaigns', 'UPDATE')) AS campaigns_ready,
+  (has_table_privilege('service_role', 'public.advertising_impressions', 'SELECT')
+    AND has_table_privilege('service_role', 'public.advertising_impressions', 'INSERT')) AS impressions_ready,
+  (has_table_privilege('service_role', 'public.advertising_clicks', 'SELECT')
+    AND has_table_privilege('service_role', 'public.advertising_clicks', 'INSERT')) AS clicks_ready,
+  (has_table_privilege('service_role', 'public.machinery_advertisements', 'SELECT')
+    AND has_table_privilege('service_role', 'public.machinery_advertisements', 'INSERT')
+    AND has_table_privilege('service_role', 'public.machinery_advertisements', 'UPDATE')) AS machinery_ready;
